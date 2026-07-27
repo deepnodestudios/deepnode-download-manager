@@ -14,7 +14,7 @@
 ---
 
 <p align="center">
-  <img src="https://deepnodestudios.net/DDM/assets/screen-main.png" alt="DeepNode Download Manager — main screen" width="85%">
+  <img src="screenshots/screen-main.png" alt="DeepNode Download Manager — main screen" width="85%">
 </p>
 
 ## Features
