@@ -42,7 +42,11 @@ jobs:
         env:
           # no certificate in CI — never attempt auto code signing here
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npm run build:exe
+        # --publish never: electron-builder CI algılayınca release'e yüklemeye
+        # çalışıp GH_TOKEN istiyor — yayını GitHub Release akışı ayrıca yapıyor
+        run: |
+          npm run build:frontend
+          npx electron-builder --publish never
 
       - name: Upload unsigned installer
         uses: actions/upload-artifact@v4
