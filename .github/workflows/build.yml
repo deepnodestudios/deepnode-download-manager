@@ -1,0 +1,52 @@
+# CI build for DeepNode Download Manager.
+# Produces the unsigned NSIS installer as a build artifact — required for
+# SignPath Foundation (free OSS code signing) which signs CI-built artifacts.
+name: Build
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # bin/*.exe are not in the repository (see bin/README.md) — fetch them.
+      - name: Download helper binaries (yt-dlp, ffmpeg)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' -OutFile 'bin/yt-dlp.exe'
+          Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile "$env:RUNNER_TEMP/ffmpeg.zip"
+          Expand-Archive "$env:RUNNER_TEMP/ffmpeg.zip" -DestinationPath "$env:RUNNER_TEMP/ffmpeg"
+          $exe = Get-ChildItem "$env:RUNNER_TEMP/ffmpeg" -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          Copy-Item $exe.FullName 'bin/ffmpeg.exe'
+          Get-ChildItem bin
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build installer
+        env:
+          # no certificate in CI — never attempt auto code signing here
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run build:exe
+
+      - name: Upload unsigned installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: deepnode-download-manager-setup-unsigned
+          path: dist_exe/*Setup*.exe
+          if-no-files-found: error
