@@ -1,0 +1,8 @@
+{
+  "extName": {
+    "message": "DeepNode Download Manager - Browser Integration"
+  },
+  "extDesc": {
+    "message": "Captures browser downloads and shows a Download button in the corner of media. Works with DeepNode Download Manager."
+  }
+}

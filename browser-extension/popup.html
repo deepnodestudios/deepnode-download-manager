@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  body{width:290px;margin:0;font:400 13px/1.4 "Segoe UI",Tahoma,sans-serif;color:#1a1a1a;background:#f0f0eb;}
+  .h{display:flex;align-items:center;gap:8px;padding:12px 14px;background:linear-gradient(135deg,#2979ff,#2de1c2);color:#fff;}
+  .h b{font-size:14px;font-weight:700;}
+  .body{padding:12px 14px;display:flex;flex-direction:column;gap:12px;}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .row label{font-size:13px;}
+  input[type=number]{width:70px;padding:5px 8px;border:1px solid #a9adb5;border-radius:4px;font:inherit;}
+  .status{display:flex;align-items:center;gap:8px;font-size:12px;padding:8px 10px;border-radius:4px;background:#fff;border:1px solid #d2d5db;}
+  .dot{width:9px;height:9px;border-radius:50%;background:#c2c6cd;flex-shrink:0;}
+  .dot.ok{background:#2a9d3f;} .dot.bad{background:#c62828;}
+  .scan{padding:8px 12px;background:linear-gradient(#fff,#e6f5e9);color:#1e7a2e;border:1px solid #8dc99a;border-radius:4px;cursor:pointer;font-weight:600;font-size:13px;}
+  .scan:hover{background:linear-gradient(#fff,#d5efdb);}
+  .site-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:4px;background:#fff;border:1px solid #d2d5db;}
+  .site-row .host{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .site-row .host.off{color:#b02020;text-decoration:line-through;}
+  .site-btn{flex-shrink:0;padding:5px 10px;border-radius:4px;cursor:pointer;font-weight:600;font-size:11px;border:1px solid #d99a9a;background:linear-gradient(#fff,#fbe3e3);color:#b02020;}
+  .site-btn:hover{background:linear-gradient(#fff,#f6d0d0);}
+  .site-btn.on{border-color:#8dc99a;background:linear-gradient(#fff,#e6f5e9);color:#1e7a2e;}
+  .site-btn.on:hover{background:linear-gradient(#fff,#d5efdb);}
+  .site-note{font-size:10.5px;color:#6b7078;margin-top:4px;}
+  .hint{font-size:11px;color:#6b7078;}
+  /* toggle */
+  .sw{position:relative;width:40px;height:22px;flex-shrink:0;}
+  .sw input{opacity:0;width:0;height:0;}
+  .sl{position:absolute;inset:0;background:#c2c6cd;border-radius:22px;transition:.2s;cursor:pointer;}
+  .sl:before{content:"";position:absolute;width:16px;height:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s;}
+  .sw input:checked+.sl{background:#1f6fc4;}
+  .sw input:checked+.sl:before{transform:translateX(18px);}
+</style>
+</head>
+<body>
+  <div class="h"><b>DeepNode</b><span style="font-size:11px;opacity:.9" id="subtitle">Browser Integration</span><span id="ver" style="margin-left:auto;font-size:11px;opacity:.85"></span></div>
+  <div class="body">
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">…</span></div>
+
+    <div class="row">
+      <label for="enabled" id="lblEnabled">Integration enabled</label>
+      <span class="sw"><input type="checkbox" id="enabled"><span class="sl"></span></span>
+    </div>
+    <div class="row">
+      <label for="captureDownloads" id="lblCapture">Capture browser downloads</label>
+      <span class="sw"><input type="checkbox" id="captureDownloads"><span class="sl"></span></span>
+    </div>
+    <div class="row">
+      <label for="showButton" id="lblShowBtn">Show Download button on media</label>
+      <span class="sw"><input type="checkbox" id="showButton"><span class="sl"></span></span>
+    </div>
+    <div class="row">
+      <label for="port" id="lblPort">App port</label>
+      <input type="number" id="port" min="1" max="65535">
+    </div>
+
+    <div id="siteBox" style="display:none;">
+      <div class="site-row">
+        <span class="host" id="siteHost"></span>
+        <button class="site-btn" id="siteToggle"></button>
+      </div>
+      <div class="site-note" id="siteNote" style="display:none;"></div>
+    </div>
+
+    <button class="scan" id="scan">Scan this page for media</button>
+    <div class="hint" id="hint"></div>
+  </div>
+  <script src="strings.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
