@@ -52,6 +52,8 @@ Grab the latest NSIS installer from [**GitHub Releases**](https://github.com/dee
 Prerequisites: **Node.js 18+** (and **ffmpeg** in `PATH`, optional, for best video quality).
 
 ```bash
+# 0. Download helper binaries (yt-dlp.exe, ffmpeg.exe) into bin/ — see bin/README.md
+
 # 1. Install dependencies
 npm install
 cd frontend && npm install && cd ..
@@ -70,8 +72,13 @@ npm run build:exe
 ├── backend/            # Express + WebSocket server: download engine, queue, scheduler, video
 ├── frontend/           # React UI (src → dist)
 ├── browser-extension/  # Manifest V3 browser extension (Chrome/Edge/Brave/Firefox)
-└── bin/                # Bundled helper binaries
+└── bin/                # Helper binaries (yt-dlp, ffmpeg — downloaded separately, see bin/README.md)
 ```
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+Bundled helper tools (yt-dlp, ffmpeg) are separate programs with their own licenses — see [bin/README.md](bin/README.md).
 
 ## Links
 

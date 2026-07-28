@@ -1,0 +1,127 @@
+/* Aydınlık tema — index.css'teki karanlık varsayılanın üzerine yazar.
+   (html.dark yokken etkindir; dark.css html.dark'ta bunu geri alır.) */
+
+:root {
+  --bg-main: #eef1f7;
+  --bg-card: #ffffff;
+  --bg-card-solid: #ffffff;
+  --bg-sidebar: #f7f9fc;
+  --bg-header: rgba(255, 255, 255, 0.85);
+  --bg-inset: #f1f4f9;
+  --bg-hover: rgba(41, 121, 255, 0.07);
+  --border-color: #dde3ee;
+  --border-strong: #c4cfE4;
+
+  --primary: #1f6fe0;
+  --primary-2: #3a8fd8;
+  --primary-glow: rgba(31, 111, 224, 0.22);
+  --primary-soft: rgba(31, 111, 224, 0.1);
+  --teal: #0d9e8a;
+  --accent: #7c4dff;
+  --accent-2: #6a3fb0;
+  --success: #0d9e6c;
+  --success-2: #0d9e6c;
+  --warning: #d98a00;
+  --danger: #d33030;
+  --danger-2: #c02828;
+  --link: #1f6fe0;
+
+  --text-main: #25304a;
+  --text-strong: #0e1830;
+  --text-muted: #5c6a8c;
+  --text-dark: #8592ad;
+
+  --shadow-card: 0 4px 18px rgba(30, 50, 100, 0.08);
+  --shadow-modal: 0 24px 70px rgba(20, 35, 80, 0.22);
+}
+
+body {
+  background-image:
+    radial-gradient(900px 500px at 85% -10%, rgba(41, 121, 255, 0.09), transparent 60%),
+    radial-gradient(700px 420px at -10% 110%, rgba(13, 158, 138, 0.06), transparent 60%);
+}
+
+.brand-title {
+  background: linear-gradient(90deg, #1456b8, #3a8fd8);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.brand-badge {
+  background: rgba(13, 158, 138, 0.1);
+  color: #0d9e8a;
+  border-color: rgba(13, 158, 138, 0.3);
+}
+
+.btn-primary { color: #fff; }
+
+.btn-success { background: rgba(13, 158, 108, 0.1); color: #0d9e6c; border-color: rgba(13, 158, 108, 0.3); }
+.btn-success:hover { background: rgba(13, 158, 108, 0.18); }
+.btn-warning { background: rgba(217, 138, 0, 0.1); color: #b56b00; border-color: rgba(217, 138, 0, 0.3); }
+.btn-warning:hover { background: rgba(217, 138, 0, 0.18); }
+.btn-danger { background: rgba(211, 48, 48, 0.08); color: #c02828; border-color: rgba(211, 48, 48, 0.28); }
+.btn-danger:hover { background: rgba(211, 48, 48, 0.15); }
+
+.btn-secondary {
+  background: #eef1f7;
+  color: #25304a;
+  border-color: #dde3ee;
+}
+.btn-secondary:hover { background: #e2e9f5; border-color: #c4cfe4; }
+
+.btn-ghost { color: #5c6a8c; }
+.btn-ghost:hover { background: rgba(41, 121, 255, 0.08); color: #0e1830; }
+
+.btn-accent-outline { background: rgba(31, 111, 224, 0.08); color: #1f6fe0; border-color: rgba(31, 111, 224, 0.3); }
+.btn-warn-outline { background: rgba(217, 138, 0, 0.08); color: #b56b00; border-color: rgba(217, 138, 0, 0.3); }
+
+.app-banner-warn { background: rgba(217, 138, 0, 0.08); color: #8a5800; border-color: rgba(217, 138, 0, 0.3); }
+.app-banner-info { background: rgba(31, 111, 224, 0.07); color: #1456b8; border-color: rgba(31, 111, 224, 0.28); }
+
+.nav-item { color: #5c6a8c; }
+.nav-item:hover { background: rgba(41, 121, 255, 0.08); color: #0e1830; }
+.nav-item.active {
+  background: linear-gradient(90deg, rgba(31, 111, 224, 0.13), rgba(13, 158, 138, 0.05));
+  color: #1456b8;
+  border-color: rgba(31, 111, 224, 0.25);
+}
+.nav-count { background: #e6eaf3; color: #5c6a8c; }
+.nav-item.active .nav-count { background: rgba(31, 111, 224, 0.16); color: #1456b8; }
+
+.stat-icon { background: rgba(13, 158, 138, 0.1); color: #0d9e8a; border-color: rgba(13, 158, 138, 0.25); }
+
+.dl-table th { background: #f2f5fa; }
+.dl-table tr:hover { background: rgba(41, 121, 255, 0.05); }
+.dl-table tr.row-selected { background: rgba(31, 111, 224, 0.11) !important; }
+.dl-table tr.row-selected:hover { background: rgba(31, 111, 224, 0.16) !important; }
+.dl-table tr.row-selected td:first-child { box-shadow: inset 3px 0 0 #1f6fe0; }
+
+.bulk-toolbar { background: #ffffff; border-color: rgba(31, 111, 224, 0.3); box-shadow: 0 14px 36px rgba(15, 40, 80, 0.18); }
+
+.cat-Video { background: #fde4e4; color: #c0392b; }
+.cat-Music { background: #fdf0d8; color: #b56b00; }
+.cat-Compressed { background: #ece0fb; color: #6a3fb0; }
+.cat-Documents { background: #dcebfb; color: #1560ad; }
+.cat-Programs { background: #e0f2e4; color: #1e7a2e; }
+.cat-Images { background: #d8f3f0; color: #0d9e8a; }
+.cat-General { background: #eceef1; color: #4a4f57; }
+
+.status-downloading { background: #dcebfb; color: #1560ad; border-color: #b3d4f5; }
+.status-merging { background: #ece0fb; color: #6a3fb0; border-color: #d5c2f0; }
+.status-completed { background: #e0f2e4; color: #1e7a2e; border-color: #b5dfbf; }
+.status-paused { background: #fdf0da; color: #a86a00; border-color: #f0d9a8; }
+.status-queued { background: #eceef1; color: #4a4f57; border-color: #d4d9e2; }
+.status-error { background: #fbe0e0; color: #b02020; border-color: #f0b8b8; }
+
+.progress-bar-wrap { background: #dde3ee; }
+
+.seg-tab { color: #5c6a8c; }
+.seg-tab:hover { background: rgba(41, 121, 255, 0.08); color: #0e1830; }
+.seg-tab.active { color: #fff; }
+
+.panel-box { background: rgba(31, 111, 224, 0.04); }
+.info-strip-warn { background: rgba(217, 138, 0, 0.06); color: #6b5a30; }
+
+::-webkit-scrollbar-thumb { background: #c4cfe4; }
+::-webkit-scrollbar-thumb:hover { background: #1f6fe0; }

@@ -52,6 +52,8 @@ En güncel kurulum dosyasını [**GitHub Releases**](https://github.com/deepnode
 Gereksinimler: **Node.js 18+** (en iyi video kalitesi için isteğe bağlı olarak `PATH`'te **ffmpeg**).
 
 ```bash
+# 0. Yardimci ikilileri (yt-dlp.exe, ffmpeg.exe) bin/ klasorune indir — bkz. bin/README.md
+
 # 1. Bağımlılıkları kur
 npm install
 cd frontend && npm install && cd ..
@@ -72,6 +74,11 @@ npm run build:exe
 ├── browser-extension/  # Manifest V3 tarayıcı eklentisi (Chrome/Edge/Brave/Firefox)
 └── bin/                # Pakete dahil yardımcı bileşenler
 ```
+
+## Lisans
+
+Bu proje [MIT Lisansı](LICENSE) ile lisanslanmıştır.
+Birlikte kullanılan yardımcı araçlar (yt-dlp, ffmpeg) kendi lisanslarına sahip ayrı programlardır — bkz. [bin/README.md](bin/README.md).
 
 ## Bağlantılar
 

@@ -1,0 +1,146 @@
+/* Karanlık tema — html.dark'ta theme.css'in (aydınlık) override'larını geri alır.
+   Değerler index.css'teki :root (karanlık varsayılan) ile aynıdır;
+   html.dark seçicisi daha yüksek özgüllükle her zaman kazanır. */
+
+html.dark {
+  --bg-main: #070d1a;
+  --bg-card: rgba(13, 24, 46, 0.72);
+  --bg-card-solid: #0d1830;
+  --bg-sidebar: rgba(9, 17, 34, 0.85);
+  --bg-header: rgba(9, 17, 34, 0.78);
+  --bg-inset: rgba(4, 9, 20, 0.5);
+  --bg-hover: rgba(120, 160, 255, 0.07);
+  --border-color: rgba(120, 160, 255, 0.11);
+  --border-strong: rgba(120, 160, 255, 0.22);
+
+  --primary: #2979ff;
+  --primary-2: #448aff;
+  --primary-glow: rgba(41, 121, 255, 0.35);
+  --primary-soft: rgba(41, 121, 255, 0.12);
+  --teal: #2de1c2;
+  --accent: #8b5cf6;
+  --accent-2: #c4b5fd;
+  --success: #10b981;
+  --success-2: #34d399;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --danger-2: #f87171;
+  --link: #6ba4ff;
+
+  --text-main: #dbe4f3;
+  --text-strong: #ffffff;
+  --text-muted: #8ca3c7;
+  --text-dark: #5b6c8c;
+
+  --shadow-card: 0 8px 28px rgba(0, 0, 0, 0.35);
+  --shadow-modal: 0 24px 70px rgba(0, 0, 0, 0.6);
+}
+
+html.dark body {
+  background-image:
+    radial-gradient(900px 500px at 85% -10%, rgba(41, 121, 255, 0.12), transparent 60%),
+    radial-gradient(700px 420px at -10% 110%, rgba(45, 225, 194, 0.07), transparent 60%);
+}
+
+html.dark .brand-title {
+  background: linear-gradient(90deg, #ffffff, #9dc2ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+html.dark .brand-badge {
+  background: linear-gradient(135deg, rgba(41, 121, 255, 0.25), rgba(45, 225, 194, 0.18));
+  color: #2de1c2;
+  border-color: rgba(45, 225, 194, 0.35);
+}
+
+html.dark .btn-success { background: rgba(16, 185, 129, 0.13); color: #34d399; border-color: rgba(16, 185, 129, 0.3); }
+html.dark .btn-success:hover { background: rgba(16, 185, 129, 0.24); }
+html.dark .btn-warning { background: rgba(245, 158, 11, 0.13); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
+html.dark .btn-warning:hover { background: rgba(245, 158, 11, 0.24); }
+html.dark .btn-danger { background: rgba(239, 68, 68, 0.13); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
+html.dark .btn-danger:hover { background: rgba(239, 68, 68, 0.24); }
+
+html.dark .btn-secondary {
+  background: rgba(120, 160, 255, 0.07);
+  color: #dbe4f3;
+  border-color: rgba(120, 160, 255, 0.11);
+}
+html.dark .btn-secondary:hover { background: rgba(120, 160, 255, 0.14); border-color: rgba(120, 160, 255, 0.22); }
+
+html.dark .btn-ghost { color: #8ca3c7; }
+html.dark .btn-ghost:hover { background: rgba(120, 160, 255, 0.07); color: #ffffff; }
+
+html.dark .btn-accent-outline { background: rgba(41, 121, 255, 0.14); color: #6ba4ff; border-color: rgba(41, 121, 255, 0.35); }
+html.dark .btn-warn-outline { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
+
+html.dark .app-banner-warn { background: rgba(245, 158, 11, 0.1); color: #f5c66b; border-color: rgba(245, 158, 11, 0.35); }
+html.dark .app-banner-info { background: rgba(41, 121, 255, 0.1); color: #9dc2ff; border-color: rgba(41, 121, 255, 0.35); }
+
+html.dark .nav-item { color: #8ca3c7; }
+html.dark .nav-item:hover { background: rgba(120, 160, 255, 0.07); color: #ffffff; }
+html.dark .nav-item.active {
+  background: linear-gradient(90deg, rgba(41, 121, 255, 0.2), rgba(45, 225, 194, 0.06));
+  color: #6ba4ff;
+  border-color: rgba(41, 121, 255, 0.25);
+}
+html.dark .nav-count { background: rgba(120, 160, 255, 0.07); color: #8ca3c7; }
+html.dark .nav-item.active .nav-count { background: rgba(41, 121, 255, 0.3); color: #bcd6ff; }
+
+html.dark .stat-icon { background: rgba(45, 225, 194, 0.12); color: #2de1c2; border-color: rgba(45, 225, 194, 0.25); }
+
+html.dark .dl-table th { background: #0d1830; }
+html.dark .dl-table tr:hover { background: rgba(120, 160, 255, 0.07); }
+html.dark .dl-table tr.row-selected { background: rgba(41, 121, 255, 0.14) !important; }
+html.dark .dl-table tr.row-selected:hover { background: rgba(41, 121, 255, 0.2) !important; }
+html.dark .dl-table tr.row-selected td:first-child { box-shadow: inset 3px 0 0 #448aff; }
+
+html.dark .bulk-toolbar { background: #101b33; border-color: rgba(41, 121, 255, 0.4); }
+
+html.dark .cat-Video { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+html.dark .cat-Music { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+html.dark .cat-Compressed { background: rgba(139, 92, 246, 0.15); color: #c4b5fd; }
+html.dark .cat-Documents { background: rgba(41, 121, 255, 0.15); color: #6ba4ff; }
+html.dark .cat-Programs { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+html.dark .cat-Images { background: rgba(45, 225, 194, 0.15); color: #2de1c2; }
+html.dark .cat-General { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; }
+
+html.dark .status-downloading { background: rgba(41, 121, 255, 0.16); color: #6ba4ff; border-color: rgba(41, 121, 255, 0.32); }
+html.dark .status-merging { background: rgba(139, 92, 246, 0.16); color: #c4b5fd; border-color: rgba(139, 92, 246, 0.32); }
+html.dark .status-completed { background: rgba(16, 185, 129, 0.16); color: #34d399; border-color: rgba(16, 185, 129, 0.32); }
+html.dark .status-paused { background: rgba(245, 158, 11, 0.16); color: #fbbf24; border-color: rgba(245, 158, 11, 0.32); }
+html.dark .status-queued { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; border-color: rgba(148, 163, 184, 0.3); }
+html.dark .status-error { background: rgba(239, 68, 68, 0.16); color: #f87171; border-color: rgba(239, 68, 68, 0.32); }
+
+html.dark .progress-bar-wrap { background: rgba(120, 160, 255, 0.12); }
+
+html.dark .seg-tab { color: #8ca3c7; }
+html.dark .seg-tab:hover { background: rgba(120, 160, 255, 0.07); color: #ffffff; }
+html.dark .seg-tab.active { color: #fff; }
+
+html.dark .panel-box { background: rgba(41, 121, 255, 0.05); }
+html.dark .info-strip-warn { background: rgba(245, 158, 11, 0.07); color: #8ca3c7; }
+
+html.dark ::-webkit-scrollbar-thumb { background: rgba(120, 160, 255, 0.18); }
+html.dark ::-webkit-scrollbar-thumb:hover { background: #2979ff; }
+
+/* ── Standalone İndirme Ekle penceresi ─────────────────────────────
+   Ana pencereden ayrı hafif gri-mor koyu palet; değişkenler yalnızca
+   .standalone-add-container altında ezildiğinden ana pencere etkilenmez. */
+html.dark .standalone-add-container {
+  --bg-main: #1b1a24;
+  --bg-card: rgba(44, 42, 60, 0.6);
+  --bg-card-solid: #262433;
+  --bg-header: rgba(36, 34, 49, 0.92);
+  --bg-inset: rgba(24, 23, 33, 0.6);
+  --bg-hover: rgba(167, 155, 255, 0.08);
+  --border-color: rgba(167, 155, 255, 0.14);
+  --border-strong: rgba(167, 155, 255, 0.28);
+  --primary-soft: rgba(139, 92, 246, 0.14);
+  --text-muted: #a29ec2;
+  --text-dark: #6f6a8e;
+}
+html.dark .standalone-add-container .panel-box { background: rgba(139, 92, 246, 0.07); }
+html.dark .standalone-add-container .seg-tab:hover { background: rgba(167, 155, 255, 0.08); }
+html.dark .standalone-add-container ::-webkit-scrollbar-thumb { background: rgba(167, 155, 255, 0.2); }

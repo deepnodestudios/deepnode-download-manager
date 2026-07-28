@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist_exe/
+frontend/dist/
+
+# External binaries — see bin/README.md for download instructions
+bin/*.exe
+
+# Internal notes / AI assistant files (not part of the source distribution)
+memory_bank/
+AI_Guidelines.md
+Project_Goals.md
+.qoder*
+
+# OS / editor
+Thumbs.db
+.DS_Store

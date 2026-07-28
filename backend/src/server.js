@@ -1,0 +1,957 @@
+import express from 'express';
+import cors from 'cors';
+import { WebSocketServer } from 'ws';
+import http from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
+import os from 'os';
+import { exec, spawn } from 'child_process';
+import { EventEmitter } from 'events';
+
+import storageService from './services/StorageService.js';
+import queueManager from './services/QueueManager.js';
+import { LinkSniffer } from './services/LinkSniffer.js';
+import { DownloadEngine } from './services/DownloadEngine.js';
+import { getVideoInfo, autoUpdateYtDlp, isVideoSiteUrl } from './services/VideoDownloader.js';
+import { startScheduler, schedulerStatus } from './services/Scheduler.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+export const serverEvents = new EventEmitter();
+
+// Browser session headers (cookie/referer/user-agent) captured by the extension.
+// The confirm dialog only carries the URL, so we stash them here and re-attach
+// them when the user confirms the download. Entries expire after 10 minutes.
+const pendingHeaders = new Map();
+const PENDING_TTL = 10 * 60 * 1000;
+
+function stashHeaders(url, headers) {
+  if (!url || !headers || Object.keys(headers).length === 0) return;
+  pendingHeaders.set(url, { headers, ts: Date.now() });
+  if (pendingHeaders.size > 200) {
+    const now = Date.now();
+    for (const [k, v] of pendingHeaders) {
+      if (now - v.ts > PENDING_TTL) pendingHeaders.delete(k);
+    }
+  }
+}
+
+function takeHeaders(url, provided) {
+  if (provided && Object.keys(provided).length > 0) return provided;
+  const hit = pendingHeaders.get(url);
+  if (!hit) return {};
+  if (Date.now() - hit.ts > PENDING_TTL) { pendingHeaders.delete(url); return {}; }
+  pendingHeaders.delete(url);
+  return hit.headers;
+}
+
+// Filenames resolved during automatic capture (via a HEAD probe) so the confirm
+// dialog / download shows the real name instead of re-probing or "downloaded_file".
+const pendingNames = new Map();
+function stashName(url, filename) {
+  if (!url || !filename) return;
+  pendingNames.set(url, { filename, ts: Date.now() });
+  if (pendingNames.size > 200) {
+    const now = Date.now();
+    for (const [k, v] of pendingNames) {
+      if (now - v.ts > PENDING_TTL) pendingNames.delete(k);
+    }
+  }
+}
+function peekName(url) {
+  const hit = pendingNames.get(url);
+  if (!hit) return '';
+  if (Date.now() - hit.ts > PENDING_TTL) { pendingNames.delete(url); return ''; }
+  return hit.filename;
+}
+
+// Does a usable file extension exist in the given filename or the URL path?
+function hasUsableExt(filename, url) {
+  if (filename && /\.[a-z0-9]{1,8}$/i.test(filename)) return true;
+  try {
+    const p = new URL(url).pathname;
+    if (/\.[a-z0-9]{1,8}$/i.test(p)) return true;
+  } catch (e) { /* ignore */ }
+  return false;
+}
+
+// IDM davranışı: onay penceresi açılır açılmaz arka planda GIZLI bir ön indirme
+// (preflight) başlar. Kullanıcı "İndirmeyi Başlat" deyince aynı motor kaldığı
+// yerden devam eder (confirm-preflight); pencere kapatılır/vazgeçilirse parçalar
+// silinir (cancel-preflight). Videolar (yt-dlp) kalite seçimine bağlı olduğundan
+// ön indirme yapılmaz.
+const preflights = new Map(); // url -> { id, promise }
+const PREFLIGHT_TTL = 15 * 60 * 1000; // onaylanmadan unutulan pencereler için emniyet
+
+function dropPreflight(url, entry) {
+  if (preflights.get(url) !== entry) return;
+  if (entry.confirming) return; // onay işlemi sürüyor — iptal yarışı hayalet indirme bırakır
+  preflights.delete(url);
+  if (!entry.id) return;
+  const snap = queueManager.getDownloadById(entry.id);
+  if (snap && snap.preflight) queueManager.deleteDownload(entry.id, true);
+}
+
+// Onaylanan ekleme, bekleyen ön indirmeyi devralır: kullanıcının ad/klasörü
+// uygulanıp AYNI motor kaldığı baytlardan sürer. Devralınacak ön indirme yoksa
+// null döner ve normal ekleme yapılır. confirming bayrağı, pencere kapanırken
+// gönderilen cancel-preflight'ın bu sırada kaydı silmesini engeller.
+async function confirmPreflightForUrl(url, opts) {
+  const entry = url ? preflights.get(url) : null;
+  if (!entry || entry.confirming) return null;
+  entry.confirming = true;
+  try {
+    // Ön indirme henüz hazırlanıyorsa (HEAD sürüyor) kurulmasını bekle
+    if (!entry.id && entry.promise) { try { await entry.promise; } catch (e) { /* ignore */ } }
+    if (!entry.id) { preflights.delete(url); return null; }
+    // İlerleme penceresini taşıma/yeniden bağlanma bitmeden AÇ — kullanıcı
+    // mevcut baytları hemen görür, algılanan gecikme kısalır.
+    if (opts && opts.autoStart !== false) serverEvents.emit('open-progress', entry.id);
+    const snap = await queueManager.confirmPreflight(entry.id, opts);
+    preflights.delete(url);
+    return snap || null;
+  } catch (e) {
+    entry.confirming = false;
+    dropPreflight(url, entry); // kalıntı bırakma; çağran normal eklemeye düşer
+    return null;
+  }
+}
+
+function startPreflight(url, filename, headers) {
+  try {
+    if (preflights.has(url)) return;
+    if (isVideoSiteUrl(url)) return;
+
+    const entry = { id: null, promise: null };
+    preflights.set(url, entry);
+
+    entry.promise = queueManager
+      .addDownload(url, filename || peekName(url) || null, null, null, false, 'best', null, headers || {}, true)
+      .then((item) => {
+        if (preflights.get(url) !== entry) {
+          // pencere ön indirme hazırlanırken kapatıldı — kalıntı bırakma
+          if (item && item.id) queueManager.deleteDownload(item.id, true);
+          return;
+        }
+        if (!item || !item.id) { preflights.delete(url); return; }
+        entry.id = item.id;
+        queueManager.startDownload(item.id);
+        setTimeout(() => dropPreflight(url, entry), PREFLIGHT_TTL);
+      })
+      .catch(() => { if (preflights.get(url) === entry) preflights.delete(url); });
+  } catch (e) { /* ön indirme başlamasa da onay penceresi normal çalışır */ }
+}
+
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Serve static frontend dist for web and electron
+const distPath = path.join(__dirname, '../../frontend/dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
+
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
+// WebSocket real-time broadcasting
+const clients = new Set();
+
+wss.on('connection', (ws) => {
+  clients.add(ws);
+  
+  // Send initial state upon connection
+  ws.send(JSON.stringify({
+    type: 'INIT_STATE',
+    payload: {
+      downloads: queueManager.getAllDownloads(),
+      settings: storageService.settings
+    }
+  }));
+
+  ws.on('close', () => {
+    clients.delete(ws);
+  });
+});
+
+queueManager.setBroadcastCallback((message) => {
+  // Let the Electron layer react to finished downloads (notification / sound /
+  // "after all downloads" action).
+  try {
+    if (message && message.type === 'COMPLETED') {
+      const snap = queueManager.getDownloadById(message.payload.id);
+      serverEvents.emit('download-completed', snap || message.payload);
+
+      const busy = queueManager.getAllDownloads().some(
+        (d) => d.status === 'downloading' || d.status === 'merging' || d.status === 'queued'
+      );
+      if (!busy) serverEvents.emit('all-complete');
+    }
+  } catch (e) { /* ignore */ }
+
+  // Görev çubuğu ilerlemesi: aktif indirmelerin toplam ilerlemesini Electron'a bildir
+  try { emitTaskbarProgress(message && message.type !== 'PROGRESS'); } catch (e) { /* ignore */ }
+
+  const jsonStr = JSON.stringify(message);
+  clients.forEach((client) => {
+    if (client.readyState === 1) { // OPEN
+      client.send(jsonStr);
+    }
+  });
+});
+
+// Windows görev çubuğu ilerleme çubuğu için birleşik ilerleme (0..1, -1 = gizle).
+// PROGRESS mesajları çok sık geldiğinden 400ms'de bir hesaplanır; durum
+// değişimleri (tamamlandı/duraklatıldı vb.) throttle'ı atlar ki çubuk anında kalksın.
+let lastTaskbarEmit = 0;
+function emitTaskbarProgress(force) {
+  const now = Date.now();
+  if (!force && now - lastTaskbarEmit < 400) return;
+  lastTaskbarEmit = now;
+
+  const active = queueManager.getAllDownloads().filter(
+    (d) => (d.status === 'downloading' || d.status === 'merging') && !d.preflight
+  );
+  let value = -1; // aktif indirme yok → çubuğu kaldır
+  if (active.length > 0) {
+    let total = 0, done = 0;
+    for (const d of active) {
+      const t = Number(d.totalSize) || 0;
+      if (t > 0) { total += t; done += Math.min(Number(d.downloadedBytes) || 0, t); }
+    }
+    // Boyutu bilinmeyen indirmeler (t=0) toplam dışı; hiçbirinin boyutu yoksa belirsiz mod
+    value = total > 0 ? done / total : 2;
+  }
+  serverEvents.emit('taskbar-progress', value);
+}
+
+// REST API Endpoints
+
+// 1. Get all downloads
+app.get('/api/downloads', (req, res) => {
+  res.json(queueManager.getAllDownloads());
+});
+
+// 2. Inspect URL metadata before adding
+app.post('/api/download/inspect', async (req, res) => {
+  const { url, headers } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+  try {
+    // Reuse the browser session captured at capture-time so cookie/login
+    // protected links (e.g. torrent sites) return the real file metadata.
+    const hit = pendingHeaders.get(url);
+    const sessionHeaders = (headers && Object.keys(headers).length) ? headers : (hit ? hit.headers : {});
+    const info = await DownloadEngine.inspectUrl(url, sessionHeaders);
+    // Prefer a filename already resolved during automatic capture.
+    const cached = peekName(url);
+    if (cached && (!info.filename || !/\.[a-z0-9]{1,8}$/i.test(info.filename))) {
+      info.filename = cached;
+      info.category = storageService.getCategoryForFilename(cached, info.contentType || '');
+    }
+    res.json(info);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Inspect video formats / qualities for video sites (YouTube, Vimeo, etc.)
+app.post('/api/video/formats', async (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+
+  try {
+    const info = await getVideoInfo(url);
+    res.json(info);
+  } catch (err) {
+    res.status(500).json({ error: 'Could not fetch formats: ' + err.message });
+  }
+});
+
+// 4. Prompt Download Dialog in UI for captured URL
+app.post('/api/download/prompt-add', (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+
+  // Opens the dedicated add-window (main.js listens to this event).
+  // Note: do NOT also broadcast to the main window, or two dialogs would open.
+  serverEvents.emit('prompt-add', url);
+  res.json({ success: true });
+});
+
+// 4.5. Native Windows Folder Browser Dialog Endpoint
+app.post('/api/select-folder', async (req, res) => {
+  if (process.platform === 'win32') {
+    const tmpPs1 = path.join(os.tmpdir(), `select_folder_${Date.now()}.ps1`);
+    const script = `\uFEFF
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = "Kaydetme Klasörünü Seçin"
+$dialog.Filter = "Klasör Seçin|*.none"
+$dialog.CheckFileExists = $false
+$dialog.CheckPathExists = $true
+$dialog.FileName = "Klasörü Buraya Seçin"
+
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  $folder = [System.IO.Path]::GetDirectoryName($dialog.FileName)
+  [Console]::Out.WriteLine($folder)
+}
+`;
+    try {
+      fs.writeFileSync(tmpPs1, script, { encoding: 'utf8' });
+      const p = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpPs1], { windowsHide: false });
+      let output = '';
+      p.stdout.on('data', d => { output += d.toString('utf-8'); });
+      p.on('close', () => {
+        try { fs.unlinkSync(tmpPs1); } catch (e) {}
+        const folderPath = output.trim();
+        res.json({ folderPath: folderPath || null });
+      });
+      p.on('error', () => {
+        try { fs.unlinkSync(tmpPs1); } catch (e) {}
+        res.json({ folderPath: null });
+      });
+    } catch (e) {
+      res.json({ folderPath: null });
+    }
+  } else {
+    res.json({ folderPath: null });
+  }
+});
+
+// 5. Add single download (STRICT RULE: Requires confirmedByUser: true from Download Dialog)
+app.post('/api/download/add', async (req, res) => {
+  const { url, filename, category, saveDir, segmentsCount, forceVideo, quality, autoStart, confirmedByUser, headers, explicit } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+
+  // STRICT USER GUARD: If user has not confirmed in the Save Location Dialog, DO NOT add or start download!
+  if (!confirmedByUser) {
+    // Automatic capture: honor the file-type filter BEFORE prompting, so ignored
+    // types (css/js/images/…) don't pop a dialog. Explicit adds (context menu,
+    // grabber, in-page button) skip the filter — the user asked for that file.
+    if (!forceVideo && !explicit) {
+      let effectiveName = filename || '';
+      let contentType = '';
+
+      // Extensionless URL/filename (torrent sites: "?action=download&tid=…").
+      // Probe the server WITH the browser session (cookies/referer/UA) so we get
+      // the real Content-Disposition filename and Content-Type behind a login.
+      if (!hasUsableExt(effectiveName, url)) {
+        try {
+          const info = await DownloadEngine.inspectUrl(url, headers || {});
+          if (info) {
+            contentType = info.contentType || '';
+            if (info.filename && /\.[a-z0-9]{1,8}$/i.test(info.filename)) {
+              effectiveName = info.filename;
+              stashName(url, effectiveName); // confirm dialog reuses the real name
+            }
+          }
+        } catch (e) { /* probe failed — fall through with what we have */ }
+      }
+
+      if (!storageService.shouldCaptureUrl(url, effectiveName, contentType)) {
+        return res.json({ status: 'ignored', message: 'File type is not in the capture list.' });
+      }
+    }
+    stashHeaders(url, headers); // keep the browser session for the confirmed add
+    startPreflight(url, filename, headers); // IDM gibi: onay beklerken arka planda indirmeye başla
+    serverEvents.emit('prompt-add', url);
+    return res.json({ status: 'prompted', message: 'Folder & download confirmation window opened.' });
+  }
+
+
+  try {
+    const sessionHeaders = takeHeaders(url, headers);
+
+    // IDM davranışı: onay penceresi açıkken arka planda inen ön indirme varsa
+    // yeni kayıt AÇMA — aynı motor, kullanıcının seçtiği ad/klasörle devam eder.
+    if (!forceVideo) {
+      const pf = await confirmPreflightForUrl(url, { filename, saveDir, segmentsCount, autoStart });
+      if (pf) {
+        // open-progress zaten confirmPreflightForUrl içinde erken emit edildi
+        return res.json(pf);
+      }
+    } else {
+      // Kullanıcı video moduna geçti: dosya ön indirmesi geçersiz, iptal et
+      const entry = preflights.get(url);
+      if (entry) dropPreflight(url, entry);
+    }
+
+    const item = await queueManager.addDownload(url, filename, category, segmentsCount, forceVideo, quality, saveDir, sessionHeaders);
+    if (autoStart === false && item && item.id) {
+      queueManager.pauseDownload(item.id);
+    } else if (item && item.id) {
+      // IDM tarzı ilerleme penceresi: indirme başlatıldıysa Electron'a haber ver
+      // (renderer IPC'ye güvenilmez — ana pencerede nodeIntegration kapalı)
+      serverEvents.emit('open-progress', item.id);
+    }
+    res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 5b. Confirm a background preflight download: apply the user's final choices
+// (name/folder) and CONTINUE from the bytes already downloaded (IDM behaviour).
+app.post('/api/download/confirm-preflight', async (req, res) => {
+  const { url, filename, saveDir, segmentsCount, autoStart } = req.body || {};
+  const snap = await confirmPreflightForUrl(url, { filename, saveDir, segmentsCount, autoStart });
+  if (!snap) return res.status(404).json({ notFound: true });
+  // open-progress zaten confirmPreflightForUrl içinde erken emit edildi
+  res.json(snap);
+});
+
+// 5c. Cancel a background preflight (confirm window closed without starting).
+// Onaylanmış indirmelere dokunmaz (preflight bayrağı kalkmış olur).
+app.post('/api/download/cancel-preflight', (req, res) => {
+  const { url } = req.body || {};
+  const entry = url ? preflights.get(url) : null;
+  if (entry) dropPreflight(url, entry);
+  res.json({ ok: true });
+});
+
+// 6. Add video download (STRICT RULE: Requires confirmedByUser: true from Download Dialog)
+app.post('/api/download/video', async (req, res) => {
+  const { url, filename, saveDir, quality, autoStart, confirmedByUser } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+
+  // STRICT USER GUARD: If user has not confirmed in the Save Location Dialog, DO NOT add or start download!
+  if (!confirmedByUser) {
+    // Eklentide seçilen kaliteyi onay penceresine taşı (yoksa "en yüksek"e düşerdi)
+    serverEvents.emit('prompt-add', { url, quality: quality || null });
+    return res.json({ status: 'prompted', message: 'Folder & download confirmation window opened.' });
+  }
+
+  try {
+    const item = await queueManager.addDownload(url, filename, 'Video', 1, true, quality, saveDir);
+    if (autoStart === false && item && item.id) {
+      queueManager.pauseDownload(item.id);
+    } else if (item && item.id) {
+      serverEvents.emit('open-progress', item.id); // IDM tarzı ilerleme penceresi
+    }
+    res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. Add batch downloads
+app.post('/api/download/batch', async (req, res) => {
+  const { urls } = req.body;
+  if (!Array.isArray(urls) || urls.length === 0) {
+    return res.status(400).json({ error: 'URLs array is required' });
+  }
+  try {
+    const items = await queueManager.addBatchDownloads(urls);
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. Start / Resume download
+app.post('/api/download/:id/start', (req, res) => {
+  const { id } = req.params;
+  queueManager.startDownload(id);
+  res.json({ success: true });
+});
+
+// 8. Pause download
+app.post('/api/download/:id/pause', (req, res) => {
+  const { id } = req.params;
+  queueManager.pauseDownload(id);
+  res.json({ success: true });
+});
+
+// 9. Delete download
+app.delete('/api/download/:id', (req, res) => {
+  const { id } = req.params;
+  const deleteFile = req.query.deleteFile === 'true';
+  queueManager.deleteDownload(id, deleteFile);
+  res.json({ success: true });
+});
+
+// 10. Open specific download folder / file in File Explorer
+const revealInExplorer = (item) => {
+  if (!item) return;
+  if (process.platform === 'win32') {
+    const savePath = item.savePath;
+    const saveDir = item.saveDir || storageService.settings.downloadDir;
+
+    if (savePath && fs.existsSync(savePath)) {
+      // Open File Explorer and select the exact file!
+      exec(`explorer.exe /select,"${savePath.replace(/\//g, '\\')}"`);
+    } else if (saveDir && fs.existsSync(saveDir)) {
+      // Open the specific category folder (e.g. Downloads\DeepNode\Video)
+      exec(`explorer.exe "${saveDir.replace(/\//g, '\\')}"`);
+    } else {
+      exec(`explorer.exe "${storageService.settings.downloadDir.replace(/\//g, '\\')}"`);
+    }
+  }
+};
+
+app.post('/api/download/:id/reveal', (req, res) => {
+  const { id } = req.params;
+  const item = queueManager.getDownloadById(id);
+  revealInExplorer(item);
+  res.json({ success: true });
+});
+
+app.post('/api/download/:id/open-folder', (req, res) => {
+  const { id } = req.params;
+  const item = queueManager.getDownloadById(id);
+  revealInExplorer(item);
+  res.json({ success: true });
+});
+
+// Open file directly with default Windows application
+app.post('/api/download/:id/open', (req, res) => {
+  const { id } = req.params;
+  const item = queueManager.getDownloadById(id);
+  if (item && item.savePath && fs.existsSync(item.savePath)) {
+    if (process.platform === 'win32') {
+      exec(`start "" "${item.savePath.replace(/\//g, '\\')}"`);
+    }
+  }
+  res.json({ success: true });
+});
+
+// Open the bundled browser-extension folder (for loading it unpacked)
+app.post('/api/open-extension-folder', (req, res) => {
+  const candidates = [
+    path.join(__dirname, '../../../../browser-extension'), // packaged: INSTDIR/browser-extension
+    path.join(__dirname, '../../../browser-extension'),     // dev: project/browser-extension
+    path.join(__dirname, '../../browser-extension')
+  ];
+  const dir = candidates.find((d) => { try { return fs.existsSync(d); } catch (e) { return false; } });
+  if (!dir) return res.status(404).json({ error: 'Extension folder not found' });
+  try {
+    if (process.platform === 'win32') {
+      exec(`explorer "${dir.replace(/\//g, '\\')}"`);
+    } else if (process.platform === 'darwin') {
+      exec(`open "${dir}"`);
+    } else {
+      exec(`xdg-open "${dir}"`);
+    }
+  } catch (e) { /* ignore */ }
+  res.json({ success: true, path: dir });
+});
+
+// Yeniden indir: dosyayı ve parçaları silip baştan indirir
+app.post('/api/download/:id/redownload', async (req, res) => {
+  try {
+    const item = await queueManager.redownload(req.params.id);
+    if (!item) return res.status(404).json({ error: 'Download not found' });
+    res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Dosyayı yeniden adlandır (diskte + listede)
+app.post('/api/download/:id/rename', (req, res) => {
+  const { filename } = req.body || {};
+  if (!filename || !filename.trim()) return res.status(400).json({ error: 'New name required' });
+  try {
+    const item = queueManager.renameDownload(req.params.id, filename.trim());
+    if (!item) return res.status(404).json({ error: 'Download not found' });
+    res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 11. Start All / Pause All
+app.post('/api/download/start-all', (req, res) => {
+  queueManager.startAll();
+  res.json({ success: true });
+});
+
+app.post('/api/download/pause-all', (req, res) => {
+  queueManager.pauseAll();
+  res.json({ success: true });
+});
+
+// 12. Sniff web page links
+app.post('/api/sniffer', async (req, res) => {
+  const { url, depth, sameDomainOnly, extensions, fileTypes, maxPages } = req.body;
+  if (!url) return res.status(400).json({ error: 'Page URL is required' });
+  try {
+    const result = await LinkSniffer.sniffPage(url, { depth, sameDomainOnly, extensions, fileTypes, maxPages });
+    res.json(result); // { links, pagesScanned, depth }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// İndirme önceliği (high | normal | low)
+app.post('/api/download/:id/priority', (req, res) => {
+  const { priority } = req.body || {};
+  const item = queueManager.setPriority(req.params.id, priority);
+  if (!item) return res.status(404).json({ error: 'Download not found' });
+  res.json(item);
+});
+
+// Zamanlayıcı durumu
+app.get('/api/scheduler', (req, res) => res.json(schedulerStatus()));
+
+// 13. Settings API
+// The bundled browser-extension folder is refreshed on every app install, but
+// Chrome keeps running the previously loaded copy until the user reloads it
+// (chrome://extensions). Track the version the live extension reports on its
+// periodic settings poll so the UI can warn when it is stale.
+let bundledExtVersionCache = null;
+function bundledExtensionVersion() {
+  if (bundledExtVersionCache !== null) return bundledExtVersionCache;
+  const candidates = [
+    path.join(__dirname, '../../../../browser-extension/manifest.json'), // packaged: INSTDIR
+    path.join(__dirname, '../../../browser-extension/manifest.json'),    // dev: project root
+    path.join(__dirname, '../../browser-extension/manifest.json')
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        bundledExtVersionCache = JSON.parse(fs.readFileSync(p, 'utf8')).version || '';
+        return bundledExtVersionCache;
+      }
+    } catch (e) { /* try next */ }
+  }
+  bundledExtVersionCache = '';
+  return bundledExtVersionCache;
+}
+const extensionSeen = { version: '', lastSeenAt: 0 };
+
+app.get('/api/settings', (req, res) => {
+  // Only requests coming from the browser extension carry an extension Origin;
+  // old extensions (<=1.1.2) send no extVersion param and thus report ''.
+  const origin = String(req.headers.origin || '');
+  if (/^(chrome|moz|edge)-extension:/i.test(origin)) {
+    extensionSeen.version = String(req.query.extVersion || '');
+    extensionSeen.lastSeenAt = Date.now();
+  }
+  res.json(storageService.settings);
+});
+
+// Extension freshness status for the UI warning banner
+app.get('/api/extension/status', (req, res) => {
+  const expected = bundledExtensionVersion();
+  const seen = extensionSeen.lastSeenAt > 0;
+  res.json({
+    expected,
+    reported: extensionSeen.version,
+    lastSeenAt: extensionSeen.lastSeenAt,
+    seen,
+    stale: !!(seen && expected && extensionSeen.version !== expected)
+  });
+});
+
+// 14. App info (About screen): version comes from the app root package.json —
+// dev: <project>/package.json, packaged: resources/app/package.json (same
+// relative path from backend/src in both layouts).
+let appVersionCache = null;
+function appVersion() {
+  if (appVersionCache !== null) return appVersionCache;
+  try {
+    appVersionCache = JSON.parse(
+      fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')
+    ).version || '';
+  } catch (e) {
+    appVersionCache = '';
+  }
+  return appVersionCache;
+}
+
+app.get('/api/app/info', (req, res) => {
+  res.json({
+    name: 'DeepNode Download Manager',
+    version: appVersion(),
+    developer: 'DeepNode Studios',
+    email: 'deepnodestudios@gmail.com'
+  });
+});
+
+// 15. Update check — fetches latest version from GitHub Releases API (primary)
+// with fallback to the static manifest on the website.
+const GITHUB_RELEASES_API = 'https://api.github.com/repos/deepnodestudios/deepnode-download-manager/releases/latest';
+const UPDATE_MANIFEST_FALLBACK = 'https://deepnodestudios.net/DDM/updates/ddm-latest.json';
+
+function compareVersions(a, b) {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const na = pa[i] || 0, nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
+app.get('/api/update/check', async (req, res) => {
+  const current = appVersion();
+  try {
+    // Primary: GitHub Releases API
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(GITHUB_RELEASES_API, {
+      signal: controller.signal,
+      headers: { 'User-Agent': `DeepNode/${current}`, 'Accept': 'application/vnd.github+json' }
+    });
+    clearTimeout(timeout);
+    if (!resp.ok) throw new Error(`GitHub HTTP ${resp.status}`);
+    const data = await resp.json();
+    const latest = (data.tag_name || '').replace(/^v/, '');
+    const downloadUrl = (data.assets && data.assets.length > 0) ? data.assets[0].browser_download_url : '';
+    res.json({
+      current,
+      latest,
+      updateAvailable: !!(latest && compareVersions(latest, current) > 0),
+      downloadUrl,
+      notes: data.body || ''
+    });
+  } catch (e) {
+    // Fallback: static manifest on website
+    try {
+      const controller2 = new AbortController();
+      const timeout2 = setTimeout(() => controller2.abort(), 6000);
+      const resp2 = await fetch(UPDATE_MANIFEST_FALLBACK, {
+        signal: controller2.signal,
+        headers: { 'User-Agent': `DeepNode/${current}` }
+      });
+      clearTimeout(timeout2);
+      if (!resp2.ok) throw new Error(`HTTP ${resp2.status}`);
+      const data2 = await resp2.json();
+      const latest = data2.version || '';
+      res.json({
+        current,
+        latest,
+        updateAvailable: !!(latest && compareVersions(latest, current) > 0),
+        downloadUrl: data2.downloadUrl || '',
+        notes: data2.notes || ''
+      });
+    } catch (e2) {
+      res.json({
+        current,
+        latest: null,
+        updateAvailable: false,
+        downloadUrl: '',
+        notes: '',
+        error: 'Could not reach the update server'
+      });
+    }
+  }
+});
+
+// --- Auto-update: download installer & run it ---
+const UPDATE_DIR = path.join(os.tmpdir(), 'DeepNodeUpdate');
+let updateDownloadState = { status: 'idle', progress: 0, file: null, error: null };
+
+function broadcastUpdateProgress(payload) {
+  const msg = JSON.stringify({ type: 'UPDATE_PROGRESS', payload });
+  clients.forEach((c) => { if (c.readyState === 1) c.send(msg); });
+}
+
+app.get('/api/update/status', (req, res) => {
+  res.json(updateDownloadState);
+});
+
+app.post('/api/update/download', async (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+  if (updateDownloadState.status === 'downloading') {
+    return res.status(409).json({ error: 'A download is already in progress' });
+  }
+
+  // Prepare directory
+  if (!fs.existsSync(UPDATE_DIR)) fs.mkdirSync(UPDATE_DIR, { recursive: true });
+  const fileName = url.split('/').pop() || 'DeepNodeSetup.exe';
+  const filePath = path.join(UPDATE_DIR, fileName);
+  const partPath = filePath + '.part';
+
+  // Reuse a previously completed download: the installer is written to a .part
+  // file and renamed only on success, so filePath existing means it finished.
+  // Size is still verified against the server (antivirus may quarantine/truncate).
+  if (fs.existsSync(filePath)) {
+    try {
+      const head = await fetch(url, {
+        method: 'HEAD',
+        headers: { 'User-Agent': `DeepNode/${appVersion()}` },
+        redirect: 'follow'
+      });
+      const remoteSize = parseInt(head.headers.get('content-length') || '0', 10);
+      const localSize = fs.statSync(filePath).size;
+      if (head.ok && remoteSize > 0 && localSize === remoteSize) {
+        updateDownloadState = { status: 'ready', progress: 100, file: filePath, error: null };
+        broadcastUpdateProgress(updateDownloadState);
+        return res.json({ started: true, reused: true, file: filePath });
+      }
+    } catch (e) { /* verification failed → fall through and re-download */ }
+    try { fs.unlinkSync(filePath); } catch (e) { /* ignore */ }
+  }
+
+  updateDownloadState = { status: 'downloading', progress: 0, file: filePath, error: null };
+  broadcastUpdateProgress(updateDownloadState);
+  res.json({ started: true, file: filePath });
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': `DeepNode/${appVersion()}` },
+      redirect: 'follow'
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const totalSize = parseInt(response.headers.get('content-length') || '0', 10);
+    const fileStream = fs.createWriteStream(partPath);
+    let downloaded = 0;
+    let lastBroadcast = 0;
+
+    for await (const chunk of response.body) {
+      fileStream.write(chunk);
+      downloaded += chunk.length;
+      const progress = totalSize > 0 ? Math.round((downloaded / totalSize) * 100) : 0;
+      // Broadcast at most every 500ms to avoid flooding
+      const now = Date.now();
+      if (progress !== updateDownloadState.progress && (now - lastBroadcast > 500 || progress === 100)) {
+        updateDownloadState.progress = progress;
+        broadcastUpdateProgress(updateDownloadState);
+        lastBroadcast = now;
+      }
+    }
+
+    fileStream.end();
+    await new Promise((resolve, reject) => {
+      fileStream.on('finish', resolve);
+      fileStream.on('error', reject);
+    });
+
+    // Download completed in full → promote .part to the final installer name.
+    fs.renameSync(partPath, filePath);
+
+    updateDownloadState = { status: 'ready', progress: 100, file: filePath, error: null };
+    broadcastUpdateProgress(updateDownloadState);
+  } catch (e) {
+    try { if (fs.existsSync(partPath)) fs.unlinkSync(partPath); } catch (e2) { /* ignore */ }
+    updateDownloadState = { status: 'error', progress: 0, file: null, error: e.message };
+    broadcastUpdateProgress(updateDownloadState);
+  }
+});
+
+app.post('/api/update/install', (req, res) => {
+  const filePath = updateDownloadState.file;
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(400).json({ error: 'Installer file not found' });
+  }
+  res.json({ installing: true });
+
+  // Launch NSIS installer silently, detached from this process
+  const installer = spawn(filePath, ['/S'], {
+    detached: true,
+    stdio: 'ignore',
+    shell: false
+  });
+  installer.unref();
+
+  // Give the installer a moment to start, then signal Electron to quit
+  setTimeout(() => {
+    serverEvents.emit('quit-and-install');
+  }, 1500);
+});
+
+app.post('/api/settings', (req, res) => {
+  const updated = storageService.saveSettings(req.body);
+  // Electron tarafı (açılışta başlat, tepsi davranışı vb.) hemen uygulasın
+  serverEvents.emit('settings-changed', updated);
+  res.json(updated);
+});
+
+// 14. Built-in Local Test File Generator
+app.get('/api/test-file', (req, res) => {
+  const megabytes = parseInt(req.query.mb || '50', 10);
+  const totalSizeBytes = megabytes * 1024 * 1024;
+  const fileName = `Test_Sample_${megabytes}MB.bin`;
+
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+
+  const range = req.headers.range;
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : totalSizeBytes - 1;
+    const chunksize = (end - start) + 1;
+
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSizeBytes}`);
+    res.setHeader('Content-Length', chunksize);
+
+    const dummyBuffer = Buffer.alloc(64 * 1024, 0x41);
+    let bytesSent = 0;
+    
+    function sendChunk() {
+      while (bytesSent < chunksize) {
+        const toSend = Math.min(dummyBuffer.length, chunksize - bytesSent);
+        const canContinue = res.write(dummyBuffer.subarray(0, toSend));
+        bytesSent += toSend;
+        if (!canContinue) {
+          res.once('drain', sendChunk);
+          return;
+        }
+      }
+      res.end();
+    }
+    sendChunk();
+  } else {
+    res.setHeader('Content-Length', totalSizeBytes);
+    res.status(200);
+    
+    const dummyBuffer = Buffer.alloc(64 * 1024, 0x41);
+    let bytesSent = 0;
+
+    function sendChunk() {
+      while (bytesSent < totalSizeBytes) {
+        const toSend = Math.min(dummyBuffer.length, totalSizeBytes - bytesSent);
+        const canContinue = res.write(dummyBuffer.subarray(0, toSend));
+        bytesSent += toSend;
+        if (!canContinue) {
+          res.once('drain', sendChunk);
+          return;
+        }
+      }
+      res.end();
+    }
+    sendChunk();
+  }
+});
+
+// Fallback index.html for SPA frontend
+app.get('*', (req, res) => {
+  const indexPath = path.join(distPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.send('DeepNode Download Manager Backend Running.');
+  }
+});
+
+const PORT = Number(process.env.DN_PORT) || 5000;
+server.listen(PORT, () => {
+  console.log(`🚀 DeepNode Download Manager Backend running on http://localhost:${PORT}`);
+  console.log(`⚡ WebSocket stream ready on ws://localhost:${PORT}`);
+
+  // Keep yt-dlp fresh automatically (no user action). Check shortly after start,
+  // then every 12 hours while the app runs.
+  const maybeUpdate = () => {
+    if (storageService.settings.autoUpdateYtDlp === false) return;
+    autoUpdateYtDlp(true).catch(() => {});
+  };
+  setTimeout(maybeUpdate, 8000);
+  setInterval(maybeUpdate, 12 * 3600 * 1000);
+
+  // Zamanlayıcı (ayarlardan açılır)
+  startScheduler((evt) => {
+    queueManager.broadcast({ type: 'SCHEDULER', payload: { event: evt, at: new Date().toISOString() } });
+  });
+});
