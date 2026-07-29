@@ -13,6 +13,9 @@ memory_bank/
 AI_Guidelines.md
 Project_Goals.md
 .qoder*
+test-temp/
+# Security audit report — publish only after fixed release is widely adopted
+CODE_AUDIT.md
 
 # OS / editor
 Thumbs.db

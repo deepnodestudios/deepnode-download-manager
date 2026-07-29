@@ -1,15 +1,20 @@
 import fs from 'fs';
 import path from 'path';
-import http from 'http';
-import https from 'https';
 import crypto from 'crypto';
 import { EventEmitter } from 'events';
 import storageService from './StorageService.js';
 import { proxyAgent, authHeaderFor } from './NetworkConfig.js';
+import { requestFollowingRedirects } from '../utils/http.js';
+import { safeName } from '../utils/paths.js';
 
 // ---- Global bandwidth limiter (shared by ALL downloads) ----
 // The configured limit is a TOTAL cap: 3 concurrent downloads share one budget.
 const GLOBAL_BW = { windowStart: Date.now(), bytes: 0, paused: new Set(), active: new Set(), timer: null };
+
+// Diske yazma kuyruğu dolduğu için duraklatılmış akışlar. Hız sınırlayıcının
+// duraklattıklarından AYRI tutulur; yoksa `bwResumeAll()` disk beklerken de
+// akışı devam ettirip belleği şişirirdi.
+const DRAIN_PAUSED = new Set();
 
 function globalLimitBytesPerSec() {
   const kbps = storageService.settings.globalSpeedLimitKbps || 0;
@@ -17,7 +22,10 @@ function globalLimitBytesPerSec() {
 }
 
 function bwResumeAll() {
-  GLOBAL_BW.paused.forEach((s) => { try { s.resume(); } catch (e) { /* ignore */ } });
+  GLOBAL_BW.paused.forEach((s) => {
+    if (DRAIN_PAUSED.has(s)) return; // disk hâlâ yetişemiyor — duraklı kalsın
+    try { s.resume(); } catch (e) { /* akış zaten kapanmış */ }
+  });
   GLOBAL_BW.paused.clear();
 }
 
@@ -41,12 +49,12 @@ function bwConsume(bytes, res) {
     // otherwise each concurrent download overshoots by one chunk (n × limit).
     GLOBAL_BW.active.forEach((s) => {
       if (!GLOBAL_BW.paused.has(s)) {
-        try { s.pause(); } catch (e) { /* ignore */ }
+        try { s.pause(); } catch (e) { /* akış zaten kapanmış */ }
         GLOBAL_BW.paused.add(s);
       }
     });
     if (!GLOBAL_BW.paused.has(res)) {
-      try { res.pause(); } catch (e) { /* ignore */ }
+      try { res.pause(); } catch (e) { /* akış zaten kapanmış */ }
       GLOBAL_BW.paused.add(res);
     }
     if (!GLOBAL_BW.timer) {
@@ -71,19 +79,24 @@ function connectionTimeoutMs() {
   return (Number.isFinite(n) && n > 0 ? n : 30) * 1000;
 }
 
+const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) DeepNode/1.0';
+
 export class DownloadEngine extends EventEmitter {
   constructor(item, options = {}) {
     super();
     this.id = item.id;
     this.url = item.url;
+    // Yönlendirme sonrası çözülen gerçek adres (302 zincirleri). Segment
+    // istekleri buradan sürer; kullanıcıya gösterilen `url` değişmez.
+    this.resolvedUrl = item.resolvedUrl || null;
     this.filename = item.filename;
     this.saveDir = item.saveDir || path.join(storageService.settings.downloadDir, item.category || 'General');
     this.segmentsCount = item.segmentsCount || storageService.settings.defaultSegments || 8;
     this.speedLimitKbps = item.speedLimitKbps || storageService.settings.globalSpeedLimitKbps || 0;
-    
+
     this.savePath = path.join(this.saveDir, this.filename);
     this.tempDir = path.join(this.saveDir, `.tmp_${this.id}`);
-    
+
     this.status = item.status || 'queued'; // queued, downloading, paused, completed, error
     this.totalSize = item.totalSize || 0;
     this.downloadedBytes = item.downloadedBytes || 0;
@@ -107,7 +120,7 @@ export class DownloadEngine extends EventEmitter {
       s.completed = s.total > 0 ? onDisk >= s.total : Boolean(s.completed);
     });
     if (this.segments.length > 0) {
-      this.downloadedBytes = this.segments.reduce((a, s) => a + (s.downloaded || 0), 0);
+      this.downloadedBytes = this.sumSegmentBytes();
     }
 
     this.speed = 0;
@@ -118,22 +131,27 @@ export class DownloadEngine extends EventEmitter {
     this.intervalTimer = null;
     this.lastDownloadedBytes = 0;
     this.lastSpeedCheck = Date.now();
+
+    // Çalışma kuşağı: her start() bir sonrakini alır, her pause() bir artırır.
+    // Duraklat→devam ettir sırasında ESKİ start()'ın Promise.all'ı geç çözülüp
+    // yarım parçaları birleştirmesini engeller (sessiz veri bozulması).
+    this._epoch = 0;
+  }
+
+  sumSegmentBytes() {
+    return this.segments.reduce((total, s) => total + (s.downloaded || 0), 0);
   }
 
   // Request headers for this download: browser session (cookies/referer/UA) if
   // captured, otherwise a sane default UA.
   buildHeaders(extra = {}) {
-    const h = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) DeepNode/1.0',
+    return {
+      'User-Agent': DEFAULT_UA,
       ...this.headers,
       ...extra
     };
-    // Ayarlarda bu site için kullanıcı adı/şifre varsa ekle
-    if (!h.Authorization && !h.authorization) {
-      const auth = authHeaderFor(this.url);
-      if (auth) h.Authorization = auth;
-    }
-    return h;
+    // NOT: site girişi (Basic auth) artık her yönlendirme hop'unda hedef adrese
+    // göre `authFor` ile eklenir — bkz. utils/http.js.
   }
 
   ensureTempDir() {
@@ -145,84 +163,115 @@ export class DownloadEngine extends EventEmitter {
     }
   }
 
-  static async inspectUrl(downloadUrl, extraHeaders = {}) {
-    return new Promise((resolve) => {
-      try {
-        const u = new URL(downloadUrl);
-        const protocol = u.protocol === 'https:' ? https : http;
-
-        const reqHeaders = {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) DeepNode/1.0',
-          ...(extraHeaders || {})
-        };
-        if (!reqHeaders.Authorization) {
-          const auth = authHeaderFor(downloadUrl);
-          if (auth) reqHeaders.Authorization = auth;
+  static filenameFromResponse(res, urlStr, fallbackUrl) {
+    let filename = '';
+    const cd = res.headers['content-disposition'];
+    if (cd) {
+      // RFC 5987 (filename*=UTF-8''...) ve düz filename="..." biçimlerini karşılar
+      const match = cd.match(/filename\*?=['"]?(?:UTF-8''|")?([^'";]+)/i);
+      if (match && match[1]) {
+        try {
+          filename = decodeURIComponent(match[1]);
+        } catch (e) {
+          filename = match[1];
         }
-
-        const agent = proxyAgent();
-        const reqOpts = { method: 'HEAD', headers: reqHeaders };
-        if (agent) reqOpts.agent = agent;
-
-        const req = protocol.request(downloadUrl, reqOpts, (res) => {
-          let filename = path.basename(u.pathname) || 'downloaded_file';
-          
-          // Try Content-Disposition
-          const cd = res.headers['content-disposition'];
-          if (cd) {
-            const filenameMatch = cd.match(/filename\*?=['"]?(?:UTF-8''|")?([^'";]+)/i);
-            if (filenameMatch && filenameMatch[1]) {
-              filename = decodeURIComponent(filenameMatch[1]);
-            }
-          }
-
-          const contentLength = parseInt(res.headers['content-length'] || '0', 10);
-          const acceptRanges = res.headers['accept-ranges'] === 'bytes' || Boolean(res.headers['content-range']);
-          const contentType = res.headers['content-type'] || '';
-
-          resolve({
-            url: downloadUrl,
-            filename,
-            totalSize: contentLength,
-            acceptRanges,
-            contentType,
-            category: storageService.getCategoryForFilename(filename, contentType)
-          });
-        });
-
-        req.on('error', () => {
-          // Fallback if HEAD fails
-          const filename = path.basename(new URL(downloadUrl).pathname) || 'downloaded_file';
-          resolve({
-            url: downloadUrl,
-            filename,
-            totalSize: 0,
-            acceptRanges: false,
-            contentType: '',
-            category: storageService.getCategoryForFilename(filename)
-          });
-        });
-
-        req.setTimeout(5000, () => {
-          req.destroy();
-        });
-
-        req.end();
-      } catch (err) {
-        resolve({
-          url: downloadUrl,
-          filename: 'downloaded_file',
-          totalSize: 0,
-          acceptRanges: false,
-          contentType: '',
-          category: 'General'
-        });
       }
-    });
+    }
+    if (!filename) {
+      try { filename = path.basename(new URL(urlStr).pathname); } catch (e) { filename = ''; }
+    }
+    if (!filename) {
+      try { filename = path.basename(new URL(fallbackUrl).pathname); } catch (e) { filename = ''; }
+    }
+    // Sunucudan gelen ad yol bileşeni ("../") içerebilir — indirme klasörünün
+    // dışına yazılmasını engellemek için daima temizlenir.
+    return safeName(filename, 'downloaded_file');
+  }
+
+  static async inspectUrl(downloadUrl, extraHeaders = {}) {
+    const fallback = () => {
+      let filename = 'downloaded_file';
+      try { filename = safeName(path.basename(new URL(downloadUrl).pathname), 'downloaded_file'); } catch (e) { /* geçersiz URL */ }
+      return {
+        url: downloadUrl,
+        finalUrl: downloadUrl,
+        filename,
+        totalSize: 0,
+        acceptRanges: false,
+        contentType: '',
+        category: storageService.getCategoryForFilename(filename)
+      };
+    };
+
+    const describe = (res, finalUrl) => {
+      const filename = DownloadEngine.filenameFromResponse(res, finalUrl, downloadUrl);
+      const contentType = res.headers['content-type'] || '';
+      let totalSize = parseInt(res.headers['content-length'] || '0', 10);
+      let acceptRanges = res.headers['accept-ranges'] === 'bytes';
+
+      // GET + "Range: bytes=0-0" ile sorulduysa gerçek boyut Content-Range'de gelir
+      const contentRange = res.headers['content-range'];
+      if (contentRange) {
+        acceptRanges = true;
+        const m = /\/(\d+)\s*$/.exec(contentRange);
+        if (m) totalSize = parseInt(m[1], 10);
+      }
+
+      return {
+        url: downloadUrl,
+        finalUrl,
+        filename,
+        totalSize: Number.isFinite(totalSize) ? totalSize : 0,
+        acceptRanges,
+        contentType,
+        category: storageService.getCategoryForFilename(filename, contentType)
+      };
+    };
+
+    const baseHeaders = { 'User-Agent': DEFAULT_UA, ...(extraHeaders || {}) };
+    const common = {
+      headers: baseHeaders,
+      agentFactory: () => proxyAgent(),
+      authFor: (u) => authHeaderFor(u),
+      timeoutMs: 8000
+    };
+
+    // 1) HEAD — en ucuz yol.
+    try {
+      const { res, finalUrl } = await requestFollowingRedirects(downloadUrl, { ...common, method: 'HEAD' });
+      res.resume();
+      if (res.statusCode && res.statusCode < 400) return describe(res, finalUrl);
+    } catch (err) {
+      // HEAD başarısız — aşağıdaki GET denemesine düş
+    }
+
+    // 2) Bazı sunucular HEAD'i reddeder (405) veya Content-Length döndürmez.
+    //    Tek baytlık Range isteğiyle hem boyut hem Range desteği öğrenilir.
+    try {
+      const { res, finalUrl } = await requestFollowingRedirects(downloadUrl, {
+        ...common,
+        method: 'GET',
+        headers: { ...baseHeaders, Range: 'bytes=0-0' }
+      });
+      const info = describe(res, finalUrl);
+      res.destroy(); // gövdeyi indirmeye gerek yok
+      if (res.statusCode && res.statusCode < 400) return info;
+    } catch (err) {
+      // ağ hatası — yedek bilgiyle devam
+    }
+
+    return fallback();
   }
 
   async start() {
-    if (this.status === 'downloading') return;
+    // 'merging' de dahil: birleştirme sürerken yeni bir çalışma başlatılırsa,
+    // biten birleştirme geçici klasörü silerken yeni çalışma oraya yazmaya
+    // devam ediyor ve "Missing segment file" ile bozuluyordu.
+    // 'completed' de dahil: bitmiş bir indirmeyi yeniden başlatmak parçaları
+    // silinmiş bir motoru yeniden koşturur; baştan indirme için "Yeniden İndir"
+    // (redownload) vardır.
+    if (this.status === 'downloading' || this.status === 'merging' || this.status === 'completed') return;
+    const epoch = ++this._epoch;
     this.status = 'downloading';
     this.ensureTempDir();
 
@@ -232,8 +281,10 @@ export class DownloadEngine extends EventEmitter {
       // If total size unknown or segments not set up, initialize
       if (this.totalSize === 0 || this.segments.length === 0) {
         const info = await DownloadEngine.inspectUrl(this.url, this.headers);
+        if (epoch !== this._epoch) return; // bu arada duraklatıldı/silindi
         this.totalSize = info.totalSize;
-        
+        if (info.finalUrl && info.finalUrl !== this.url) this.resolvedUrl = info.finalUrl;
+
         if (info.filename && !this.filename) {
           this.filename = info.filename;
           this.savePath = path.join(this.saveDir, this.filename);
@@ -263,14 +314,49 @@ export class DownloadEngine extends EventEmitter {
       this.startSpeedTracker();
 
       // Launch segment downloads concurrently
-      const downloadPromises = this.segments.map((segment) => this.downloadSegment(segment));
-      await Promise.all(downloadPromises);
-
-      if (this.status === 'downloading') {
-        await this.mergeSegments();
+      try {
+        await Promise.all(this.segments.map((segment) => this.downloadSegment(segment, epoch)));
+      } catch (err) {
+        // Sunucu Range'i yok sayıyorsa çok parçalı indirme bozuk dosya üretir —
+        // tek bağlantıya düşüp baştan indir (yavaş ama DOĞRU sonuç).
+        if (err && err.code === 'RANGE_NOT_HONORED' && epoch === this._epoch && this.status === 'downloading') {
+          console.warn(`[${this.id}] Sunucu Range desteklemiyor — tek parçaya düşülüyor.`);
+          this.activeRequests.forEach((ctl) => { try { ctl.destroy(); } catch (e) { /* kapalı */ } });
+          this.activeRequests = [];
+          try { fs.rmSync(this.tempDir, { recursive: true, force: true }); } catch (e) { /* yoktu */ }
+          this.ensureTempDir();
+          this.segments = [{
+            id: 0,
+            startByte: 0,
+            endByte: this.totalSize > 0 ? this.totalSize - 1 : 0,
+            downloaded: 0,
+            total: this.totalSize > 0 ? this.totalSize : 0,
+            completed: false,
+            tempFilePath: path.join(this.tempDir, 'part_0.tmp')
+          }];
+          this.downloadedBytes = 0;
+          await this.downloadSegment(this.segments[0], epoch);
+        } else {
+          throw err;
+        }
       }
+
+      // ESKİ ÇALIŞMA KORUMASI: duraklat→devam ettir yarışında bu Promise.all,
+      // kullanıcı yeniden başlattıktan SONRA çözülebilir. Kuşak değiştiyse bu
+      // çalışma artık geçersizdir — birleştirmeyi yeni çalışma yapacak.
+      if (epoch !== this._epoch || this.status !== 'downloading') return;
+
+      // Tüm parçalar gerçekten tamamlandı mı? (yarım dosya birleştirilmesin)
+      const incomplete = this.segments.filter((s) => !s.completed);
+      if (incomplete.length > 0) {
+        throw new Error(`Download incomplete (${incomplete.length} segment(s) unfinished)`);
+      }
+
+      await this.mergeSegments();
     } catch (err) {
-      if (this.status === 'downloading') {
+      // 'merging' de dahil: birleştirme doğrulaması hata verdiğinde durum
+      // 'merging'de takılı kalmamalı (indirme ne duraklatılabilir ne silinebilirdi).
+      if (epoch === this._epoch && (this.status === 'downloading' || this.status === 'merging')) {
         this.status = 'error';
         this.errorMsg = err.message;
         this.stopSpeedTracker();
@@ -281,16 +367,16 @@ export class DownloadEngine extends EventEmitter {
 
   // Retries a segment on network errors / premature stream close, resuming from
   // the bytes already written to disk (auto reconnect).
-  async downloadSegment(segment) {
+  async downloadSegment(segment, epoch) {
     let lastError = null;
     const maxRetries = maxSegmentRetries();
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      if (this.status !== 'downloading') return;
+      if (epoch !== this._epoch || this.status !== 'downloading') return;
       if (segment.completed) return;
 
       try {
-        await this.attemptSegment(segment);
+        await this.attemptSegment(segment, epoch);
 
         // Verify completeness: a stream can end early without an error
         if (segment.total > 0 && segment.downloaded < segment.total) {
@@ -300,7 +386,11 @@ export class DownloadEngine extends EventEmitter {
         return;
       } catch (err) {
         lastError = err;
-        if (this.status !== 'downloading') return; // paused/cancelled: not an error
+        if (epoch !== this._epoch || this.status !== 'downloading') return; // paused/cancelled: not an error
+
+        // Yeniden denemenin faydası yok — sunucu aralık desteklemiyor.
+        // start() bunu yakalayıp tek parçalı indirmeye düşecek.
+        if (err && err.code === 'RANGE_NOT_HONORED') throw err;
 
         if (attempt < maxRetries) {
           const waitMs = Math.min(15000, 1000 * Math.pow(2, attempt)); // 1s,2s,4s,8s,15s
@@ -313,139 +403,222 @@ export class DownloadEngine extends EventEmitter {
     throw lastError || new Error('Could not download segment');
   }
 
-  attemptSegment(segment) {
-    return new Promise((resolve, reject) => {
-      // Always resume from what is actually on disk
-      let onDisk = 0;
-      try { onDisk = fs.statSync(segment.tempFilePath).size; } catch (e) { onDisk = 0; }
-      if (segment.total > 0 && onDisk > segment.total) onDisk = segment.total;
-      segment.downloaded = onDisk;
+  async attemptSegment(segment, epoch) {
+    // Always resume from what is actually on disk
+    let onDisk = 0;
+    try { onDisk = fs.statSync(segment.tempFilePath).size; } catch (e) { onDisk = 0; }
+    if (segment.total > 0 && onDisk > segment.total) onDisk = segment.total;
+    segment.downloaded = onDisk;
 
-      const segmentStart = segment.startByte + segment.downloaded;
-      const segmentEnd = segment.endByte;
+    // Toplam sayacı parçalardan YENİDEN türet. Eskiden `downloadedBytes` yalnız
+    // artıyordu; yeniden denemede parça sayacı diskten geri sarılınca toplam
+    // şişip ilerleme %100'ü aşıyor, ETA saçmalıyordu.
+    this.downloadedBytes = this.sumSegmentBytes();
 
-      if (segment.total > 0 && segment.downloaded >= segment.total) {
-        segment.completed = true;
-        return resolve();
-      }
+    const segmentStart = segment.startByte + segment.downloaded;
+    const segmentEnd = segment.endByte;
 
-      if (segmentStart > segmentEnd && segment.total > 0) {
-        segment.completed = true;
-        return resolve();
-      }
+    if (segment.total > 0 && segment.downloaded >= segment.total) {
+      segment.completed = true;
+      return;
+    }
+    if (segmentStart > segmentEnd && segment.total > 0) {
+      segment.completed = true;
+      return;
+    }
 
-      const u = new URL(this.url);
-      const protocol = u.protocol === 'https:' ? https : http;
+    const headers = this.buildHeaders();
+    if (this.totalSize > 0 && this.segments.length > 1) {
+      headers.Range = `bytes=${segmentStart}-${segmentEnd}`;
+    } else if (segment.downloaded > 0) {
+      headers.Range = `bytes=${segmentStart}-`; // single-segment resume
+    }
 
-      const headers = this.buildHeaders();
+    const controller = { destroy: () => { /* istek henüz kurulmadı */ } };
+    this.activeRequests.push(controller);
 
-      if (this.totalSize > 0 && this.segments.length > 1) {
-        headers['Range'] = `bytes=${segmentStart}-${segmentEnd}`;
-      } else if (segment.downloaded > 0) {
-        // single-segment resume
-        headers['Range'] = `bytes=${segmentStart}-`;
-      }
+    let res;
+    let finalUrl;
+    try {
+      // 302/301 zincirlerini takip eder: eskiden yönlendirilen her link
+      // "Server responded with status code 302" ile başarısız oluyordu.
+      ({ res, finalUrl } = await requestFollowingRedirects(this.resolvedUrl || this.url, {
+        method: 'GET',
+        headers,
+        agentFactory: () => proxyAgent(),
+        authFor: (u) => authHeaderFor(u),
+        timeoutMs: connectionTimeoutMs(),
+        controller
+      }));
+    } finally {
+      // Bu istek artık ya akıyor ya da başarısız; listeyi büyütmeye devam etme
+      const idx = this.activeRequests.indexOf(controller);
+      if (idx !== -1 && !res) this.activeRequests.splice(idx, 1);
+    }
 
-      const agent = proxyAgent(); // Ayarlar > Proxy açıksa kullanılır
-      const req = protocol.get(this.url, agent ? { headers, agent } : { headers }, (res) => {
-        if (res.statusCode !== 200 && res.statusCode !== 206) {
-          return reject(new Error(`Server responded with status code ${res.statusCode}`));
+    if (this.resolvedUrl !== finalUrl && finalUrl !== this.url) this.resolvedUrl = finalUrl;
+
+    if (res.statusCode !== 200 && res.statusCode !== 206) {
+      res.resume();
+      throw new Error(`Server responded with status code ${res.statusCode}`);
+    }
+
+    // Sunucu Range istediğimiz halde 206 yerine 200 döndüyse aralığı YOK SAYMIŞ
+    // ve tüm dosyayı gönderiyor demektir. Çok parçalı indirmede her segment
+    // dosyanın tamamını yazar → birleştirme bozuk dosya üretir. (Accept-Ranges
+    // başlığı yalan söyleyen sunucular yaygındır.) Tek parçaya düşerek kurtar.
+    if (headers.Range && res.statusCode === 200 && this.segments.length > 1) {
+      res.destroy();
+      const err = new Error('Server ignored Range request');
+      err.code = 'RANGE_NOT_HONORED';
+      throw err;
+    }
+
+    await new Promise((resolve, reject) => {
+      const writeStream = fs.createWriteStream(segment.tempFilePath, {
+        flags: segment.downloaded > 0 ? 'a' : 'w'
+      });
+
+      GLOBAL_BW.active.add(res);
+      const unregister = () => {
+        GLOBAL_BW.active.delete(res);
+        GLOBAL_BW.paused.delete(res);
+        DRAIN_PAUSED.delete(res);
+        const idx = this.activeRequests.indexOf(controller);
+        if (idx !== -1) this.activeRequests.splice(idx, 1);
+      };
+
+      let settled = false;
+      const fail = (err) => {
+        if (settled) return;
+        settled = true;
+        unregister();
+        try { writeStream.destroy(); } catch (e) { /* zaten kapalı */ }
+        reject(err);
+      };
+
+      res.on('data', (chunk) => {
+        if (epoch !== this._epoch || this.status !== 'downloading') {
+          unregister();
+          controller.destroy();
+          try { writeStream.end(); } catch (e) { /* zaten kapalı */ }
+          return;
         }
 
-        const writeStream = fs.createWriteStream(segment.tempFilePath, {
-          flags: segment.downloaded > 0 ? 'a' : 'w'
+        // Bazı sunucular `Range: bytes=a-b` isteğinin BİTİŞİNİ yok sayıp dosyanın
+        // sonuna kadar gönderir. Fazlasını yazarsak segment taşar ve birleştirme
+        // bozuk dosya üretir — istenen bayttan sonrasını kırp ve bağlantıyı kapat.
+        let data = chunk;
+        let reachedEnd = false;
+        if (segment.total > 0 && segment.downloaded + data.length >= segment.total) {
+          data = data.subarray(0, segment.total - segment.downloaded);
+          reachedEnd = true;
+        }
+
+        segment.downloaded += data.length;
+        this.downloadedBytes += data.length;
+
+        // GERİ BASINÇ: disk ağdan yavaşsa (USB/ağ sürücüsü, antivirüs taraması,
+        // 8 paralel bağlantı) `write()` false döner. Eskiden dönüş değeri yok
+        // sayıldığı için yazma kuyruğu bellekte yüzlerce MB'a çıkabiliyordu.
+        if (data.length > 0 && !writeStream.write(data) && !DRAIN_PAUSED.has(res)) {
+          DRAIN_PAUSED.add(res);
+          try { res.pause(); } catch (e) { /* akış kapanmış */ }
+          writeStream.once('drain', () => {
+            DRAIN_PAUSED.delete(res);
+            // Hız sınırlayıcı da duraklattıysa devam ettirmeyi ONA bırak
+            if (!GLOBAL_BW.paused.has(res) && !settled &&
+                epoch === this._epoch && this.status === 'downloading') {
+              try { res.resume(); } catch (e) { /* akış kapanmış */ }
+            }
+          });
+        }
+
+        bwConsume(data.length, res);
+
+        // Segment doldu: sunucu göndermeye devam etse de bağlantıyı bırak
+        if (reachedEnd) {
+          segment.completed = true;
+          if (!settled) {
+            settled = true;
+            unregister();
+            controller.destroy();
+            writeStream.end(() => resolve());
+          }
+        }
+      });
+
+      res.on('end', () => {
+        if (settled) return;
+        unregister();
+        writeStream.end(() => {
+          if (settled) return;
+          settled = true;
+          resolve();
         });
+      });
 
-        // Register with the global bandwidth limiter
-        GLOBAL_BW.active.add(res);
-        const unregister = () => { GLOBAL_BW.active.delete(res); GLOBAL_BW.paused.delete(res); };
-
-        let settled = false;
-        const fail = (err) => {
+      res.on('aborted', () => fail(new Error('Connection lost (aborted)')));
+      res.on('error', (err) => {
+        // Kullanıcı duraklattıysa bu bir hata değil
+        if (epoch !== this._epoch || this.status !== 'downloading') {
           if (settled) return;
           settled = true;
           unregister();
-          try { writeStream.destroy(); } catch (e) { /* ignore */ }
-          reject(err);
-        };
-
-        res.on('data', (chunk) => {
-          if (this.status !== 'downloading') {
-            unregister();
-            req.destroy();
-            try { writeStream.end(); } catch (e) { /* ignore */ }
-            return;
-          }
-
-          segment.downloaded += chunk.length;
-          this.downloadedBytes += chunk.length;
-          writeStream.write(chunk);
-
-          // Global hız sınırı: toplam bütçe dolunca akışı duraklat
-          bwConsume(chunk.length, res);
-        });
-
-        res.on('end', () => {
-          if (settled) return;
-          unregister();
-          // Wait for the file to be flushed before reporting success
-          writeStream.end(() => {
-            if (settled) return;
-            settled = true;
-            resolve();
-          });
-        });
-
-        res.on('aborted', () => fail(new Error('Connection lost (aborted)')));
-        res.on('error', (err) => fail(err));
-        writeStream.on('error', (err) => fail(err));
-      });
-
-      req.on('error', (err) => {
-        if (this.status === 'downloading') {
-          reject(err);
-        } else {
-          resolve(); // paused/cancelled by user
+          try { writeStream.end(); } catch (e) { /* zaten kapalı */ }
+          resolve();
+          return;
         }
+        fail(err);
       });
-
-      const timeoutMs = connectionTimeoutMs();
-      req.setTimeout(timeoutMs, () => {
-        req.destroy(new Error(`Timeout (${Math.round(timeoutMs / 1000)}s no response)`));
-      });
-
-      this.activeRequests.push(req);
+      writeStream.on('error', (err) => fail(err));
     });
   }
 
   async mergeSegments() {
+    const epoch = this._epoch;
     this.status = 'merging';
     this.emit('status-change', { id: this.id, status: 'merging' });
 
     const finalStream = fs.createWriteStream(this.savePath);
+    let mergedBytes = 0;
 
     // Segmentleri sırayla stream ile birleştir (belleğe tümünü okumadan)
-    for (const segment of this.segments) {
-      if (fs.existsSync(segment.tempFilePath)) {
+    try {
+      for (const segment of this.segments) {
+        if (!fs.existsSync(segment.tempFilePath)) {
+          throw new Error(`Missing segment file (part ${segment.id})`);
+        }
         await new Promise((resolve, reject) => {
           const readStream = fs.createReadStream(segment.tempFilePath);
+          readStream.on('data', (chunk) => { mergedBytes += chunk.length; });
           readStream.on('error', reject);
           readStream.on('end', resolve);
           readStream.pipe(finalStream, { end: false });
         });
       }
+
+      // Yazma tamamlanana kadar bekle
+      await new Promise((resolve, reject) => {
+        finalStream.on('finish', resolve);
+        finalStream.on('error', reject);
+        finalStream.end();
+      });
+    } catch (err) {
+      try { finalStream.destroy(); } catch (e) { /* zaten kapalı */ }
+      throw err;
     }
 
-    // Yazma tamamlanana kadar bekle
-    await new Promise((resolve, reject) => {
-      finalStream.on('finish', resolve);
-      finalStream.on('error', reject);
-      finalStream.end();
-    });
+    // Boyut doğrulaması: eksik/bozuk birleştirmeyi "tamamlandı" diye işaretleme
+    if (this.totalSize > 0 && mergedBytes !== this.totalSize) {
+      throw new Error(`Merged size mismatch (${mergedBytes}/${this.totalSize})`);
+    }
 
-    // Clean up temporary segment files
+    // Clean up temporary segment files.
+    // Kuşak değiştiyse (bu arada yeniden başlatıldı) geçici klasör ARTIK yeni
+    // çalışmaya aittir — silmek onun parçalarını yok ederdi.
     try {
-      if (fs.existsSync(this.tempDir)) {
+      if (epoch === this._epoch && fs.existsSync(this.tempDir)) {
         fs.rmSync(this.tempDir, { recursive: true, force: true });
       }
     } catch (e) {
@@ -495,11 +668,14 @@ export class DownloadEngine extends EventEmitter {
 
   pause() {
     if (this.status !== 'downloading') return;
+    this._epoch++; // uçuştaki çalışmayı geçersiz kıl (bkz. start())
     this.status = 'paused';
     this.speed = 0;
     this.eta = 0;
 
-    this.activeRequests.forEach((req) => req.destroy());
+    this.activeRequests.forEach((ctl) => {
+      try { ctl.destroy(); } catch (e) { /* istek zaten kapalı */ }
+    });
     this.activeRequests = [];
     this.stopSpeedTracker();
 
@@ -511,18 +687,23 @@ export class DownloadEngine extends EventEmitter {
     if (this.tempDir && fs.existsSync(this.tempDir)) {
       try {
         fs.rmSync(this.tempDir, { recursive: true, force: true });
-      } catch (e) {}
+      } catch (e) {
+        console.error('Failed to remove temp dir:', e.message);
+      }
     }
     if (this.status !== 'completed' && this.savePath && fs.existsSync(this.savePath)) {
       try {
         fs.unlinkSync(this.savePath);
-      } catch (e) {}
+      } catch (e) {
+        console.error('Failed to remove partial file:', e.message);
+      }
     }
   }
 
   startSpeedTracker() {
     this.lastDownloadedBytes = this.downloadedBytes;
     this.lastSpeedCheck = Date.now();
+    this.stopSpeedTracker(); // çift zamanlayıcı bırakma (yeniden başlatmada)
 
     this.intervalTimer = setInterval(() => {
       if (this.status !== 'downloading') return;
@@ -533,21 +714,26 @@ export class DownloadEngine extends EventEmitter {
 
       if (timeDiff > 0) {
         this.speed = Math.max(0, Math.round(bytesDiff / timeDiff)); // Bytes per sec
-        
-        const remainingBytes = this.totalSize - this.downloadedBytes;
+
+        const remainingBytes = Math.max(0, this.totalSize - this.downloadedBytes);
         this.eta = this.speed > 0 ? Math.round(remainingBytes / this.speed) : 0;
       }
 
       this.lastDownloadedBytes = this.downloadedBytes;
       this.lastSpeedCheck = now;
 
+      // Toplam boyut biliniyorsa sayaç onu aşamaz (yeniden deneme sapması)
+      const reported = this.totalSize > 0
+        ? Math.min(this.downloadedBytes, this.totalSize)
+        : this.downloadedBytes;
+
       this.emit('progress', {
         id: this.id,
-        downloadedBytes: this.downloadedBytes,
+        downloadedBytes: reported,
         totalSize: this.totalSize,
         speed: this.speed,
         eta: this.eta,
-        segments: this.segments.map(s => ({
+        segments: this.segments.map((s) => ({
           id: s.id,
           downloaded: s.downloaded,
           total: s.total,
@@ -564,8 +750,15 @@ export class DownloadEngine extends EventEmitter {
     }
   }
 
-  toSnapshot() {
-    return {
+  /**
+   * @param {object} opts
+   *   - secrets: true ise tarayıcı oturum başlıkları (çerezler) da eklenir.
+   *     YALNIZCA diske kayıt (QueueManager.saveState) için kullanılır; API ve
+   *     WebSocket yanıtlarında ASLA gönderilmez — eski davranışta `/api/downloads`
+   *     kullanıcının başka sitelerdeki çerezlerini dışarı sızdırıyordu.
+   */
+  toSnapshot(opts = {}) {
+    const snap = {
       id: this.id,
       url: this.url,
       filename: this.filename,
@@ -573,16 +766,18 @@ export class DownloadEngine extends EventEmitter {
       savePath: this.savePath,
       category: storageService.getCategoryForFilename(this.filename),
       totalSize: this.totalSize,
-      downloadedBytes: this.downloadedBytes,
+      downloadedBytes: this.totalSize > 0 ? Math.min(this.downloadedBytes, this.totalSize) : this.downloadedBytes,
       status: this.status,
       speed: this.speed,
       eta: this.eta,
       segmentsCount: this.segmentsCount,
       checksum: this.checksum,
-      headers: this.headers,
       priority: this.priority,
+      // Arayüzdeki "Özellikler" penceresi hata sebebini gösterebilsin
+      // (VideoDownloader zaten gönderiyordu, dosya motoru göndermiyordu).
+      errorMsg: this.errorMsg || undefined,
       preflight: this.preflight ? true : undefined, // JSON'da yalnızca aktifken görünsün
-      segments: this.segments.map(s => ({
+      segments: this.segments.map((s) => ({
         id: s.id,
         startByte: s.startByte,
         endByte: s.endByte,
@@ -592,5 +787,14 @@ export class DownloadEngine extends EventEmitter {
         tempFilePath: s.tempFilePath // required to resume after an app restart
       }))
     };
+
+    if (opts.secrets) {
+      // Kalıcı kayıt: uygulama yeniden başladığında oturum korumalı linkler
+      // kaldığı yerden devam edebilsin diye başlıklar ve çözülen adres saklanır.
+      snap.headers = this.headers;
+      snap.resolvedUrl = this.resolvedUrl || undefined;
+    }
+
+    return snap;
   }
 }

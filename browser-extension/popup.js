@@ -125,7 +125,50 @@ function ping() {
       txt.textContent = t('pop_disconnected');
     }
   });
+  checkExtUpdate();
 }
+
+// Sem-ver karşılaştırma: a>b ise 1, a<b ise -1, eşitse 0
+function dnVerCmp(a, b) {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x > y) return 1;
+    if (x < y) return -1;
+  }
+  return 0;
+}
+
+// Uygulama güncellenince paketlenmiş eklenti sürümü (`expected`) yükseltilir; Chrome
+// paketten yüklenen eklentiyi otomatik yenilemediği için çalışan kopya eski kalır.
+// Uygulama beklenen sürüm çalışandan yeniyse tek tıkla yenileme uyarısı göster.
+function checkExtUpdate() {
+  const port = parseInt(els.port.value, 10) || 5000;
+  const box = document.getElementById('updateBox');
+  const msg = document.getElementById('updateMsg');
+  const btn = document.getElementById('reloadExt');
+  let own = '';
+  try { own = chrome.runtime.getManifest().version; } catch (e) { /* ignore */ }
+  fetch('http://localhost:' + port + '/api/extension/status')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      const expected = d && d.expected ? String(d.expected) : '';
+      if (expected && own && dnVerCmp(expected, own) > 0) {
+        msg.textContent = t('pop_update_msg', { new: expected });
+        btn.textContent = t('pop_reload_btn');
+        box.style.display = 'flex';
+      } else {
+        box.style.display = 'none';
+      }
+    })
+    .catch(() => { box.style.display = 'none'; });
+}
+
+// Uzantıyı yerinden (disk) yeniden yükler — kurulum güncellenen dosyaları alır.
+document.getElementById('reloadExt').addEventListener('click', () => {
+  try { chrome.runtime.reload(); } catch (e) { /* ignore */ }
+});
 
 document.getElementById('scan').addEventListener('click', () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {

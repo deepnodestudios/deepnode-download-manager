@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Settings, Save, Filter, Sliders, RotateCcw, CheckCircle2, Puzzle, FolderOpen, Globe, Clock, Lock, Plus, Trash2, Languages } from 'lucide-react';
 import { useT } from '../i18n';
+import { selectFolder } from '../native';
 
 const DEFAULT_CAPTURED = 'ZIP RAR 7Z TAR GZ ISO EXE MSI APK PDF DOCX XLSX PPTX MP4 MKV AVI MOV WEBM MP3 FLAC WAV';
 const DEFAULT_IGNORED = 'JS CSS HTML PHP TS JSON WOFF WOFF2 PNG JPG GIF SVG ICO XML TORRENT';
@@ -146,15 +147,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
 
   const browseDownloadDir = async () => {
     try {
-      let selected = null;
-      if (window.electronAPI && window.electronAPI.selectFolder) {
-        selected = await window.electronAPI.selectFolder();
-      } else if (typeof window !== 'undefined' && window.require) {
-        try {
-          const { ipcRenderer } = window.require('electron');
-          if (ipcRenderer) selected = await ipcRenderer.invoke('select-folder');
-        } catch (e) { /* ignore */ }
-      }
+      let selected = await selectFolder();
       if (!selected) {
         const res = await fetch('/api/select-folder', { method: 'POST' });
         const data = await res.json();

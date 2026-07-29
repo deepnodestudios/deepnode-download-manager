@@ -1,6 +1,7 @@
 import storageService from './StorageService.js';
 import { DownloadEngine } from './DownloadEngine.js';
-import { VideoDownloader, isVideoSiteUrl, getVideoInfo } from './VideoDownloader.js';
+import { VideoDownloader, isVideoSiteUrl, isStreamManifestUrl, getVideoInfo } from './VideoDownloader.js';
+import { safeName } from '../utils/paths.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -78,24 +79,28 @@ class QueueManager {
   }
 
   saveState() {
-    const snapshots = Array.from(this.engines.values()).map(e => e.toSnapshot());
+    // `secrets: true` YALNIZ burada: tarayıcı oturum başlıkları (çerezler) diske
+    // yazılır ki uygulama yeniden başladığında oturum korumalı indirmeler kaldığı
+    // yerden devam edebilsin. API/WebSocket snapshot'ları bunları taşımaz.
+    const snapshots = Array.from(this.engines.values()).map(e => e.toSnapshot({ secrets: true }));
     storageService.saveDownloads(snapshots);
   }
 
-  async addDownload(url, customFilename = null, customCategory = null, segmentsCount = 8, forceVideo = false, quality = 'best', customSaveDir = null, headers = null, preflight = false) {
+  async addDownload(url, customFilename = null, customCategory = null, segmentsCount = 8, forceVideo = false, quality = 'best', customSaveDir = null, headers = null, preflight = false, referer = null) {
     // NOTE: file-type filtering (capturedExtensions/ignoredExtensions) is applied
     // only to AUTOMATIC browser captures before prompting (see server /api/download/add).
     // An explicit/confirmed add must never be blocked here.
     const id = 'dl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
 
-    // Streaming sites (YouTube, etc.) -> handled by yt-dlp video engine
-    if (forceVideo || isVideoSiteUrl(url)) {
+    // Streaming sites (YouTube, etc.) and HLS/DASH manifests -> handled by yt-dlp video engine
+    if (forceVideo || isVideoSiteUrl(url) || isStreamManifestUrl(url)) {
       const saveDir = customSaveDir || this.categoryDir('Video');
-      
+      const videoReferer = referer || (headers && (headers.Referer || headers.referer)) || null;
+
       let videoTitle = customFilename;
       if (!videoTitle) {
         try {
-          const info = await getVideoInfo(url);
+          const info = await getVideoInfo(url, videoReferer);
           if (info && info.title) {
             videoTitle = info.title + '.mp4';
           }
@@ -107,8 +112,9 @@ class QueueManager {
       const engine = new VideoDownloader({
         id,
         url,
-        filename: videoTitle || 'Video Download',
+        filename: videoTitle ? safeName(videoTitle, 'Video Download') : 'Video Download',
         quality: quality || 'best',
+        referer: videoReferer,
         saveDir,
         status: 'queued'
       });
@@ -121,7 +127,9 @@ class QueueManager {
     }
 
     const info = await DownloadEngine.inspectUrl(url, headers || {});
-    let filename = customFilename || info.filename;
+    // Ad üç dış kaynaktan gelebilir (kullanıcı / eklenti / sunucunun
+    // Content-Disposition başlığı) — üçü de yol bileşeni taşıyabilir.
+    let filename = safeName(customFilename || info.filename, 'downloaded_file');
     const category = customCategory || info.category;
     const saveDir = customSaveDir || this.categoryDir(category);
 
@@ -159,14 +167,15 @@ class QueueManager {
   categoryDir(category) {
     const root = storageService.settings.downloadDir;
     if (storageService.settings.useCategoryFolders === false) return root;
-    return root + '/' + (category || 'General');
+    // AI_Guidelines §5: yol birleştirmede string toplama değil path.join
+    return path.join(root, safeName(category || 'General', 'General'));
   }
 
   // "dosya.zip" varsa "dosya (1).zip", "dosya (2).zip" ... döndürür
   uniqueFilename(dir, name) {
     try {
       if (!name) return name;
-      const full = (n) => (dir.endsWith('/') || dir.endsWith('\\') ? dir + n : dir + '/' + n);
+      const full = (n) => path.join(dir, n);
       if (!fs.existsSync(full(name))) return name;
 
       const dot = name.lastIndexOf('.');
@@ -307,7 +316,9 @@ class QueueManager {
     if (this.engines.get(id) !== engine) { engine.pause(); return null; }
 
     const newDir = (opts.saveDir && String(opts.saveDir).trim()) || engine.saveDir;
-    let newName = (opts.filename && String(opts.filename).trim()) || engine.filename;
+    let newName = opts.filename && String(opts.filename).trim()
+      ? safeName(opts.filename, engine.filename)
+      : engine.filename;
     const dirChanged = path.resolve(newDir) !== path.resolve(engine.saveDir);
     const nameChanged = newName !== engine.filename;
 
@@ -425,14 +436,17 @@ class QueueManager {
     const engine = this.engines.get(id);
     if (!engine) return null;
 
+    // Kullanıcı girdisi doğrudan yol olarak kullanılamaz: "../../Startup/x.exe"
+    // gibi bir ad dosyayı indirme klasörünün dışına taşırdı.
+    const cleanName = safeName(newName, engine.filename);
     const dir = engine.saveDir;
     const oldPath = engine.savePath;
-    const newPath = (dir.endsWith('/') || dir.endsWith('\\') ? dir + newName : dir + '/' + newName);
+    const newPath = path.join(dir, cleanName);
 
     if (oldPath && fs.existsSync(oldPath) && oldPath !== newPath) {
       fs.renameSync(oldPath, newPath);
     }
-    engine.filename = newName;
+    engine.filename = cleanName;
     engine.savePath = newPath;
 
     this.saveState();

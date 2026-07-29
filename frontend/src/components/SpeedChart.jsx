@@ -50,48 +50,49 @@ export default function SpeedChart({ currentSpeed }) {
         borderColor: '#2de1c2',
         backgroundColor: (context) => {
           const ctx = context.chart.ctx;
-          const gradient = ctx.createLinearGradient(0, 0, 0, 64);
+          // Şerit yüksekliğiyle (26px) uyumlu dolgu geçişi
+          const gradient = ctx.createLinearGradient(0, 0, 0, 26);
           gradient.addColorStop(0, 'rgba(45, 225, 194, 0.35)');
           gradient.addColorStop(1, 'rgba(41, 121, 255, 0.0)');
           return gradient;
         },
-        borderWidth: 2,
+        borderWidth: 1.5,
         tension: 0.45,
         pointRadius: 0,
       },
     ],
   };
 
+  // Şerit tek satıra indirildiği için eksen etiketleri/ızgarası kapatıldı —
+  // 0/0,4/0,8 yazıları bu yükseklikte okunmuyor, sadece yer kaplıyordu.
+  // Değer zaten solda yazılı; kesin okuma için tooltip duruyor.
   const options = {
     responsive: true,
     maintainAspectRatio: false,
     animation: false,
+    layout: { padding: 0 },
     plugins: {
       legend: { display: false },
       tooltip: {
+        displayColors: false,
         callbacks: {
+          title: () => '',
           label: (context) => `${context.parsed.y} MB/s`
         }
       }
     },
     scales: {
       x: { display: false },
-      y: {
-        min: 0,
-        grid: { color: 'rgba(128, 150, 190, 0.08)' },
-        ticks: { color: '#8ca3c7', font: { size: 9 } }
-      }
+      y: { display: false, min: 0 }
     }
   };
 
   return (
     <div className="speed-bar-panel">
       <div className="stat-item">
-        <div className="stat-icon"><Gauge size={17} /></div>
-        <div>
-          <div className="stat-val">{fmtSpeed(currentSpeed)}</div>
-          <div className="stat-lbl">{t('chart_label')}</div>
-        </div>
+        <div className="stat-icon"><Gauge size={13} /></div>
+        <div className="stat-val">{fmtSpeed(currentSpeed)}</div>
+        <div className="stat-lbl">{t('chart_label')}</div>
       </div>
       <div className="speed-chart-box">
         <Line data={data} options={options} />

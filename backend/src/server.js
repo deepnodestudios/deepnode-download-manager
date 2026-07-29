@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import os from 'os';
-import { exec, spawn } from 'child_process';
+import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 
 import storageService from './services/StorageService.js';
@@ -15,6 +15,9 @@ import { LinkSniffer } from './services/LinkSniffer.js';
 import { DownloadEngine } from './services/DownloadEngine.js';
 import { getVideoInfo, autoUpdateYtDlp, isVideoSiteUrl } from './services/VideoDownloader.js';
 import { startScheduler, schedulerStatus } from './services/Scheduler.js';
+import { corsOptions, originGuard, appOnly, isExtensionOrigin, settingsForExtension } from './security.js';
+import { createUpdateRouter } from './routes/update.js';
+import { showItemInFolder, openPath } from './utils/shell.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -145,9 +148,20 @@ function startPreflight(url, filename, headers) {
 }
 
 
+// Dinlenen port: 5000 doluysa çalışma anında bir sonrakine düşülür (bkz. listen).
+// Güvenlik katmanı beyaz listeyi bu değerle kurduğu için fonksiyonla okunur.
+const DEFAULT_PORT = Number(process.env.DN_PORT) || 5000;
+let activePort = DEFAULT_PORT;
+const getPort = () => activePort;
+
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// GÜVEN SINIRI (bkz. security.js): yalnız tarayıcı uzantısı ve uygulamanın kendi
+// penceresi API'yi kullanabilir. Ziyaret edilen web sayfaları hem yanıtı okuyamaz
+// (CORS beyaz listesi) hem de isteği hiç işlenmeden reddedilir (originGuard).
+app.use(cors(corsOptions(getPort)));
+app.use(express.json({ limit: '1mb' }));
+app.use('/api', originGuard(getPort));
 
 // Serve static frontend dist for web and electron
 const distPath = path.join(__dirname, '../../frontend/dist');
@@ -163,7 +177,15 @@ const clients = new Set();
 
 wss.on('connection', (ws) => {
   clients.add(ws);
-  
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+
+  // İşlenmeyen 'error' olayı süreci düşürebilirdi
+  ws.on('error', (err) => {
+    console.error('WebSocket client error:', err.message);
+    clients.delete(ws);
+  });
+
   // Send initial state upon connection
   ws.send(JSON.stringify({
     type: 'INIT_STATE',
@@ -177,6 +199,23 @@ wss.on('connection', (ws) => {
     clients.delete(ws);
   });
 });
+
+wss.on('error', (err) => console.error('WebSocket server error:', err.message));
+
+// Kalp atışı: uyku/ağ kopması sonrası ölü bağlantılar `clients` kümesinde
+// birikip her yayında boşa serileştirmeye yol açıyordu.
+const wsHeartbeat = setInterval(() => {
+  clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      clients.delete(ws);
+      try { ws.terminate(); } catch (e) { /* zaten kapalı */ }
+      return;
+    }
+    ws.isAlive = false;
+    try { ws.ping(); } catch (e) { /* zaten kapalı */ }
+  });
+}, 30000);
+wsHeartbeat.unref();
 
 queueManager.setBroadcastCallback((message) => {
   // Let the Electron layer react to finished downloads (notification / sound /
@@ -232,7 +271,7 @@ function emitTaskbarProgress(force) {
 // REST API Endpoints
 
 // 1. Get all downloads
-app.get('/api/downloads', (req, res) => {
+app.get('/api/downloads', appOnly(getPort), (req, res) => {
   res.json(queueManager.getAllDownloads());
 });
 
@@ -260,11 +299,11 @@ app.post('/api/download/inspect', async (req, res) => {
 
 // 3. Inspect video formats / qualities for video sites (YouTube, Vimeo, etc.)
 app.post('/api/video/formats', async (req, res) => {
-  const { url } = req.body;
+  const { url, referer } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
   try {
-    const info = await getVideoInfo(url);
+    const info = await getVideoInfo(url, referer || null);
     res.json(info);
   } catch (err) {
     res.status(500).json({ error: 'Could not fetch formats: ' + err.message });
@@ -272,7 +311,7 @@ app.post('/api/video/formats', async (req, res) => {
 });
 
 // 4. Prompt Download Dialog in UI for captured URL
-app.post('/api/download/prompt-add', (req, res) => {
+app.post('/api/download/prompt-add', appOnly(getPort), (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
@@ -283,7 +322,7 @@ app.post('/api/download/prompt-add', (req, res) => {
 });
 
 // 4.5. Native Windows Folder Browser Dialog Endpoint
-app.post('/api/select-folder', async (req, res) => {
+app.post('/api/select-folder', appOnly(getPort), async (req, res) => {
   if (process.platform === 'win32') {
     const tmpPs1 = path.join(os.tmpdir(), `select_folder_${Date.now()}.ps1`);
     const script = `\uFEFF
@@ -396,7 +435,7 @@ app.post('/api/download/add', async (req, res) => {
 
 // 5b. Confirm a background preflight download: apply the user's final choices
 // (name/folder) and CONTINUE from the bytes already downloaded (IDM behaviour).
-app.post('/api/download/confirm-preflight', async (req, res) => {
+app.post('/api/download/confirm-preflight', appOnly(getPort), async (req, res) => {
   const { url, filename, saveDir, segmentsCount, autoStart } = req.body || {};
   const snap = await confirmPreflightForUrl(url, { filename, saveDir, segmentsCount, autoStart });
   if (!snap) return res.status(404).json({ notFound: true });
@@ -406,7 +445,7 @@ app.post('/api/download/confirm-preflight', async (req, res) => {
 
 // 5c. Cancel a background preflight (confirm window closed without starting).
 // Onaylanmış indirmelere dokunmaz (preflight bayrağı kalkmış olur).
-app.post('/api/download/cancel-preflight', (req, res) => {
+app.post('/api/download/cancel-preflight', appOnly(getPort), (req, res) => {
   const { url } = req.body || {};
   const entry = url ? preflights.get(url) : null;
   if (entry) dropPreflight(url, entry);
@@ -415,18 +454,20 @@ app.post('/api/download/cancel-preflight', (req, res) => {
 
 // 6. Add video download (STRICT RULE: Requires confirmedByUser: true from Download Dialog)
 app.post('/api/download/video', async (req, res) => {
-  const { url, filename, saveDir, quality, autoStart, confirmedByUser } = req.body;
+  const { url, filename, saveDir, quality, referer, autoStart, confirmedByUser } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
   // STRICT USER GUARD: If user has not confirmed in the Save Location Dialog, DO NOT add or start download!
   if (!confirmedByUser) {
-    // Eklentide seçilen kaliteyi onay penceresine taşı (yoksa "en yüksek"e düşerdi)
-    serverEvents.emit('prompt-add', { url, quality: quality || null });
+    // Eklentide seçilen kaliteyi ve referer'ı onay penceresine taşı (yoksa "en yüksek"e düşerdi)
+    // video: true -> onay penceresi bunu daima video/manifest sayar (uzantıya bakmadan).
+    // Uzantıdan gelen akış manifesti .txt gibi uzantısız olabilir; URL'den anlaşılmaz.
+    serverEvents.emit('prompt-add', { url, quality: quality || null, referer: referer || null, video: true, filename: filename || null });
     return res.json({ status: 'prompted', message: 'Folder & download confirmation window opened.' });
   }
 
   try {
-    const item = await queueManager.addDownload(url, filename, 'Video', 1, true, quality, saveDir);
+    const item = await queueManager.addDownload(url, filename, 'Video', 1, true, quality, saveDir, null, false, referer || null);
     if (autoStart === false && item && item.id) {
       queueManager.pauseDownload(item.id);
     } else if (item && item.id) {
@@ -439,7 +480,7 @@ app.post('/api/download/video', async (req, res) => {
 });
 
 // 6. Add batch downloads
-app.post('/api/download/batch', async (req, res) => {
+app.post('/api/download/batch', appOnly(getPort), async (req, res) => {
   const { urls } = req.body;
   if (!Array.isArray(urls) || urls.length === 0) {
     return res.status(400).json({ error: 'URLs array is required' });
@@ -453,21 +494,21 @@ app.post('/api/download/batch', async (req, res) => {
 });
 
 // 7. Start / Resume download
-app.post('/api/download/:id/start', (req, res) => {
+app.post('/api/download/:id/start', appOnly(getPort), (req, res) => {
   const { id } = req.params;
   queueManager.startDownload(id);
   res.json({ success: true });
 });
 
 // 8. Pause download
-app.post('/api/download/:id/pause', (req, res) => {
+app.post('/api/download/:id/pause', appOnly(getPort), (req, res) => {
   const { id } = req.params;
   queueManager.pauseDownload(id);
   res.json({ success: true });
 });
 
 // 9. Delete download
-app.delete('/api/download/:id', (req, res) => {
+app.delete('/api/download/:id', appOnly(getPort), (req, res) => {
   const { id } = req.params;
   const deleteFile = req.query.deleteFile === 'true';
   queueManager.deleteDownload(id, deleteFile);
@@ -475,52 +516,45 @@ app.delete('/api/download/:id', (req, res) => {
 });
 
 // 10. Open specific download folder / file in File Explorer
-const revealInExplorer = (item) => {
+// NOT: Kabuk string'i YOK — dosya adı sunucudan/kullanıcıdan geldiği için
+// komut enjeksiyonuna açıktı (bkz. utils/shell.js).
+const revealInExplorer = async (item) => {
   if (!item) return;
-  if (process.platform === 'win32') {
-    const savePath = item.savePath;
-    const saveDir = item.saveDir || storageService.settings.downloadDir;
+  const savePath = item.savePath;
+  const saveDir = item.saveDir || storageService.settings.downloadDir;
 
-    if (savePath && fs.existsSync(savePath)) {
-      // Open File Explorer and select the exact file!
-      exec(`explorer.exe /select,"${savePath.replace(/\//g, '\\')}"`);
-    } else if (saveDir && fs.existsSync(saveDir)) {
-      // Open the specific category folder (e.g. Downloads\DeepNode\Video)
-      exec(`explorer.exe "${saveDir.replace(/\//g, '\\')}"`);
-    } else {
-      exec(`explorer.exe "${storageService.settings.downloadDir.replace(/\//g, '\\')}"`);
-    }
+  if (savePath && fs.existsSync(savePath)) {
+    await showItemInFolder(savePath);
+  } else if (saveDir && fs.existsSync(saveDir)) {
+    await openPath(saveDir);
+  } else if (storageService.settings.downloadDir) {
+    await openPath(storageService.settings.downloadDir);
   }
 };
 
-app.post('/api/download/:id/reveal', (req, res) => {
-  const { id } = req.params;
-  const item = queueManager.getDownloadById(id);
-  revealInExplorer(item);
+app.post('/api/download/:id/reveal', appOnly(getPort), async (req, res) => {
+  const item = queueManager.getDownloadById(req.params.id);
+  await revealInExplorer(item);
   res.json({ success: true });
 });
 
-app.post('/api/download/:id/open-folder', (req, res) => {
-  const { id } = req.params;
-  const item = queueManager.getDownloadById(id);
-  revealInExplorer(item);
+app.post('/api/download/:id/open-folder', appOnly(getPort), async (req, res) => {
+  const item = queueManager.getDownloadById(req.params.id);
+  await revealInExplorer(item);
   res.json({ success: true });
 });
 
-// Open file directly with default Windows application
-app.post('/api/download/:id/open', (req, res) => {
-  const { id } = req.params;
-  const item = queueManager.getDownloadById(id);
+// Open file directly with default application
+app.post('/api/download/:id/open', appOnly(getPort), async (req, res) => {
+  const item = queueManager.getDownloadById(req.params.id);
   if (item && item.savePath && fs.existsSync(item.savePath)) {
-    if (process.platform === 'win32') {
-      exec(`start "" "${item.savePath.replace(/\//g, '\\')}"`);
-    }
+    await openPath(item.savePath);
   }
   res.json({ success: true });
 });
 
 // Open the bundled browser-extension folder (for loading it unpacked)
-app.post('/api/open-extension-folder', (req, res) => {
+app.post('/api/open-extension-folder', appOnly(getPort), async (req, res) => {
   const candidates = [
     path.join(__dirname, '../../../../browser-extension'), // packaged: INSTDIR/browser-extension
     path.join(__dirname, '../../../browser-extension'),     // dev: project/browser-extension
@@ -528,20 +562,12 @@ app.post('/api/open-extension-folder', (req, res) => {
   ];
   const dir = candidates.find((d) => { try { return fs.existsSync(d); } catch (e) { return false; } });
   if (!dir) return res.status(404).json({ error: 'Extension folder not found' });
-  try {
-    if (process.platform === 'win32') {
-      exec(`explorer "${dir.replace(/\//g, '\\')}"`);
-    } else if (process.platform === 'darwin') {
-      exec(`open "${dir}"`);
-    } else {
-      exec(`xdg-open "${dir}"`);
-    }
-  } catch (e) { /* ignore */ }
+  await openPath(dir);
   res.json({ success: true, path: dir });
 });
 
 // Yeniden indir: dosyayı ve parçaları silip baştan indirir
-app.post('/api/download/:id/redownload', async (req, res) => {
+app.post('/api/download/:id/redownload', appOnly(getPort), async (req, res) => {
   try {
     const item = await queueManager.redownload(req.params.id);
     if (!item) return res.status(404).json({ error: 'Download not found' });
@@ -552,7 +578,7 @@ app.post('/api/download/:id/redownload', async (req, res) => {
 });
 
 // Dosyayı yeniden adlandır (diskte + listede)
-app.post('/api/download/:id/rename', (req, res) => {
+app.post('/api/download/:id/rename', appOnly(getPort), (req, res) => {
   const { filename } = req.body || {};
   if (!filename || !filename.trim()) return res.status(400).json({ error: 'New name required' });
   try {
@@ -565,18 +591,18 @@ app.post('/api/download/:id/rename', (req, res) => {
 });
 
 // 11. Start All / Pause All
-app.post('/api/download/start-all', (req, res) => {
+app.post('/api/download/start-all', appOnly(getPort), (req, res) => {
   queueManager.startAll();
   res.json({ success: true });
 });
 
-app.post('/api/download/pause-all', (req, res) => {
+app.post('/api/download/pause-all', appOnly(getPort), (req, res) => {
   queueManager.pauseAll();
   res.json({ success: true });
 });
 
 // 12. Sniff web page links
-app.post('/api/sniffer', async (req, res) => {
+app.post('/api/sniffer', appOnly(getPort), async (req, res) => {
   const { url, depth, sameDomainOnly, extensions, fileTypes, maxPages } = req.body;
   if (!url) return res.status(400).json({ error: 'Page URL is required' });
   try {
@@ -588,7 +614,7 @@ app.post('/api/sniffer', async (req, res) => {
 });
 
 // İndirme önceliği (high | normal | low)
-app.post('/api/download/:id/priority', (req, res) => {
+app.post('/api/download/:id/priority', appOnly(getPort), (req, res) => {
   const { priority } = req.body || {};
   const item = queueManager.setPriority(req.params.id, priority);
   if (!item) return res.status(404).json({ error: 'Download not found' });
@@ -628,9 +654,13 @@ app.get('/api/settings', (req, res) => {
   // Only requests coming from the browser extension carry an extension Origin;
   // old extensions (<=1.1.2) send no extVersion param and thus report ''.
   const origin = String(req.headers.origin || '');
-  if (/^(chrome|moz|edge)-extension:/i.test(origin)) {
+  if (isExtensionOrigin(origin)) {
     extensionSeen.version = String(req.query.extVersion || '');
     extensionSeen.lastSeenAt = Date.now();
+    // Eklentiye TÜM ayarlar gönderilmez: proxy şifresi, site giriş şifreleri ve
+    // indirme klasörü gibi bilgilere ihtiyacı yok. Yalnız gerçekten okuduğu
+    // alanlar döner (captureBypassKey, captureEnabled, language, filtreler...).
+    return res.json(settingsForExtension(storageService.settings));
   }
   res.json(storageService.settings);
 });
@@ -673,193 +703,22 @@ app.get('/api/app/info', (req, res) => {
   });
 });
 
-// 15. Update check — fetches latest version from GitHub Releases API (primary)
-// with fallback to the static manifest on the website.
-const GITHUB_RELEASES_API = 'https://api.github.com/repos/deepnodestudios/deepnode-download-manager/releases/latest';
-const UPDATE_MANIFEST_FALLBACK = 'https://deepnodestudios.net/DDM/updates/ddm-latest.json';
+// 15. Güncelleme uçları (kontrol / indirme / kurulum) ayrı modüle taşındı:
+//   - AI_Guidelines §2: server.js 1000 satır sınırına yaklaşmıştı.
+//   - Bu üç uç uygulamanın en ayrıcalıklı işlemini yapıyor (indirilen dosyayı
+//     ÇALIŞTIRIYOR); sertleştirme tek yerde toplandı: kaynak adres beyaz listesi,
+//     dosya adı kısıtı ve yalnız uygulama penceresinden çağrılabilme (appOnly).
+app.use('/api/update', createUpdateRouter({
+  appVersion,
+  broadcast: (message) => {
+    const json = JSON.stringify(message);
+    clients.forEach((c) => { if (c.readyState === 1) c.send(json); });
+  },
+  serverEvents,
+  appOnly: appOnly(getPort)
+}));
 
-function compareVersions(a, b) {
-  const pa = String(a).split('.').map(Number);
-  const pb = String(b).split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    const na = pa[i] || 0, nb = pb[i] || 0;
-    if (na > nb) return 1;
-    if (na < nb) return -1;
-  }
-  return 0;
-}
-
-app.get('/api/update/check', async (req, res) => {
-  const current = appVersion();
-  try {
-    // Primary: GitHub Releases API
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    const resp = await fetch(GITHUB_RELEASES_API, {
-      signal: controller.signal,
-      headers: { 'User-Agent': `DeepNode/${current}`, 'Accept': 'application/vnd.github+json' }
-    });
-    clearTimeout(timeout);
-    if (!resp.ok) throw new Error(`GitHub HTTP ${resp.status}`);
-    const data = await resp.json();
-    const latest = (data.tag_name || '').replace(/^v/, '');
-    const downloadUrl = (data.assets && data.assets.length > 0) ? data.assets[0].browser_download_url : '';
-    res.json({
-      current,
-      latest,
-      updateAvailable: !!(latest && compareVersions(latest, current) > 0),
-      downloadUrl,
-      notes: data.body || ''
-    });
-  } catch (e) {
-    // Fallback: static manifest on website
-    try {
-      const controller2 = new AbortController();
-      const timeout2 = setTimeout(() => controller2.abort(), 6000);
-      const resp2 = await fetch(UPDATE_MANIFEST_FALLBACK, {
-        signal: controller2.signal,
-        headers: { 'User-Agent': `DeepNode/${current}` }
-      });
-      clearTimeout(timeout2);
-      if (!resp2.ok) throw new Error(`HTTP ${resp2.status}`);
-      const data2 = await resp2.json();
-      const latest = data2.version || '';
-      res.json({
-        current,
-        latest,
-        updateAvailable: !!(latest && compareVersions(latest, current) > 0),
-        downloadUrl: data2.downloadUrl || '',
-        notes: data2.notes || ''
-      });
-    } catch (e2) {
-      res.json({
-        current,
-        latest: null,
-        updateAvailable: false,
-        downloadUrl: '',
-        notes: '',
-        error: 'Could not reach the update server'
-      });
-    }
-  }
-});
-
-// --- Auto-update: download installer & run it ---
-const UPDATE_DIR = path.join(os.tmpdir(), 'DeepNodeUpdate');
-let updateDownloadState = { status: 'idle', progress: 0, file: null, error: null };
-
-function broadcastUpdateProgress(payload) {
-  const msg = JSON.stringify({ type: 'UPDATE_PROGRESS', payload });
-  clients.forEach((c) => { if (c.readyState === 1) c.send(msg); });
-}
-
-app.get('/api/update/status', (req, res) => {
-  res.json(updateDownloadState);
-});
-
-app.post('/api/update/download', async (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: 'URL is required' });
-  if (updateDownloadState.status === 'downloading') {
-    return res.status(409).json({ error: 'A download is already in progress' });
-  }
-
-  // Prepare directory
-  if (!fs.existsSync(UPDATE_DIR)) fs.mkdirSync(UPDATE_DIR, { recursive: true });
-  const fileName = url.split('/').pop() || 'DeepNodeSetup.exe';
-  const filePath = path.join(UPDATE_DIR, fileName);
-  const partPath = filePath + '.part';
-
-  // Reuse a previously completed download: the installer is written to a .part
-  // file and renamed only on success, so filePath existing means it finished.
-  // Size is still verified against the server (antivirus may quarantine/truncate).
-  if (fs.existsSync(filePath)) {
-    try {
-      const head = await fetch(url, {
-        method: 'HEAD',
-        headers: { 'User-Agent': `DeepNode/${appVersion()}` },
-        redirect: 'follow'
-      });
-      const remoteSize = parseInt(head.headers.get('content-length') || '0', 10);
-      const localSize = fs.statSync(filePath).size;
-      if (head.ok && remoteSize > 0 && localSize === remoteSize) {
-        updateDownloadState = { status: 'ready', progress: 100, file: filePath, error: null };
-        broadcastUpdateProgress(updateDownloadState);
-        return res.json({ started: true, reused: true, file: filePath });
-      }
-    } catch (e) { /* verification failed → fall through and re-download */ }
-    try { fs.unlinkSync(filePath); } catch (e) { /* ignore */ }
-  }
-
-  updateDownloadState = { status: 'downloading', progress: 0, file: filePath, error: null };
-  broadcastUpdateProgress(updateDownloadState);
-  res.json({ started: true, file: filePath });
-
-  try {
-    const response = await fetch(url, {
-      headers: { 'User-Agent': `DeepNode/${appVersion()}` },
-      redirect: 'follow'
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    const totalSize = parseInt(response.headers.get('content-length') || '0', 10);
-    const fileStream = fs.createWriteStream(partPath);
-    let downloaded = 0;
-    let lastBroadcast = 0;
-
-    for await (const chunk of response.body) {
-      fileStream.write(chunk);
-      downloaded += chunk.length;
-      const progress = totalSize > 0 ? Math.round((downloaded / totalSize) * 100) : 0;
-      // Broadcast at most every 500ms to avoid flooding
-      const now = Date.now();
-      if (progress !== updateDownloadState.progress && (now - lastBroadcast > 500 || progress === 100)) {
-        updateDownloadState.progress = progress;
-        broadcastUpdateProgress(updateDownloadState);
-        lastBroadcast = now;
-      }
-    }
-
-    fileStream.end();
-    await new Promise((resolve, reject) => {
-      fileStream.on('finish', resolve);
-      fileStream.on('error', reject);
-    });
-
-    // Download completed in full → promote .part to the final installer name.
-    fs.renameSync(partPath, filePath);
-
-    updateDownloadState = { status: 'ready', progress: 100, file: filePath, error: null };
-    broadcastUpdateProgress(updateDownloadState);
-  } catch (e) {
-    try { if (fs.existsSync(partPath)) fs.unlinkSync(partPath); } catch (e2) { /* ignore */ }
-    updateDownloadState = { status: 'error', progress: 0, file: null, error: e.message };
-    broadcastUpdateProgress(updateDownloadState);
-  }
-});
-
-app.post('/api/update/install', (req, res) => {
-  const filePath = updateDownloadState.file;
-  if (!filePath || !fs.existsSync(filePath)) {
-    return res.status(400).json({ error: 'Installer file not found' });
-  }
-  res.json({ installing: true });
-
-  // Launch NSIS installer silently, detached from this process
-  const installer = spawn(filePath, ['/S'], {
-    detached: true,
-    stdio: 'ignore',
-    shell: false
-  });
-  installer.unref();
-
-  // Give the installer a moment to start, then signal Electron to quit
-  setTimeout(() => {
-    serverEvents.emit('quit-and-install');
-  }, 1500);
-});
-
-app.post('/api/settings', (req, res) => {
+app.post('/api/settings', appOnly(getPort), (req, res) => {
   const updated = storageService.saveSettings(req.body);
   // Electron tarafı (açılışta başlat, tepsi davranışı vb.) hemen uygulasın
   serverEvents.emit('settings-changed', updated);
@@ -868,7 +727,10 @@ app.post('/api/settings', (req, res) => {
 
 // 14. Built-in Local Test File Generator
 app.get('/api/test-file', (req, res) => {
-  const megabytes = parseInt(req.query.mb || '50', 10);
+  // Sınırsız `mb` değeri bitmeyen bir akış üretiyordu; NaN ise Content-Length de
+  // bozuluyordu. 1..4096 MB aralığına sabitlenir.
+  const requested = parseInt(req.query.mb || '50', 10);
+  const megabytes = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 4096) : 50;
   const totalSizeBytes = megabytes * 1024 * 1024;
   const fileName = `Test_Sample_${megabytes}MB.bin`;
 
@@ -936,16 +798,17 @@ app.get('*', (req, res) => {
   }
 });
 
-const PORT = Number(process.env.DN_PORT) || 5000;
-server.listen(PORT, () => {
-  console.log(`🚀 DeepNode Download Manager Backend running on http://localhost:${PORT}`);
-  console.log(`⚡ WebSocket stream ready on ws://localhost:${PORT}`);
+function onServerReady() {
+  console.log(`🚀 DeepNode Download Manager Backend running on http://127.0.0.1:${activePort}`);
+  console.log(`⚡ WebSocket stream ready on ws://127.0.0.1:${activePort}`);
+
+  serverEvents.emit('server-ready', activePort);
 
   // Keep yt-dlp fresh automatically (no user action). Check shortly after start,
   // then every 12 hours while the app runs.
   const maybeUpdate = () => {
     if (storageService.settings.autoUpdateYtDlp === false) return;
-    autoUpdateYtDlp(true).catch(() => {});
+    autoUpdateYtDlp(true).catch((err) => console.error('yt-dlp update check failed:', err.message));
   };
   setTimeout(maybeUpdate, 8000);
   setInterval(maybeUpdate, 12 * 3600 * 1000);
@@ -954,4 +817,44 @@ server.listen(PORT, () => {
   startScheduler((evt) => {
     queueManager.broadcast({ type: 'SCHEDULER', payload: { event: evt, at: new Date().toISOString() } });
   });
+}
+
+// Port çakışmasında sessizce ölme: eskiden `listen` hata verince işlenmemiş
+// 'error' olayı oluşuyor, Electron'daki `uncaughtException` yakalayıcısı onu
+// yutuyordu ve kullanıcı BOMBOŞ bir pencereyle kalıyordu (5000 çok yaygın bir port).
+// Artık sıradaki portlar denenir; seçilen port ~/.deepnode/port dosyasına yazılır
+// ki tarayıcı eklentisi ve arayüz doğru adrese bağlanabilsin.
+const MAX_PORT_ATTEMPTS = 10;
+let portAttempt = 0;
+
+// GÜVENLİK: yalnız geri döngü arayüzü. Eskiden 0.0.0.0'a bağlanıyordu ve API
+// yerel ağdaki her cihazdan erişilebilirdi.
+const LISTEN_HOST = '127.0.0.1';
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE' && portAttempt < MAX_PORT_ATTEMPTS) {
+    portAttempt++;
+    activePort = DEFAULT_PORT + portAttempt;
+    console.warn(`Port ${activePort - 1} kullanımda — ${activePort} deneniyor...`);
+    setTimeout(() => server.listen(activePort, LISTEN_HOST), 150);
+    return;
+  }
+  console.error('Backend sunucusu başlatılamadı:', err.message);
+  serverEvents.emit('server-error', err);
+});
+
+function persistActivePort(port) {
+  try {
+    const dir = path.join(os.homedir(), '.deepnode');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'port'), String(port), 'utf-8');
+  } catch (err) {
+    console.error('Aktif port yazılamadı:', err.message);
+  }
+}
+
+server.listen(activePort, LISTEN_HOST, () => {
+  activePort = server.address().port;
+  persistActivePort(activePort);
+  onServerReady();
 });

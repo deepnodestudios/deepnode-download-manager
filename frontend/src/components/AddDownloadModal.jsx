@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Minus, Link as LinkIcon, FileText, Film, Loader, Folder, Play, Clock, HardDrive, Home, Video, Music, Cpu, Archive } from 'lucide-react';
 import { useT } from '../i18n';
+import { selectFolder, minimizeWindow, resizeWindow } from '../native';
 
 const VIDEO_SITE_RE = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|twitter\.com|x\.com|reddit\.com|soundcloud\.com|bilibili\.com|ok\.ru|vk\.com)$/i;
 
@@ -8,6 +9,16 @@ function isVideoUrl(raw) {
   try {
     const u = new URL(raw);
     return /^https?:$/.test(u.protocol) && VIDEO_SITE_RE.test(u.hostname);
+  } catch (e) {
+    return false;
+  }
+}
+
+// HLS/DASH manifestleri (m3u8/mpd) siteden bağımsız olarak video motoruyla indirilir
+function isStreamManifestUrl(raw) {
+  try {
+    const u = new URL(raw);
+    return /^https?:$/.test(u.protocol) && /\.(m3u8|mpd)(\?|$)/i.test(u.pathname + u.search);
   } catch (e) {
     return false;
   }
@@ -51,7 +62,7 @@ function categoryFromUrl(raw) {
   }
 }
 
-export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAddBatch, settings, initialUrl = '', initialQuality = '', isStandalone = false }) {
+export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAddBatch, settings, initialUrl = '', initialQuality = '', initialReferer = '', initialIsVideo = false, initialFilename = '', isStandalone = false }) {
   const { t } = useT();
   const boxRef = useRef(null); // standalone: içerik yüksekliğini ölçüp pencereyi ona göre boyutlandır
   const submittingRef = useRef(false); // gönderim sürüyor — pencere kapanmadan ikinci tıklamayı engelle
@@ -108,7 +119,9 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
       return;
     }
 
-    const video = isVideoUrl(url);
+    // initialIsVideo: eklentiden gelen video/manifest indirmesi (uzantısız .txt manifest de
+    // URL'den anlaşılmaz; eklenti Content-Type ile doğruladı). Bu bayrak varsa daima video say.
+    const video = initialIsVideo || isVideoUrl(url) || isStreamManifestUrl(url);
     setIsVideo(video);
     setFormatError('');
     setLoadingMetadata(true);
@@ -130,7 +143,7 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
         fetch('/api/video/formats', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: url.trim() }),
+          body: JSON.stringify({ url: url.trim(), referer: initialReferer || undefined }),
           signal: controller.signal
         })
           .then(res => res.json())
@@ -139,8 +152,10 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
             const q = data.qualities || (data.heights || []).map(h => ({ height: h, size: 0 }));
             setQualities(q);
             setVideoTitle(data.title || '');
-            if (data.title && !filename) {
-              setFilename(data.title);
+            // Sayfa başlığını (initialFilename) yt-dlp'nin "master" gibi metadata başlığına
+            // tercih et — HLS/.txt kaynaklarında anlamlı tek isim sayfa başlığıdır.
+            if (!filename) {
+              setFilename(initialFilename || data.title || '');
             }
             // Eklentide/kullanıcı tarafından seçilmiş kaliteyi EZME.
             // Yalnızca hiç seçim yoksa "en yüksek"e düş.
@@ -150,6 +165,8 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
             if (err.name === 'AbortError') return;
             setQualities([]);
             setFormatError(t('fmt_error'));
+            // Format alınamasa da (ör. oturum korumalı HLS 404) sayfa başlığını ad olarak koy
+            if (!filename) setFilename(initialFilename || '');
           })
           .finally(() => setLoadingMetadata(false));
       } else {
@@ -189,6 +206,7 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
             saveDir: saveDir.trim() || undefined,
             isVideo: true,
             quality,
+            referer: initialReferer || undefined,
             autoStart
           });
         } else {
@@ -220,17 +238,9 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
 
   const handleBrowseFolder = async () => {
     try {
-      let selected = null;
-      if (window.electronAPI && window.electronAPI.selectFolder) {
-        selected = await window.electronAPI.selectFolder();
-      } else if (typeof window !== 'undefined' && window.require) {
-        try {
-          const electron = window.require('electron');
-          if (electron && electron.ipcRenderer) {
-            selected = await electron.ipcRenderer.invoke('select-folder');
-          }
-        } catch (e) {}
-      }
+      // Yerel Electron klasör kutusu (tüm pencerelerde çalışır); köprü yoksa
+      // backend'in PowerShell yedeğine düşülür.
+      let selected = await selectFolder();
 
       if (!selected) {
         const res = await fetch('/api/select-folder', { method: 'POST' });
@@ -256,24 +266,16 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
   const catLabel = (cat) => t('catName_' + cat);
 
   // Çerçevesiz standalone pencerede görev çubuğuna küçültme (Windows başlık çubuğu yok)
-  const handleMinimize = () => {
-    if (window.require) {
-      const { ipcRenderer } = window.require('electron');
-      ipcRenderer.send('minimize-add-window');
-    }
-  };
+  const handleMinimize = () => minimizeWindow();
 
   // Standalone pencere: Electron penceresi her zaman içeriğin doğal yüksekliğine eşitlenir.
   // Kutu yükseklik kısıtı TAŞIMAZ (maxHeight/scroll yok) — böylece rect ölçümü daima
   // gerçek ihtiyacı verir; içerik büyüyünce pencere büyür, küçülünce küçülür.
   const sendWindowSize = () => {
     const el = boxRef.current;
-    if (!el || !window.require) return;
+    if (!el) return;
     const h = Math.ceil(el.getBoundingClientRect().height) + 16; // 8px üst+alt padding
-    if (h > 60) {
-      const { ipcRenderer } = window.require('electron');
-      ipcRenderer.send('resize-add-window', h);
-    }
+    if (h > 60) resizeWindow(h);
   };
 
   // Her render sonrası ölç (state değişimleri içeriği büyütüp küçültebilir)

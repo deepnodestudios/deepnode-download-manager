@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { X, Minus, Download, Pause, Play, FolderOpen, FileText, Loader } from 'lucide-react';
 import { useT } from '../i18n';
+import { closeWindow, minimizeWindow, resizeWindow } from '../native';
 
 // IDM tarzı bağımsız indirme ilerleme penceresi (mode=progress&id=...).
 // İndirme verisi App'in WS aboneliğinden prop olarak gelir; pencere içeriğe göre
@@ -24,26 +25,15 @@ export default function DownloadProgressWindow({ download }) {
     return t('fmt_eta', { m, s: (s < 10 ? '0' : '') + s });
   };
 
-  const ipcSend = (channel, ...args) => {
-    if (window.require) {
-      try {
-        const { ipcRenderer } = window.require('electron');
-        ipcRenderer.send(channel, ...args);
-        return true;
-      } catch (e) { /* ignore */ }
-    }
-    return false;
-  };
-
-  const handleClose = () => { if (!ipcSend('close-add-window')) window.close(); };
-  const handleMinimize = () => ipcSend('minimize-add-window');
+  const handleClose = () => closeWindow();
+  const handleMinimize = () => minimizeWindow();
 
   // İçeriğin doğal yüksekliğini Electron'a bildir (kutu yükseklik kısıtı taşımaz)
   const sendWindowSize = () => {
     const el = boxRef.current;
-    if (!el || !window.require) return;
+    if (!el) return;
     const h = Math.ceil(el.getBoundingClientRect().height) + 16; // 8px üst+alt padding
-    if (h > 60) ipcSend('resize-add-window', h);
+    if (h > 60) resizeWindow(h);
   };
   useEffect(() => { sendWindowSize(); });
   useEffect(() => {

@@ -5,11 +5,21 @@ import fs from 'fs';
 import { spawn } from 'child_process';
 import { setLanguage, getLanguage, t as et } from './i18n.js';
 
-// Register IPC handler for native modern Windows 10/11 File Explorer Folder Dialog
-ipcMain.handle('select-folder', async () => {
-  if (!mainWindow) return null;
-  bringToFront();
-  const result = await dialog.showOpenDialog(mainWindow, {
+// DİKKAT: Bunlar dosyanın EN BAŞINDA tanımlı kalmalı. `SECURE_WEB_PREFERENCES`
+// gibi ÜST DÜZEY (top-level) sabitler `__dirname`'i modül yüklenirken kullanır;
+// tanım aşağıda kalırsa "Cannot access '__dirname' before initialization" (TDZ)
+// hatasıyla uygulama hiç açılmaz.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Register IPC handler for native modern Windows 10/11 File Explorer Folder Dialog.
+// İletişim kutusu, isteği GÖNDEREN pencereye bağlanır: ekleme penceresinden
+// çağrıldığında da çalışır (eskiden yalnız ana pencere varsa açılıyordu; ekleme
+// penceresi PowerShell yedeğine düşüyordu).
+ipcMain.handle('select-folder', async (e) => {
+  const owner = BrowserWindow.fromWebContents(e.sender) || mainWindow;
+  if (!owner) return null;
+  const result = await dialog.showOpenDialog(owner, {
     title: et('dlg_select_folder_title'),
     buttonLabel: et('dlg_select_folder_btn'),
     properties: ['openDirectory', 'createDirectory', 'promptToCreate']
@@ -25,14 +35,72 @@ ipcMain.on('bring-to-front', () => {
   bringToFront();
 });
 
+// Harici bağlantıyı SİSTEM tarayıcısında aç. Renderer artık `shell`e doğrudan
+// erişemediği için (contextIsolation) bu köprü gerekli; ayrıca yalnız http(s)
+// şemalarına izin verilir — `file:` / özel şemalarla yerel program çalıştırılamaz.
+ipcMain.on('open-external', (e, url) => {
+  if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+    shell.openExternal(url).catch((err) => console.error('openExternal başarısız:', err.message));
+  }
+});
+
 // Import backend server statically so it starts express & websocket server
 import '../backend/src/server.js';
 import { serverEvents } from '../backend/src/server.js';
 
+// Backend'in gerçekten dinlediği port. 5000 doluysa backend sıradakine düşer
+// (bkz. server.js) ve bu olayla haber verir — pencereler/istekler doğru adrese gider.
+let backendPort = Number(process.env.DN_PORT) || 5000;
+const appUrl = (suffix = '') => `http://localhost:${backendPort}${suffix}`;
+
+serverEvents.on('server-ready', (port) => {
+  backendPort = port;
+});
+
+serverEvents.on('server-error', (err) => {
+  dialog.showErrorBox(
+    'DeepNode Download Manager',
+    `Yerel sunucu başlatılamadı (${err.message}).\n\n` +
+    'Başka bir uygulama gerekli portları kullanıyor olabilir. ' +
+    'Uygulamayı kapatıp yeniden açmayı deneyin.'
+  );
+});
+
+// Tüm pencerelerde ortak güvenlik ayarları (AI_Guidelines §5).
+// Renderer Node'a erişemez; köprü yalnız preload.cjs'teki dar API'dir.
+const SECURE_WEB_PREFERENCES = {
+  nodeIntegration: false,
+  contextIsolation: true,
+  sandbox: false, // preload'un require('electron') yapabilmesi için
+  preload: path.join(__dirname, 'preload.cjs')
+};
+
+// Pencereyi kendi kaynağına hapset: sayfa başka bir adrese gidemez,
+// `window.open` Electron penceresi açmak yerine sistem tarayıcısına yönlenir.
+function hardenWindow(win) {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith(appUrl())) {
+      event.preventDefault();
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    }
+  });
+  win.webContents.on('will-attach-webview', (event) => event.preventDefault());
+}
+
 // Support MANY simultaneous add windows (one per captured link).
 const addWindows = new Set();
+// Kötü niyetli bir sayfa `deepnode://add?url=...` ile sınırsız pencere açtırabilirdi.
+const MAX_ADD_WINDOWS = 12;
 
-function createAddDownloadWindow(url, quality) {
+function createAddDownloadWindow(url, quality, referer, video, filename) {
+  if (addWindows.size >= MAX_ADD_WINDOWS) {
+    console.warn('Açık ekleme penceresi sınırına ulaşıldı; yeni pencere açılmadı.');
+    return;
+  }
   const cascade = (addWindows.size % 6) * 30; // stagger so stacked windows don't fully overlap
 
   const win = new BrowserWindow({
@@ -49,12 +117,9 @@ function createAddDownloadWindow(url, quality) {
     center: true,
     resizable: true,
     skipTaskbar: false,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      sandbox: false
-    }
+    webPreferences: { ...SECURE_WEB_PREFERENCES }
   });
+  hardenWindow(win);
 
   // Cascade subsequent windows down-right from center
   if (cascade > 0) {
@@ -62,9 +127,12 @@ function createAddDownloadWindow(url, quality) {
     win.setBounds({ x: b.x + cascade, y: b.y + cascade, width: b.width, height: b.height });
   }
 
-  const targetUrl = 'http://localhost:5000/?mode=add'
+  const targetUrl = appUrl('/?mode=add')
     + (url ? '&url=' + encodeURIComponent(url) : '')
-    + (quality ? '&quality=' + encodeURIComponent(quality) : '');
+    + (quality ? '&quality=' + encodeURIComponent(quality) : '')
+    + (referer ? '&referer=' + encodeURIComponent(referer) : '')
+    + (video ? '&video=1' : '')
+    + (filename ? '&filename=' + encodeURIComponent(filename) : '');
   win.loadURL(targetUrl);
 
   addWindows.add(win);
@@ -73,27 +141,32 @@ function createAddDownloadWindow(url, quality) {
     // Onaylanmadan kapatıldıysa arka plandaki ön indirmeyi (preflight) iptal et.
     // Onaylanmışsa backend'de bayrak kalkmış olur — istek zararsız no-op'tur.
     if (url) {
-      fetch('http://localhost:5000/api/download/cancel-preflight', {
+      fetch(appUrl('/api/download/cancel-preflight'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url })
-      }).catch(() => { /* ignore */ });
+      }).catch((err) => console.error('cancel-preflight isteği başarısız:', err.message));
     }
   });
 }
 
 serverEvents.on('prompt-add', (payload) => {
-  // payload: "url" (eski) veya { url, quality } (eklentiden seçilen kalite ile)
+  // payload: "url" (eski) veya { url, quality, referer } (eklentiden seçilen kalite/referer ile)
   if (typeof payload === 'string') return createAddDownloadWindow(payload);
-  if (payload && payload.url) return createAddDownloadWindow(payload.url, payload.quality);
+  if (payload && payload.url) return createAddDownloadWindow(payload.url, payload.quality, payload.referer, payload.video, payload.filename);
 });
 
 // IDM tarzı bağımsız ilerleme penceresi: indirme başlatılınca açılır,
 // içeriğe göre otomatik boyutlanır (resize-add-window IPC'sini paylaşır).
 const progressWindows = new Set();
+const MAX_PROGRESS_WINDOWS = 12;
 
 function createProgressWindow(downloadId) {
   if (!downloadId) return;
+  if (progressWindows.size >= MAX_PROGRESS_WINDOWS) {
+    console.warn('Açık ilerleme penceresi sınırına ulaşıldı; yeni pencere açılmadı.');
+    return;
+  }
   const cascade = (progressWindows.size % 6) * 30;
 
   const win = new BrowserWindow({
@@ -109,19 +182,16 @@ function createProgressWindow(downloadId) {
     center: true,
     resizable: true,
     skipTaskbar: false,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      sandbox: false
-    }
+    webPreferences: { ...SECURE_WEB_PREFERENCES }
   });
+  hardenWindow(win);
 
   if (cascade > 0) {
     const b = win.getBounds();
     win.setBounds({ x: b.x + cascade, y: b.y + cascade, width: b.width, height: b.height });
   }
 
-  win.loadURL('http://localhost:5000/?mode=progress&id=' + encodeURIComponent(downloadId));
+  win.loadURL(appUrl('/?mode=progress&id=') + encodeURIComponent(downloadId));
 
   progressWindows.add(win);
   win.on('closed', () => { progressWindows.delete(win); });
@@ -161,8 +231,29 @@ ipcMain.on('resize-add-window', (e, height) => {
   if (Math.abs(ch - h) > 2) w.setContentSize(cw, h, false);
 });
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Liste sağ tık menüsü: DOM menüsü pencere sınırlarında kırpılıyordu. Bunun yerine
+// PENCEREDEN BAĞIMSIZ yerel (native) OS menüsü açılır; imleç konumunda belirir,
+// pencereyi/ekranı aşabilir ve gerektiğinde kendi kaydırmasını yapar. Renderer menü
+// öğelerini (etiket + command) gönderir; kullanıcının seçtiği command string'i döner.
+ipcMain.handle('popup-download-menu', (e, items) => {
+  return new Promise((resolve) => {
+    let chosen = null;
+    const toTemplate = (arr) => (Array.isArray(arr) ? arr : []).map((it) => {
+      if (it.type === 'separator') return { type: 'separator' };
+      const node = { label: String(it.label != null ? it.label : '') };
+      if (it.type === 'radio') { node.type = 'radio'; node.checked = !!it.checked; }
+      if (it.enabled === false) node.enabled = false;
+      if (Array.isArray(it.submenu)) node.submenu = toTemplate(it.submenu);
+      else node.click = () => { chosen = it.command; };
+      return node;
+    });
+    let menu;
+    try { menu = Menu.buildFromTemplate(toTemplate(items)); }
+    catch (err) { return resolve(null); }
+    const w = BrowserWindow.fromWebContents(e.sender) || mainWindow;
+    menu.popup({ window: w, callback: () => resolve(chosen) });
+  });
+});
 
 let mainWindow = null;
 let tray = null;
@@ -173,7 +264,7 @@ let appSettings = {};
 // ---- Ayarları uygula (Windows açılışı, tepsi davranışı, bildirimler) ----
 async function loadSettings() {
   try {
-    const res = await fetch('http://localhost:5000/api/settings');
+    const res = await fetch(appUrl('/api/settings'));
     appSettings = await res.json();
     setLanguage(appSettings.language, app.getLocale());
   } catch (e) { /* backend henüz hazır değil */ }
@@ -279,15 +370,12 @@ function createWindow(showWindow = true) {
     backgroundColor: '#0b0f19',
     autoHideMenuBar: true,
     icon: path.join(__dirname, 'icon.png'),
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: false
-    }
+    webPreferences: { ...SECURE_WEB_PREFERENCES }
   });
+  hardenWindow(mainWindow);
 
-  // Always load through http://localhost:5000 to eliminate file:// path encoding issues!
-  mainWindow.loadURL('http://localhost:5000');
+  // Always load through the local backend to eliminate file:// path encoding issues!
+  mainWindow.loadURL(appUrl());
 
   // Kapatma tuşuna basınca uygulamayı kapatma; sistem tepsisine gizle
   // (Ayarlar > "Kapatınca tepsiye küçült" kapalıysa uygulama gerçekten kapanır)
@@ -318,12 +406,17 @@ function buildTrayMenu() {
     { label: 'DeepNode Download Manager', enabled: false },
     { type: 'separator' },
     { label: et('tray_open'), click: () => { if (mainWindow) mainWindow.show(); else createWindow(); } },
+    // Eskiden bu iki komut renderer'a executeJavaScript ile enjekte ediliyordu;
+    // ana pencere KAPALIYKEN (tepsi menüsünün asıl işe yaradığı an) hiçbir şey
+    // yapmıyorlardı. Artık istek doğrudan ana süreçten gider.
     { label: et('tray_start_all'), click: () => {
-        if (mainWindow) mainWindow.webContents.executeJavaScript("fetch('http://localhost:5000/api/download/start-all', {method:'POST'})");
+        fetch(appUrl('/api/download/start-all'), { method: 'POST' })
+          .catch((err) => console.error('start-all başarısız:', err.message));
       }
     },
     { label: et('tray_pause_all'), click: () => {
-        if (mainWindow) mainWindow.webContents.executeJavaScript("fetch('http://localhost:5000/api/download/pause-all', {method:'POST'})");
+        fetch(appUrl('/api/download/pause-all'), { method: 'POST' })
+          .catch((err) => console.error('pause-all başarısız:', err.message));
       }
     },
     { type: 'separator' },
@@ -365,7 +458,7 @@ function createTray() {
 
 async function isClipboardWatchEnabled() {
   try {
-    const res = await fetch('http://localhost:5000/api/settings');
+    const res = await fetch(appUrl('/api/settings'));
     const settings = await res.json();
     return settings.clipboardWatch !== false && settings.captureEnabled !== false;
   } catch (e) {
@@ -375,7 +468,7 @@ async function isClipboardWatchEnabled() {
 
 async function addDownloadFromUrl(url) {
   try {
-    const res = await fetch('http://localhost:5000/api/download/add', {
+    const res = await fetch(appUrl('/api/download/add'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url })
@@ -425,7 +518,7 @@ function startClipboardWatcher() {
       // Pencereyi EN ÜSTE getir ve İndirme İletişim Kutusunu aç
       bringToFront();
 
-      await fetch('http://localhost:5000/api/download/prompt-add', {
+      await fetch(appUrl('/api/download/prompt-add'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: text })
@@ -460,8 +553,13 @@ function handleProtocolUrl(urlStr) {
     const urlObj = new URL(urlStr);
     if (urlObj.hostname === 'add') {
       const targetUrl = urlObj.searchParams.get('url');
-      if (targetUrl) {
+      // `deepnode://` şemasını herhangi bir web sayfası tetikleyebilir. Yalnız
+      // http(s) hedefleri kabul edilir: `file:`/`javascript:` gibi şemalarla
+      // onay penceresi açtırılamaz.
+      if (targetUrl && /^https?:\/\//i.test(targetUrl)) {
         createAddDownloadWindow(targetUrl);
+      } else if (targetUrl) {
+        console.warn('deepnode:// protokolünde desteklenmeyen adres reddedildi.');
       }
     }
   } catch (err) {

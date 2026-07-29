@@ -22,6 +22,14 @@ function networkArgs(url) {
   return args;
 }
 
+// Oturum/token korumalı CDN'ler (ör. .txt olarak sunulan HLS) manifesti yalnızca
+// tarayıcının kurduğu oturuma bağlı verir; çıplak URL+Referer 404 döner. yt-dlp'ye
+// tarayıcının çerezlerini okutarak bunu aşarız. DDM_COOKIES_BROWSER boşsa devre dışı.
+function cookieBrowserArgs() {
+  const b = (process.env.DDM_COOKIES_BROWSER ?? 'chrome').trim();
+  return b ? ['--cookies-from-browser', b] : [];
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(os.homedir(), '.deepnode');
 const isWin = process.platform === 'win32';
@@ -65,6 +73,17 @@ export function isVideoSiteUrl(url) {
     const u = new URL(url);
     if (!/^https?:$/.test(u.protocol)) return false;
     return VIDEO_HOST_RE.test(u.hostname);
+  } catch (e) {
+    return false;
+  }
+}
+
+// HLS/DASH manifestleri (m3u8/mpd) siteden bağımsız olarak yt-dlp ile indirilir
+export function isStreamManifestUrl(url) {
+  try {
+    const u = new URL(url);
+    if (!/^https?:$/.test(u.protocol)) return false;
+    return /\.(m3u8|mpd)(\?|$)/i.test(u.pathname + u.search);
   } catch (e) {
     return false;
   }
@@ -204,18 +223,32 @@ function runYtDlpJson(bin, url, extraArgs, timeoutMs) {
   });
 }
 
-export async function getVideoInfo(url) {
-  const cached = infoCache.get(url);
+export async function getVideoInfo(url, referer = null) {
+  const cacheKey = url + '|' + (referer || '');
+  const cached = infoCache.get(cacheKey);
   if (cached && (Date.now() - cached.ts) < INFO_TTL) return cached.info;
 
   const bin = await ensureYtDlp();
 
-  let j;
-  try {
-    j = await runYtDlpJson(bin, url, [], 45000);
-  } catch (e1) {
-    j = await runYtDlpJson(bin, url, ['--extractor-args', 'youtube:player_client=android'], 45000);
+  // Film/dizi sitelerinin CDN'leri Referer başlıksız manifest isteklerine 403 döner
+  const refArgs = referer ? ['--referer', referer] : [];
+  // Sniff edilmiş akış (referer var) oturum korumalı olabilir -> tarayıcı çerezleri
+  const ckArgs = referer ? cookieBrowserArgs() : [];
+
+  // Deneme SIRASI hız için kritik: `--cookies-from-browser chrome`, Chrome AÇIKKEN
+  // (Chrome 127+ App-Bound şifreleme) çerez DB'sini okumak çok yavaştır / askıda kalır.
+  // Bu yüzden önce ÇEREZSİZ (hızlı) deneriz; yalnızca o başarısız olursa (oturum korumalı
+  // CDN) çerezlerle tekrar deneriz. Çoğu film-sitesi HLS'i sadece Referer ile çalışır.
+  const attempts = referer
+    ? [refArgs, [...refArgs, ...ckArgs]]
+    : [[], ['--extractor-args', 'youtube:player_client=android']];
+
+  let j, lastErr = null;
+  for (const extra of attempts) {
+    try { j = await runYtDlpJson(bin, url, extra, 30000); lastErr = null; break; }
+    catch (e) { lastErr = e; }
   }
+  if (lastErr) throw lastErr;
 
   const duration = j.duration || 0;
   const formats = (j.formats || []).map((f, idx) => ({ ...f, _i: idx }));
@@ -247,7 +280,7 @@ export async function getVideoInfo(url) {
     qualities,
     audioSize: bestAudio
   };
-  infoCache.set(url, { info, ts: Date.now() });
+  infoCache.set(cacheKey, { info, ts: Date.now() });
   return info;
 }
 
@@ -347,6 +380,7 @@ export class VideoDownloader extends EventEmitter {
     this.url = item.url;
     this.filename = item.filename || null;
     this.quality = item.quality || 'best';
+    this.referer = item.referer || null; // akış yakalama: CDN Referer isteyebilir
     this.priority = item.priority || 'normal';
     this.saveDir = item.saveDir || path.join(storageService.settings.downloadDir, 'Video');
     this.savePath = item.savePath || null;
@@ -379,7 +413,7 @@ export class VideoDownloader extends EventEmitter {
       // Resolve real video title if missing or placeholder
       if (!this.filename || this.filename === 'Fetching video info…' || this.filename === 'Video Download' || this.filename.includes('…')) {
         try {
-          const info = await getVideoInfo(this.url);
+          const info = await getVideoInfo(this.url, this.referer);
           if (info && info.title) {
             const hStr = this.quality && this.quality !== 'best' && this.quality !== 'audio' ? ` [${this.quality}p]` : '';
             this.filename = sanitizeFilename(`${info.title}${hStr}.mp4`);
@@ -412,9 +446,21 @@ export class VideoDownloader extends EventEmitter {
     } else {
       format = merge ? 'bv*+ba/b' : 'b[ext=mp4]/b';
     }
-    const outTemplate = q === 'audio'
-      ? path.join(this.saveDir, '%(title)s.%(ext)s')
-      : path.join(this.saveDir, '%(title)s [%(height)sp].%(ext)s');
+    // Eklenti/kullanıcı gerçek bir ad verdiyse (ör. sayfa başlığı) yt-dlp'nin %(title)s'i
+    // yerine onu kullan — HLS master.txt gibi metadatasız kaynaklarda dosya "master" olmasın.
+    let providedBase = null;
+    if (this.filename && !this.filename.includes('…') &&
+        !/^(Fetching video info|Preparing|Error:|Video Download)/.test(this.filename)) {
+      providedBase = sanitizeFilename(this.filename)
+        .replace(/\.(mp4|mkv|webm|m4a|mp3|aac|opus)$/i, '')
+        .replace(/\s*\[\d+p\]\s*$/i, '')
+        .trim();
+      if (!providedBase) providedBase = null;
+    }
+    const outName = q === 'audio'
+      ? (providedBase ? `${providedBase}.%(ext)s` : '%(title)s.%(ext)s')
+      : (providedBase ? `${providedBase} [%(height)sp].%(ext)s` : '%(title)s [%(height)sp].%(ext)s');
+    const outTemplate = path.join(this.saveDir, outName);
 
     const args = [
       this.url,
@@ -430,12 +476,22 @@ export class VideoDownloader extends EventEmitter {
       '--progress-template', 'download:OMNI|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s'
     ];
     args.push(...networkArgs(this.url)); // proxy / site girişi
+    if (this.referer) args.push('--referer', this.referer);
     if (merge && q !== 'audio') args.push('--merge-output-format', 'mp4');
     if (q === 'audio' && merge) args.push('-x', '--audio-format', 'mp3');
     if (ffmpegLoc) args.push('--ffmpeg-location', ffmpegLoc);
 
+    // Oturum/token korumalı CDN'ler için tarayıcı çerezleri (sniff edilmiş akış = referer var).
+    // Çerez okuma başarısız olursa (ör. Chrome App-Bound şifreleme) çerezsiz bir kez daha denenir.
+    this._baseArgs = args;
+    this._cookieArgs = this.referer ? cookieBrowserArgs() : [];
+    this._cookieRetried = false;
+    this._launch(bin, [...this._cookieArgs, ...args]);
+  }
+
+  _launch(bin, fullArgs) {
     try {
-      this.proc = spawn(bin, args, { windowsHide: true, env: YTDLP_ENV });
+      this.proc = spawn(bin, fullArgs, { windowsHide: true, env: YTDLP_ENV });
     } catch (err) {
       this.status = 'error';
       this.errorMsg = err.message;
@@ -491,6 +547,14 @@ export class VideoDownloader extends EventEmitter {
         this.emit('meta', { id: this.id });
         this.emit('completed', { id: this.id, savePath: this.savePath, checksum: null });
       } else if (this.status !== 'error') {
+        // Çerez okuma hatası (ör. Chrome App-Bound / DPAPI) -> çerezsiz bir kez daha dene
+        if (this._cookieArgs && this._cookieArgs.length && !this._cookieRetried &&
+            /cookie|decrypt|dpapi/i.test(this.errorMsg || '')) {
+          this._cookieRetried = true;
+          this.errorMsg = null;
+          this._launch(bin, this._baseArgs);
+          return;
+        }
         this.status = 'error';
         this.errorMsg = this.errorMsg || ('yt-dlp exit code ' + code);
         this.emit('error', { id: this.id, error: this.errorMsg });
@@ -542,16 +606,21 @@ export class VideoDownloader extends EventEmitter {
             titlePrefix = this.filename.replace(/\[\d+p\]|\.mp4|\.mkv|\.webm|\.f\d+.*$/g, '').trim();
           }
 
-          files.forEach(f => {
-            const fullPath = path.join(this.saveDir, f);
-            const isPartialFile = f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.tmp') || f.includes('.temp.') || /\.f\d+\./.test(f);
+          // ÖNEMLİ: Eskiden `!titlePrefix` durumunda klasördeki TÜM yarım
+          // dosyalar siliniyordu — aynı klasöre inen BAŞKA bir videonun
+          // parçalarını da yok ediyordu. Artık ad öneki bilinmiyorsa yalnızca
+          // bu indirmenin kendi kaydettiği dosyalar (createdFiles/savePath)
+          // temizlenir; klasör taraması yapılmaz.
+          if (titlePrefix) {
+            files.forEach(f => {
+              const fullPath = path.join(this.saveDir, f);
+              const isPartialFile = f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.tmp') || f.includes('.temp.') || /\.f\d+\./.test(f);
 
-            if (isPartialFile) {
-              if (!titlePrefix || f.startsWith(titlePrefix) || (this.filename && f.includes(this.filename.substring(0, 8)))) {
+              if (isPartialFile && f.startsWith(titlePrefix)) {
                 deleteTargetFile(fullPath);
               }
-            }
-          });
+            });
+          }
         } catch (e) {
           console.error('Error scanning saveDir during cleanup:', e.message);
         }
@@ -667,6 +736,7 @@ export class VideoDownloader extends EventEmitter {
       url: this.url,
       filename: this.filename,
       quality: this.quality,
+      referer: this.referer,
       priority: this.priority,
       saveDir: this.saveDir,
       savePath: this.savePath,

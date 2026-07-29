@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Play, Pause, Trash2, Layers, Video, Music, Archive, FileText, Cpu, Image as ImageIcon, Folder, FolderOpen, ExternalLink, AlertCircle, CheckCircle2, Clock,
   RotateCcw, Link2, Edit3, Info, XCircle, CheckSquare, Square, DownloadCloud
 } from 'lucide-react';
 import { useT } from '../i18n';
+import { isElectron, popupDownloadMenu } from '../native';
 
 // Sabit sütun genişlikleri (px) — içerik değişse bile sütunlar yatay kaymaz.
 // Kullanıcı ayraçları sürükleyerek değiştirebilir; tercihler localStorage'da saklanır.
@@ -321,15 +323,72 @@ export default function DownloadList({
   const openMenu = (e, item) => {
     e.preventDefault();
     e.stopPropagation();
-    const W = 230, H = 330;
-    setMenu({
-      x: Math.min(e.clientX, window.innerWidth - W - 8),
-      y: Math.min(e.clientY, window.innerHeight - H - 8),
-      item
-    });
+    // Menü daima tıklanan noktada açılır; viewport'a sığdırmak için kaydırılmaz
+    // (gerekirse pencereden uzun olabilir — kullanıcı tercihi).
+    setMenu({ x: e.clientX, y: e.clientY, item });
   };
 
   const run = (fn, ...args) => { setMenu(null); if (fn) fn(...args); };
+
+  // --- Native (pencereden bağımsız) sağ tık menüsü ---
+  // Electron'da DOM menüsü pencere sınırlarında kırpılıyor. Menü öğeleri main
+  // sürecine gönderilir ve yerel OS menüsü olarak imleç konumunda açılır.
+  const buildMenuItems = (item) => {
+    const it = [];
+    if (item.status === 'completed') it.push({ command: 'open', label: t('ctx_open') });
+    it.push({ command: 'reveal', label: t('ctx_open_folder') });
+    it.push({ type: 'separator' });
+    if (item.status === 'downloading') it.push({ command: 'pause', label: t('ctx_pause') });
+    else if (item.status !== 'completed') it.push({ command: 'start', label: t('ctx_start') });
+    it.push({ command: 'redownload', label: t('ctx_redownload') });
+    it.push({ command: 'rename', label: t('ctx_rename') });
+    it.push({ type: 'separator' });
+    const pr = item.priority || 'normal';
+    it.push({ label: t('ctx_priority'), submenu: [
+      { command: 'priority:high', label: t('pri_high'), type: 'radio', checked: pr === 'high' },
+      { command: 'priority:normal', label: t('pri_normal'), type: 'radio', checked: pr === 'normal' },
+      { command: 'priority:low', label: t('pri_low'), type: 'radio', checked: pr === 'low' }
+    ] });
+    it.push({ type: 'separator' });
+    it.push({ command: 'copyurl', label: t('ctx_copy_url') });
+    it.push({ command: 'chunks', label: t('ctx_chunks') });
+    it.push({ command: 'properties', label: t('ctx_properties') });
+    it.push({ type: 'separator' });
+    it.push({ command: 'remove', label: t('ctx_remove') });
+    it.push({ command: 'deletefile', label: t('ctx_delete_file') });
+    return it;
+  };
+
+  const runCommand = (cmd, item) => {
+    switch (cmd) {
+      case 'open': onOpenFile && onOpenFile(item.id); break;
+      case 'reveal': onRevealFolder && onRevealFolder(item.id); break;
+      case 'start': onStart && onStart(item.id); break;
+      case 'pause': onPause && onPause(item.id); break;
+      case 'redownload': onRedownload && onRedownload(item); break;
+      case 'rename': onRename && onRename(item); break;
+      case 'copyurl': onCopyUrl && onCopyUrl(item); break;
+      case 'chunks': onInspectChunks && onInspectChunks(item); break;
+      case 'properties': onShowProperties && onShowProperties(item); break;
+      case 'remove': onDelete && onDelete(item.id, false); break;
+      case 'deletefile': onDelete && onDelete(item.id, true); break;
+      case 'priority:high': onSetPriority && onSetPriority(item.id, 'high'); break;
+      case 'priority:normal': onSetPriority && onSetPriority(item.id, 'normal'); break;
+      case 'priority:low': onSetPriority && onSetPriority(item.id, 'low'); break;
+      default: break;
+    }
+  };
+
+  const showMenu = (e, item) => {
+    const native = isElectron();
+    if (!native) { openMenu(e, item); return; } // tarayıcı/dev: DOM menüsü
+    e.preventDefault();
+    e.stopPropagation();
+    const x = e.clientX, y = e.clientY;
+    Promise.resolve(popupDownloadMenu(buildMenuItems(item)))
+      .then((cmd) => { if (cmd) runCommand(cmd, item); })
+      .catch(() => setMenu({ x, y, item }));
+  };
   const formatBytes = (bytes) => {
     if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
@@ -480,7 +539,7 @@ export default function DownloadList({
                 key={item.id}
                 className={`${isSelected ? 'row-selected' : ''} ${isFocused ? 'row-focused' : ''}`}
                 onClick={(e) => handleRowClick(e, index, item)}
-                onContextMenu={(e) => { if (!isSelected) { handleRowClick(e, index, item); } openMenu(e, item); }}
+                onContextMenu={(e) => { if (!isSelected) { handleRowClick(e, index, item); } showMenu(e, item); }}
                 onDoubleClick={() => { if (item.status === 'completed') onOpenFile && onOpenFile(item.id); }}
                 style={{ cursor: 'pointer' }}
                 title={item.status === 'completed' ? t('tip_dblclick_open') : undefined}
@@ -606,7 +665,7 @@ export default function DownloadList({
         </tbody>
       </table>
 
-      {menu && (
+      {menu && createPortal((
         <div
           className="dn-ctx"
           style={{ position: 'fixed', top: menu.y, left: menu.x, zIndex: 9999 }}
@@ -679,7 +738,7 @@ export default function DownloadList({
             <Trash2 size={14} /> {t('ctx_delete_file')}
           </div>
         </div>
-      )}
+      ), document.body)}
     </div>
     </>
   );

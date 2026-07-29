@@ -10,6 +10,7 @@ import MediaSnifferModal from './components/MediaSnifferModal';
 import SettingsModal from './components/SettingsModal';
 import AboutModal from './components/AboutModal';
 import { I18nProvider, translate, resolveLanguage } from './i18n';
+import { closeWindow, bringToFront, openExternal } from './native';
 
 export default function App() {
   const [downloads, setDownloads] = useState([]);
@@ -19,12 +20,17 @@ export default function App() {
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [initialUrlForAdd, setInitialUrlForAdd] = useState('');
-  const [initialQualityForAdd, setInitialQualityForAdd] = useState('');
+    const [initialQualityForAdd, setInitialQualityForAdd] = useState('');
+    const [initialRefererForAdd, setInitialRefererForAdd] = useState('');
+    const [initialIsVideoForAdd, setInitialIsVideoForAdd] = useState(false);
+    const [initialFilenameForAdd, setInitialFilenameForAdd] = useState('');
   const [isSnifferModalOpen, setIsSnifferModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const [selectedDownloadForChunks, setSelectedDownloadForChunks] = useState(null);
   const [propertiesItem, setPropertiesItem] = useState(null);
+  const [renameTarget, setRenameTarget] = useState(null); // yeniden adlandırılacak indirme
+  const [renameValue, setRenameValue] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null); // { item, preferFile }
   const [deleteAlsoFile, setDeleteAlsoFile] = useState(false);
   const [extStatus, setExtStatus] = useState(null); // tarayıcı eklentisi sürüm durumu
@@ -57,28 +63,71 @@ export default function App() {
       if (qualityParam) {
         setInitialQualityForAdd(qualityParam);
       }
+      const refererParam = params.get('referer'); // akış CDN'leri için sayfa adresi
+      if (refererParam) {
+        setInitialRefererForAdd(refererParam);
+      }
+      // video=1 -> eklentiden gelen video/manifest indirmesi (uzantısız .txt manifest dahil)
+      if (params.get('video') === '1') {
+        setInitialIsVideoForAdd(true);
+      }
+      // filename -> sayfa başlığından tahmin edilen dosya adı (HLS'te yt-dlp "master" derdi)
+      const fnParam = params.get('filename');
+      if (fnParam) {
+        setInitialFilenameForAdd(fnParam);
+      }
       setIsAddModalOpen(true);
     }
 
     // Initial fetch of downloads and settings
-    fetch('/api/downloads')
-      .then(res => res.json())
-      .then(data => setDownloads(data || []))
-      .catch(err => console.error('Failed to fetch downloads:', err));
+    const refreshState = () => {
+      fetch('/api/downloads')
+        .then(res => res.json())
+        .then(data => setDownloads(data || []))
+        .catch(err => console.error('Failed to fetch downloads:', err));
 
-    fetch('/api/settings')
-      .then(res => res.json())
-      .then(data => setSettings(data || {}))
-      .catch(err => console.error('Failed to fetch settings:', err));
+      fetch('/api/settings')
+        .then(res => res.json())
+        .then(data => setSettings(data || {}))
+        .catch(err => console.error('Failed to fetch settings:', err));
+    };
+    refreshState();
 
-    // Connect WebSocket
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsPort = window.location.port || 5000;
-    const wsUrl = `${protocol}//${window.location.hostname}:${wsPort}`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    // WebSocket — YENİDEN BAĞLANMALI.
+    // Eskiden tek bir bağlantı kuruluyor, `onclose`/`onerror` hiç dinlenmiyordu:
+    // backend yeniden başladığında, bilgisayar uykudan döndüğünde veya bağlantı
+    // düştüğünde arayüz son durumda DONUYOR ve kullanıcı uygulamayı kapatıp
+    // açmak zorunda kalıyordu. Artık üstel geri çekilmeyle yeniden bağlanılır ve
+    // her bağlantıda tam durum tazelenir.
+    let reconnectDelay = 500;
+    let reconnectTimer = null;
+    let closedByUnmount = false;
 
-    ws.onmessage = (event) => {
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsPort = window.location.port || 5000;
+      const ws = new WebSocket(`${protocol}//${window.location.hostname}:${wsPort}`);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (reconnectDelay > 500) refreshState(); // kopukken kaçırılan değişiklikler
+        reconnectDelay = 500;
+      };
+
+      ws.onclose = () => {
+        if (closedByUnmount) return;
+        reconnectTimer = setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 10000); // 0,5s → 10s
+      };
+
+      ws.onerror = () => {
+        try { ws.close(); } catch (e) { /* onclose zaten tetiklenecek */ }
+      };
+
+      ws.onmessage = handleMessage;
+    };
+
+    const handleMessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
         const { type, payload } = msg;
@@ -128,7 +177,11 @@ export default function App() {
       }
     };
 
+    connect();
+
     return () => {
+      closedByUnmount = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       if (wsRef.current) wsRef.current.close();
     };
   }, []);
@@ -196,16 +249,7 @@ export default function App() {
   const handleOpenAddModal = (url = '') => {
     setInitialUrlForAdd(typeof url === 'string' ? url : '');
     setIsAddModalOpen(true);
-
-    // Uygulamayı en ön plana getir
-    if (typeof window !== 'undefined' && window.require) {
-      try {
-        const electron = window.require('electron');
-        if (electron && electron.ipcRenderer) {
-          electron.ipcRenderer.send('bring-to-front');
-        }
-      } catch (e) {}
-    }
+    bringToFront(); // uygulamayı en ön plana getir (Electron dışında no-op)
   };
 
   const handleAddDownload = async (newDownloadData) => {
@@ -217,6 +261,7 @@ export default function App() {
             url: newDownloadData.url,
             filename: newDownloadData.filename,
             quality: newDownloadData.quality,
+            referer: newDownloadData.referer,
             saveDir: newDownloadData.saveDir,
             autoStart: newDownloadData.autoStart,
             confirmedByUser: true
@@ -286,16 +331,25 @@ export default function App() {
     }
   };
 
-  const handleRename = async (item) => {
-    const name = window.prompt(tt('prompt_rename'), item.filename || '');
-    if (!name || !name.trim() || name === item.filename) return;
+  const handleRename = (item) => {
+    // Electron window.prompt()'u desteklemez (null döner ve sessizce iptal olur) —
+    // bu yüzden in-app modal kullanılır.
+    setRenameValue(item.filename || '');
+    setRenameTarget(item);
+  };
+
+  const submitRename = async () => {
+    if (!renameTarget) return;
+    const name = (renameValue || '').trim();
+    if (!name || name === renameTarget.filename) { setRenameTarget(null); return; }
     try {
-      const res = await fetch(`/api/download/${item.id}/rename`, {
+      const res = await fetch(`/api/download/${renameTarget.id}/rename`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: name.trim() })
+        body: JSON.stringify({ filename: name })
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+      setRenameTarget(null);
     } catch (err) {
       alert(tt('alert_rename_failed', { msg: err.message }));
     }
@@ -367,35 +421,21 @@ export default function App() {
         <div className="standalone-add-container" style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
           <AddDownloadModal
             isOpen={true}
-            onClose={() => {
-              if (window.require) {
-                const { ipcRenderer } = window.require('electron');
-                ipcRenderer.send('close-add-window');
-              } else {
-                window.close();
-              }
-            }}
+            onClose={closeWindow}
             onAddDownload={async (data) => {
               await handleAddDownload(data);
-              if (window.require) {
-                const { ipcRenderer } = window.require('electron');
-                ipcRenderer.send('close-add-window');
-              } else {
-                window.close();
-              }
+              closeWindow();
             }}
             onAddBatch={async (urls) => {
               await handleAddBatch(urls);
-              if (window.require) {
-                const { ipcRenderer } = window.require('electron');
-                ipcRenderer.send('close-add-window');
-              } else {
-                window.close();
-              }
+              closeWindow();
             }}
             settings={settings}
             initialUrl={initialUrlForAdd}
             initialQuality={initialQualityForAdd}
+            initialReferer={initialRefererForAdd}
+            initialIsVideo={initialIsVideoForAdd}
+            initialFilename={initialFilenameForAdd}
             isStandalone={true}
           />
         </div>
@@ -445,13 +485,9 @@ export default function App() {
                 href={`https://github.com/deepnodestudios/deepnode-download-manager/releases/tag/v${appUpdate.latest}`}
                 onClick={(e) => {
                   e.preventDefault();
-                  const url = e.currentTarget.href;
-                  try {
-                    const { shell } = window.require('electron');
-                    shell.openExternal(url);
-                  } catch (err) {
-                    window.open(url, '_blank');
-                  }
+                  // Köprü yoksa window.open Electron İÇİNDE pencere açardı;
+                  // openExternal daima sistem tarayıcısına yollar.
+                  openExternal(e.currentTarget.href);
                 }}
                 style={{ color: 'var(--link)', textDecoration: 'underline', cursor: 'pointer' }}
               >
@@ -460,14 +496,7 @@ export default function App() {
             </span>
             <button
               className="btn btn-primary btn-xs"
-              onClick={() => {
-                try {
-                  const { shell } = window.require('electron');
-                  shell.openExternal(appUpdate.downloadUrl);
-                } catch (e) {
-                  window.open(appUpdate.downloadUrl, '_blank');
-                }
-              }}
+              onClick={() => openExternal(appUpdate.downloadUrl)}
             >
               {tt('btn_download')}
             </button>
@@ -594,9 +623,10 @@ export default function App() {
                 {(() => {
                   const it = downloads.find(d => d.id === propertiesItem.id) || propertiesItem;
                   const fmt = (b) => {
-                    if (!b) return '-';
-                    const k = 1024, s = ['B', 'KB', 'MB', 'GB'];
-                    const i = Math.floor(Math.log(b) / Math.log(k));
+                    if (!b || b <= 0) return '-';
+                    const k = 1024, s = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+                    // Birim dizisini AŞMA: 1 TB üstünde eskiden "NaN undefined" yazıyordu
+                    const i = Math.min(Math.floor(Math.log(b) / Math.log(k)), s.length - 1);
                     return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + s[i];
                   };
                   const statusKey = 'st_' + it.status;
@@ -639,6 +669,33 @@ export default function App() {
               <div className="modal-footer">
                 <button className="btn btn-secondary" onClick={() => handleCopyUrl(propertiesItem)}>{tt('btn_copy_url')}</button>
                 <button className="btn btn-primary" onClick={() => setPropertiesItem(null)}>{tt('btn_close')}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {renameTarget && (
+          <div className="modal-overlay" onClick={() => setRenameTarget(null)}>
+            <div className="modal-box" style={{ maxWidth: '460px' }} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <div className="modal-title"><span>{tt('ctx_rename')}</span></div>
+                <button className="btn btn-ghost btn-icon" onClick={() => setRenameTarget(null)}>×</button>
+              </div>
+              <div className="modal-body">
+                <label className="form-label" style={{ display: 'block', marginBottom: '6px' }}>{tt('prompt_rename')}</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  autoFocus
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') submitRename(); }}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={() => setRenameTarget(null)}>{tt('btn_cancel')}</button>
+                <button className="btn btn-primary" onClick={submitRename}>{tt('ctx_rename')}</button>
               </div>
             </div>
           </div>

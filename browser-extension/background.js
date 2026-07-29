@@ -29,8 +29,67 @@ function isVideoSite(url) {
   try { return VIDEO_SITE_RE.test(new URL(url).hostname); } catch (e) { return false; }
 }
 
+// HLS/DASH manifestleri (m3u8/mpd) siteden bağımsız olarak yt-dlp ile indirilir
+function isManifestUrl(url) {
+  return /\.(m3u8|mpd)(\?|$)/i.test(url || '');
+}
+
 // Recently seen media/stream URLs per tab (for blob/streaming fallback)
+// MV3 service worker'ı boşta kalınca sonlandırılır ve bu Map silinir; m3u8
+// manifesti yalnızca oynatma başında bir kez istendiği için kaybolurdu.
+// Bu yüzden storage.session'a da yazıyoruz (oturum boyunca kalıcı).
 const streamsByTab = new Map();
+// Content-Type ile doğrulanmış manifestler ayrı tutulur: .txt gibi uzantısız
+// manifestleri content.js URL'den ayırt edemez, bu liste ile kesin bilir.
+const manifestsByTab = new Map();
+
+function rememberStream(tabId, url, isManifest) {
+  let arr = streamsByTab.get(tabId) || [];
+  if (!arr.includes(url)) {
+    // Manifestler (m3u8/mpd/uzantısız) listenin başında korunur — fallback önce onları dener
+    if (isManifest) arr.unshift(url); else arr.push(url);
+    arr = arr.slice(0, 40);
+    streamsByTab.set(tabId, arr);
+    try { chrome.storage.session.set({ ['streams_' + tabId]: arr }); } catch (e) { /* ignore */ }
+  }
+  if (isManifest) {
+    let m = manifestsByTab.get(tabId) || [];
+    if (!m.includes(url)) {
+      m.unshift(url);
+      m = m.slice(0, 20);
+      manifestsByTab.set(tabId, m);
+      try { chrome.storage.session.set({ ['manifests_' + tabId]: m }); } catch (e) { /* ignore */ }
+    }
+  }
+}
+
+async function getStreams(tabId) {
+  let streams = streamsByTab.get(tabId) || [];
+  let manifests = manifestsByTab.get(tabId) || [];
+  if (!streams.length || !manifests.length) {
+    try {
+      const sk = 'streams_' + tabId, mk = 'manifests_' + tabId;
+      const v = await chrome.storage.session.get([sk, mk]);
+      if (!streams.length && v[sk]) { streams = v[sk]; streamsByTab.set(tabId, streams); }
+      if (!manifests.length && v[mk]) { manifests = v[mk]; manifestsByTab.set(tabId, manifests); }
+    } catch (e) { /* ignore */ }
+  }
+  return { streams, manifests };
+}
+
+// Sekme yeni bir sayfaya gidince eski film/manifest önbelleğini temizle — aksi halde
+// aynı sekmede filmden filme geçince önceki filmin (bayat/süresi dolmuş) manifesti
+// yeniden kullanılır ve indirme yanlış filmle/eksik başlar (0%'da takılır).
+function clearTab(tabId) {
+  streamsByTab.delete(tabId);
+  manifestsByTab.delete(tabId);
+  try { chrome.storage.session.remove(['streams_' + tabId, 'manifests_' + tabId]); } catch (e) { /* ignore */ }
+}
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  // Üst çerçeve yeni bir URL'ye gidince (changeInfo.url) o sekmenin yakalananları geçersizdir
+  if (changeInfo.url) clearTab(tabId);
+});
+chrome.tabs.onRemoved.addListener((tabId) => clearTab(tabId));
 
 // "Bypass" key: while this modifier is held during a click, the
 // download is NOT captured (browser downloads it normally). Configured in the
@@ -63,25 +122,57 @@ async function isBypassActive() {
   }
   return false;
 }
+// Uygulamanın dinlediği port. Varsayılan 5000; doluysa uygulama sıradakine
+// düşer (bkz. backend/src/server.js), bu yüzden bağlanamazsak kısa bir tarama
+// yapılır ve bulunan port ayarlara yazılır.
+let resolvedPort = null;
+async function findAppPort() {
+  const candidates = [cfg.port, 5000, 5001, 5002, 5003].filter((p, i, a) => p && a.indexOf(p) === i);
+  for (const port of candidates) {
+    try {
+      const r = await fetch(`http://localhost:${port}/api/settings`, { cache: 'no-store' });
+      if (r.ok) return port;
+    } catch (e) { /* bu portta uygulama yok */ }
+  }
+  return null;
+}
+
 async function refreshRemoteSettings() {
   try {
+    if (!resolvedPort) {
+      resolvedPort = await findAppPort();
+      if (!resolvedPort) return; // uygulama çalışmıyor
+      if (resolvedPort !== cfg.port) {
+        cfg.port = resolvedPort;
+        chrome.storage.local.set({ port: resolvedPort });
+      }
+    }
     // Report our version so the app can warn when the loaded extension is stale
     // (Chrome doesn't auto-reload unpacked extensions after an app update).
     const ver = chrome.runtime.getManifest().version;
-    const r = await fetch(`http://localhost:${cfg.port}/api/settings?extVersion=${encodeURIComponent(ver)}`);
-    if (r.ok) {
-      const s = await r.json();
-      if (s && typeof s.captureBypassKey === 'string') bypassKey = s.captureBypassKey;
-      if (s && typeof s.captureEnabled === 'boolean') captureEnabled = s.captureEnabled;
-      // Uygulamanın dil tercihi eklenti UI'ına da yansısın ('auto' ise tarayıcı dili)
-      if (s && typeof s.language === 'string' && s.language !== cfg.appLanguage) {
-        chrome.storage.local.set({ appLanguage: s.language });
-      }
+    const r = await fetch(`http://localhost:${resolvedPort}/api/settings?extVersion=${encodeURIComponent(ver)}`);
+    if (!r.ok) { resolvedPort = null; return; }
+    const s = await r.json();
+    if (s && typeof s.captureBypassKey === 'string') bypassKey = s.captureBypassKey;
+    if (s && typeof s.captureEnabled === 'boolean') captureEnabled = s.captureEnabled;
+    // Uygulamanın dil tercihi eklenti UI'ına da yansısın ('auto' ise tarayıcı dili)
+    if (s && typeof s.language === 'string' && s.language !== cfg.appLanguage) {
+      chrome.storage.local.set({ appLanguage: s.language });
     }
-  } catch (e) { /* app not running */ }
+  } catch (e) {
+    resolvedPort = null; // uygulama kapandı — sonraki turda yeniden ara
+  }
 }
+
+// ÖNEMLİ: `setInterval` MV3 servis çalışanında GÜVENİLİR DEĞİL — çalışan ~30 sn
+// boşta kaldıktan sonra sonlandırılır ve zamanlayıcı onunla birlikte ölür. Bu
+// yüzden bypass tuşu / yakalama anahtarı senkronu bir süre sonra sessizce
+// duruyordu. chrome.alarms çalışanı gerektiğinde uyandırır.
+chrome.alarms.create('dn-settings-sync', { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'dn-settings-sync') refreshRemoteSettings();
+});
 refreshRemoteSettings();
-setInterval(refreshRemoteSettings, 30000);
 
 function endpoint(path) { return `http://localhost:${cfg.port}${path}`; }
 
@@ -147,16 +238,16 @@ async function sendToApp(url, filename, referrer, explicit) {
   if (!data) return 'failed';
   return data.status === 'ignored' ? 'ignored' : 'accepted';
 }
-async function sendVideoToApp(url, quality) {
-  return (await postJson('/api/download/video', { url, quality: quality || 'best' })) !== null;
+async function sendVideoToApp(url, quality, referer, filename) {
+  return (await postJson('/api/download/video', { url, quality: quality || 'best', referer: referer || undefined, filename: filename || undefined })) !== null;
 }
 
-async function getVideoFormats(url) {
+async function getVideoFormats(url, referer) {
   try {
     const res = await fetch(endpoint('/api/video/formats'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
+      body: JSON.stringify({ url, referer: referer || undefined })
     });
     if (!res.ok) return { error: true };
     return await res.json();
@@ -175,9 +266,9 @@ function wakeApp(url) {
 
 async function doDownload(url, referrer) {
   if (!url) return;
-  // Streaming sites -> let the app grab the real video via yt-dlp
-  if (isVideoSite(url)) {
-    const ok = await sendVideoToApp(url);
+  // Streaming sites & HLS/DASH manifests -> let the app grab the real video via yt-dlp
+  if (isVideoSite(url) || isManifestUrl(url)) {
+    const ok = await sendVideoToApp(url, 'best', isVideoSite(url) ? undefined : referrer);
     if (!ok) wakeApp(url);
     return;
   }
@@ -187,9 +278,51 @@ async function doDownload(url, referrer) {
   if (result === 'failed') wakeApp(url);
 }
 
-async function doVideo(url, quality) {
+// Sayfa başlığından site ekini (" - Site", " | Site", " » Site") atıp temizle
+function cleanTitle(t) {
+  if (!t) return '';
+  t = String(t).trim();
+  const parts = t.split(/\s*(?:»|\||::)\s*|\s+[-–—]\s+/);
+  if (parts.length > 1 && parts[0].trim().length >= 2) t = parts[0].trim();
+  return t.slice(0, 150);
+}
+// URL'nin son yol parçasından okunabilir ad türet (ör. scary-movie-2026 -> Scary Movie 2026)
+function nameFromUrl(u) {
+  try {
+    const url = new URL(u);
+    let seg = (url.pathname.split('/').filter(Boolean).pop() || '');
+    seg = decodeURIComponent(seg).replace(/\.(html?|php|aspx?)$/i, '');
+    seg = seg.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!seg || seg.length < 2) return '';
+    return seg.replace(/\b\w/g, (c) => c.toUpperCase()).slice(0, 150);
+  } catch (e) { return ''; }
+}
+// Üst sekmenin (çerçeveden bağımsız) başlığı/URL'sinden en iyi dosya adını bul.
+// Video çapraz-köken iframe'de oynadığında bile üst film sayfasını verir.
+function bestNameFromTab(tabId) {
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) return resolve('');
+        const t = cleanTitle(tab.title);
+        if (t) return resolve(t);
+        resolve(nameFromUrl(tab.url));
+      });
+    } catch (e) { resolve(''); }
+  });
+}
+
+async function doVideo(url, quality, referer, title, tabId) {
   if (!url) return;
-  const ok = await sendVideoToApp(url, quality);
+  let name = title || '';
+  // Manifest/genel yakalama (referer var): üst sekme başlığı en güvenilir kaynaktır —
+  // iframe içinden gelen (embed'e ait) başlığı ez. Bilinen video sitelerinde (referer yok)
+  // yt-dlp'nin kendi metadatası daha iyi olduğundan dokunma.
+  if (referer && tabId != null) {
+    const tabName = await bestNameFromTab(tabId);
+    if (tabName) name = tabName;
+  }
+  const ok = await sendVideoToApp(url, quality, referer, name || undefined);
   if (!ok) wakeApp(url);
 }
 
@@ -221,7 +354,7 @@ function tabHost(tab) {
   try { return new URL(tab && tab.url ? tab.url : '').hostname; } catch (e) { return ''; }
 }
 
-chrome.contextMenus.onClicked.addListener((info, tab) => {
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   // Site engelleme: kullanıcı bu siteyi kapattıysa menü eylemleri çalışmaz
   if (dnIsSiteBlocked(tabHost(tab), cfg.disabledSites)) {
     notify('DeepNode', DN_I18N.t('notif_site_disabled'));
@@ -230,7 +363,17 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'dn-link') {
     doDownload(info.srcUrl || info.linkUrl, info.pageUrl || (tab && tab.url));
   } else if (info.menuItemId === 'dn-video') {
-    doVideo(info.pageUrl || (tab && tab.url));
+    const pageUrl = info.pageUrl || (tab && tab.url);
+    if (isVideoSite(pageUrl)) {
+      // yt-dlp'nin kendi çıkarıcısı olan siteler (YouTube vb.): sayfa URL'sini ver
+      doVideo(pageUrl, 'best', undefined, undefined, tab && tab.id);
+    } else {
+      // Desteklenmeyen site (ör. hdfilmcehennemi): sayfa URL'si yt-dlp'de çalışmaz — bu
+      // sekmede yakalanan manifesti kullan (Referer = sayfa), yoksa son çare sayfa URL'si.
+      const { manifests, streams } = tab ? await getStreams(tab.id) : { manifests: [], streams: [] };
+      const manifest = manifests[0] || (streams || []).find(isManifestUrl);
+      doVideo(manifest || pageUrl, 'best', pageUrl, undefined, tab && tab.id);
+    }
   } else if (info.menuItemId === 'dn-scan' && tab) {
     chrome.tabs.sendMessage(tab.id, { type: 'DN_SCAN' });
   }
@@ -281,6 +424,19 @@ chrome.downloads.onCreated.addListener(async (item) => {
   if (!captureEnabled) return; // capture disabled from app Settings
   if (!/^https?:/i.test(url)) return;
   if (url.includes('localhost:' + cfg.port)) return; // avoid feedback loop
+
+  // Chrome, tarayıcı açılışında ve MV3 servis çalışanı her yeniden başladığında,
+  // hâlâ süren / duraklatılmış / yarıda kalmış ESKİ indirmeler için de onCreated
+  // tetikler. Bunları YENİ indirme sanıp uygulamaya gönderirsek, dün kapatılan bir
+  // indirme her Chrome açılışında yeniden yakalanır. Yalnızca gerçekten yeni başlayan
+  // indirmeleri yakala:
+  if (item.state && item.state !== 'in_progress') return; // interrupted / complete
+  if (item.paused) return; // duraklatılmış (yeniden gönderim)
+  try {
+    const started = item.startTime ? Date.parse(item.startTime) : 0;
+    if (started && Date.now() - started > 60000) return; // 60 sn'den eski = yeniden gönderim, yeni değil
+  } catch (e) { /* ignore */ }
+
   if (await isBypassActive()) return; // user held the bypass key -> let the browser download it
 
   // Site engelleme: indirme veya yönlendiren sayfa engelli sitedeyse yakalama
@@ -309,18 +465,28 @@ chrome.downloads.onCreated.addListener(async (item) => {
 chrome.webRequest.onCompleted.addListener((d) => {
   if (d.tabId < 0) return;
   const url = d.url || '';
-  if (!MEDIA_RE.test(url) && !/mime=(video|audio)/i.test(url)) return;
-  let arr = streamsByTab.get(d.tabId) || [];
-  if (!arr.includes(url)) {
-    arr.unshift(url);
-    arr = arr.slice(0, 40);
-    streamsByTab.set(d.tabId, arr);
-  }
-}, { urls: ['<all_urls>'] });
+  // .ts parçaları tek başına işe yaramaz ve m3u8 manifestlerini tampondan iterdi
+  if (/\.ts(\?|$)/i.test(url)) return;
+  // Manifest URL uzantısız/tokenlı olabilir — Content-Type ile de yakala
+  const ctHeader = (d.responseHeaders || []).find((h) => h.name && h.name.toLowerCase() === 'content-type');
+  const ct = ctHeader && ctHeader.value ? ctHeader.value.toLowerCase() : '';
+  const ctManifest = /mpegurl|dash\+xml/.test(ct);
+  const urlMedia = MEDIA_RE.test(url) || /mime=(video|audio)/i.test(url);
+  if (!urlMedia && !ctManifest) return;
+  rememberStream(d.tabId, url, isManifestUrl(url) || ctManifest);
+}, { urls: ['<all_urls>'] }, ['responseHeaders']);
 
-chrome.tabs.onRemoved.addListener((id) => streamsByTab.delete(id));
+chrome.tabs.onRemoved.addListener((id) => {
+  streamsByTab.delete(id);
+  manifestsByTab.delete(id);
+  try { chrome.storage.session.remove(['streams_' + id, 'manifests_' + id]); } catch (e) { /* ignore */ }
+});
 chrome.webNavigation && chrome.webNavigation.onCommitted && chrome.webNavigation.onCommitted.addListener((d) => {
-  if (d.frameId === 0) streamsByTab.delete(d.tabId);
+  if (d.frameId === 0) {
+    streamsByTab.delete(d.tabId);
+    manifestsByTab.delete(d.tabId);
+    try { chrome.storage.session.remove(['streams_' + d.tabId, 'manifests_' + d.tabId]); } catch (e) { /* ignore */ }
+  }
 });
 
 // ---- Messaging ----
@@ -337,17 +503,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
   if (msg.type === 'DN_DOWNLOAD') {
-    doDownload(msg.url);
+    doDownload(msg.url, msg.referer || (sender && sender.tab && sender.tab.url) || null);
     sendResponse({ ok: true });
     return true;
   }
   if (msg.type === 'DN_DOWNLOAD_VIDEO') {
-    doVideo(msg.url, msg.quality);
+    doVideo(msg.url, msg.quality, msg.referer, msg.title, sender && sender.tab && sender.tab.id);
     sendResponse({ ok: true });
     return true;
   }
   if (msg.type === 'DN_GET_FORMATS') {
-    getVideoFormats(msg.url).then((data) => sendResponse(data));
+    getVideoFormats(msg.url, msg.referer).then((data) => sendResponse(data));
     return true;
   }
   if (msg.type === 'DN_DOWNLOAD_MANY') {
@@ -361,7 +527,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'DN_GET_STREAMS') {
     const id = sender && sender.tab ? sender.tab.id : msg.tabId;
-    sendResponse({ streams: streamsByTab.get(id) || [] });
+    getStreams(id).then((r) => sendResponse(r));
     return true;
   }
   if (msg.type === 'DN_PING') {

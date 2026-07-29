@@ -3,10 +3,19 @@
 
 let showButton = true;
 
+// Eklenti yenilendiğinde/güncellendiğinde, o an açık sekmelerde çalışan bu content
+// script "yetim" (orphaned) kalır: chrome.runtime.id undefined olur ve chrome.storage/
+// runtime çağrıları "Cannot read properties of undefined" / "Extension context
+// invalidated" hatası verir. Bağlam geçersizse API'lere hiç dokunmayalım.
+function dnCtxValid() {
+  try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; }
+}
+
 // ---- Dil: uygulama ayarı ('auto'|'tr'|'en') → yoksa tarayıcı dili ----
 function refreshLang() {
   let ui = 'en';
   try { ui = chrome.i18n.getUILanguage(); } catch (e) { /* ignore */ }
+  if (!dnCtxValid()) return;
   chrome.storage.local.get({ appLanguage: 'auto' }, (v) => {
     DN_I18N.setLang(dnResolveLang(v.appLanguage, ui));
     applyButtonText();
@@ -16,6 +25,7 @@ function refreshLang() {
 // ---- Site engelleme: kullanıcı "bu sitede çalışma" dediyse tamamen sus ----
 let siteBlocked = false;
 function refreshSiteBlocked(cb) {
+  if (!dnCtxValid()) return;
   chrome.storage.local.get({ disabledSites: [] }, (v) => {
     siteBlocked = dnIsSiteBlocked(location.hostname, v.disabledSites);
     if (siteBlocked) {
@@ -27,11 +37,12 @@ function refreshSiteBlocked(cb) {
   });
 }
 
-chrome.storage.local.get({ showButton: true }, (v) => { showButton = v.showButton; });
+if (dnCtxValid()) chrome.storage.local.get({ showButton: true }, (v) => { showButton = v.showButton; });
 refreshLang();
 refreshSiteBlocked();
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
+  if (!dnCtxValid()) return;
   chrome.storage.local.get({ showButton: true }, (v) => {
     // Re-enabling the toggle from the popup also clears a temporary dismiss
     if (v.showButton && !showButton) dismissed = false;
@@ -104,8 +115,9 @@ function place(el) {
   btn.style.display = 'flex';
   current = el;
   // Warm the formats cache for THIS video as soon as the button appears
-  // (feed pages like Twitter/X have per-tweet URLs different from location.href)
-  if (onVideoSite) fetchFormats(getVideoContextUrl(el), null);
+  // (feed pages like Twitter/X/YouTube have per-item URLs different from location.href)
+  const ctx = getVideoContextUrl(el);
+  if (onVideoSite || (ctx && ctx !== location.href)) fetchFormats(ctx, null);
 }
 
 function hide() { btn.style.display = 'none'; current = null; }
@@ -177,6 +189,32 @@ function mediaUrl(el) {
 const VIDEO_SITE_RE = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|twitter\.com|x\.com|reddit\.com|soundcloud\.com|bilibili\.com|ok\.ru|vk\.com)$/i;
 const onVideoSite = VIDEO_SITE_RE.test(location.hostname);
 
+// HLS/DASH manifestleri (m3u8/mpd) siteden bağımsız olarak yt-dlp ile indirilir
+function isManifestUrl(u) {
+  return /\.(m3u8|mpd)(\?|$)/i.test(u || '');
+}
+
+// inject.js (MAIN world) sayfanın fetch/XHR çağrılarından yakaladığı manifest
+// URL'lerini buraya postMessage eder. Bu, cross-origin iframe içinde de çalışır
+// ve chrome.webRequest'e (MV3 worker uykusu) bağımlı değildir. inject.js yalnızca
+// DOĞRULANMIŞ manifest gönderir (Content-Type mpegurl/dash), .txt gibi uzantısız
+// olanlar dahil — bu yüzden dnSniffed girdileri doğrudan manifest kabul edilir.
+const dnSniffed = [];
+const dnMasters = []; // #EXT-X-STREAM-INF içeren (tüm kaliteleri barındıran) master'lar
+window.addEventListener('message', (e) => {
+  if (e.source !== window) return;
+  const d = e.data;
+  if (!(d && d.__dnHls && d.url)) return;
+  if (!dnSniffed.includes(d.url)) dnSniffed.unshift(d.url);
+  // Master tercih edilir: yt-dlp'ye master verirsek oynatıcıdaki tüm kaliteler gelir.
+  if (d.master && !dnMasters.includes(d.url)) {
+    dnMasters.unshift(d.url);
+    // Kaliteleri ARKA PLANDA ısıt: kullanıcı "DDM ile İndir"e bastığında menü anında
+    // hazır olsun (yt-dlp master+varyant probe gecikmesi tıklamadan ÖNCE yapılır).
+    try { fetchFormats(d.url, null, location.href); } catch (e) { /* ignore */ }
+  }
+}, false);
+
 // ---- Format prefetch/cache (so the quality menu opens instantly) ----
 const formatsCache = new Map();
 function pageKey(u) {
@@ -187,7 +225,7 @@ function pageKey(u) {
     return url.origin + url.pathname;
   } catch (e) { return u; }
 }
-function fetchFormats(url, cb) {
+function fetchFormats(url, cb, referer) {
   const key = pageKey(url);
   const c = formatsCache.get(key);
   if (c && c.data && !c.data.error) { if (cb) cb(c.data); return; }
@@ -200,7 +238,7 @@ function fetchFormats(url, cb) {
   }
   const entry = { pending: true, data: null, failedAt: 0, waiters: cb ? [cb] : [] };
   formatsCache.set(key, entry);
-  chrome.runtime.sendMessage({ type: 'DN_GET_FORMATS', url }, (resp) => {
+  chrome.runtime.sendMessage({ type: 'DN_GET_FORMATS', url, referer: referer || undefined }, (resp) => {
     const data = (!chrome.runtime.lastError && resp) ? resp : { error: true };
     entry.pending = false;
     entry.data = data;
@@ -250,6 +288,62 @@ if (onVideoSite) {
   setTimeout(maybePrefetch, 1500);
 }
 
+// YouTube watch URL'sini sadeleştir (?v=ID) — &list=/&pp= gibi playlist/izleme
+// parametrelerini atar; yt-dlp'nin doğru tek videoyu çekmesini sağlar.
+function ytCleanWatch(href) {
+  try {
+    const u = new URL(href, location.href);
+    const v = u.searchParams.get('v');
+    if (v) return 'https://www.youtube.com/watch?v=' + v;
+    if (/^\/shorts\//.test(u.pathname)) return u.origin + u.pathname;
+  } catch (e) { /* ignore */ }
+  return href;
+}
+
+// Feed/liste/ana sayfa hover önizlemesi: oynayan önizleme <video>'sunun geometrik
+// olarak üzerinde durduğu thumbnail linkinin (/watch?v=) URL'sini bul. Önizleme
+// oynatıcısı çoğu zaman thumbnail item'ının DIŞINDA (ayrık) olduğundan, ata-arama
+// yerine ekran konumu kesişimine bakarız.
+function ytWatchUrlFromFeed(el) {
+  try {
+    const renderer = el.closest('ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, ytd-reel-item-renderer');
+    if (renderer) {
+      const a = renderer.querySelector('a#thumbnail[href*="watch?v="], a.yt-simple-endpoint[href*="watch?v="], a[href*="/shorts/"], a[href*="watch?v="]');
+      if (a && a.href) return ytCleanWatch(a.href);
+    }
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const links = document.querySelectorAll('a#thumbnail[href*="watch?v="], a[href*="/watch?v="], a[href*="/shorts/"]');
+    let best = null, bestArea = Infinity;
+    for (const a of links) {
+      const ar = a.getBoundingClientRect();
+      if (ar.width < 40 || ar.height < 40) continue;
+      if (cx >= ar.left && cx <= ar.right && cy >= ar.top && cy <= ar.bottom) {
+        const area = ar.width * ar.height;
+        if (area < bestArea) { bestArea = area; best = a; }
+      }
+    }
+    if (best && best.href) return ytCleanWatch(best.href);
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+// Site-bağımsız: video/önizleme başka bir sayfaya giden bir bağlantının (kart /
+// thumbnail sarmalayıcısı) İÇİNDEYSE o permalinki kullan. Feed/liste görünümlü
+// çoğu site (haber, sosyal, blog, film listeleri) videoyu böyle bir <a> ile sarar.
+// Tek videolu sayfalarda oynatıcı böyle bir linkin içinde olmaz → null döner.
+function genericContextUrl(el) {
+  try {
+    const a = el.closest('a[href]');
+    if (!a) return null;
+    const href = a.href;
+    if (!href || !/^https?:/i.test(href)) return null;
+    if (href.split('#')[0] === location.href.split('#')[0]) return null; // kendine link
+    return href;
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
 function getVideoContextUrl(el) {
   if (!el) return location.href;
   try {
@@ -260,6 +354,15 @@ function getVideoContextUrl(el) {
         if (link && link.href) return link.href;
       }
     }
+    // YouTube: watch sayfasında location.href zaten doğru; ana sayfa/feed/abonelik
+    // listelerinde hover önizlemesi tıklanınca hangi videonun izlendiğini konumdan bul.
+    if (/(^|\.)youtube\.com$/i.test(location.hostname)) {
+      const w = ytWatchUrlFromFeed(el);
+      if (w) return w;
+    }
+    // Diğer TÜM siteler: video bir permalink linkinin içindeyse o sayfayı kullan.
+    const g = genericContextUrl(el);
+    if (g) return g;
   } catch (err) {}
   return location.href;
 }
@@ -277,16 +380,44 @@ btn.addEventListener('click', (e) => {
     return;
   }
 
+  // Herhangi bir sitede feed/liste: video başka bir sayfaya (permalink) giden bir
+  // linkin içindeyse ve doğrudan dosya değilse, o sayfayı yt-dlp'ye gönder.
+  if (targetPageUrl !== location.href &&
+      (current.tagName === 'VIDEO' || current.tagName === 'AUDIO') &&
+      (!url || url.startsWith('blob:'))) {
+    openQualityMenu(targetPageUrl);
+    return;
+  }
+
   if (url && !url.startsWith('blob:')) {
-    chrome.runtime.sendMessage({ type: 'DN_DOWNLOAD', url });
+    // Doğrudan m3u8/mpd kaynağı: kalite menüsüyle yt-dlp'ye gönder (Referer = sayfa)
+    if (isManifestUrl(url)) {
+      openQualityMenu(url, location.href);
+      return;
+    }
+    chrome.runtime.sendMessage({ type: 'DN_DOWNLOAD', url, referer: location.href });
     toast(DN_I18N.t('toast_added'));
     return;
   }
-  // blob/streaming video -> fall back to sniffed network streams
+  // blob/streaming video -> önce bu çerçevede yakalanan manifest (inject.js), sonra
+  // arka plandaki sniff edilmiş akışlar (HER sitede çalışır, 16 site sınırı yok)
+  const localManifest = dnMasters[0] || dnSniffed[0];
+  if (localManifest) {
+    openQualityMenu(localManifest, location.href);
+    return;
+  }
   chrome.runtime.sendMessage({ type: 'DN_GET_STREAMS' }, (resp) => {
-    const streams = (!chrome.runtime.lastError && resp && resp.streams) || [];
+    const ok = !chrome.runtime.lastError && resp;
+    const streams = (ok && resp.streams) || [];
+    const manifests = (ok && resp.manifests) || [];
+    // Önce master (tüm kaliteler), sonra doğrulanmış manifest, sonra ilk akış
+    const manifest = dnMasters[0] || manifests[0] || streams.find(isManifestUrl) || dnSniffed[0];
+    if (manifest) {
+      openQualityMenu(manifest, location.href);
+      return;
+    }
     if (streams.length) {
-      chrome.runtime.sendMessage({ type: 'DN_DOWNLOAD', url: streams[0] });
+      chrome.runtime.sendMessage({ type: 'DN_DOWNLOAD', url: streams[0], referer: location.href });
       toast(DN_I18N.t('toast_stream'));
     } else {
       toast(DN_I18N.t('toast_blob_fail'));
@@ -324,7 +455,16 @@ function onDocClickForMenu(e) {
   if (menu && !menu.contains(e.target) && e.target !== btn) closeQualityMenu();
 }
 
-function openQualityMenu(pageUrl) {
+// Sayfa başlığından dosya adı tahmini — HLS/.txt manifestlerinde başlık metadatası yok,
+// yt-dlp "master" derdi. Site ekini (" - Site", " | Site", " » Site") at, ilk parçayı al.
+function dnPageTitleGuess() {
+  let t = (document.title || '').trim();
+  const parts = t.split(/\s*(?:»|\||::)\s*|\s+[-–—]\s+/);
+  if (parts.length > 1 && parts[0].trim().length >= 2) t = parts[0].trim();
+  return t.slice(0, 150);
+}
+
+function openQualityMenu(pageUrl, referer) {
   closeQualityMenu();
   const menu = document.createElement('div');
   menu.className = 'dn-qmenu';
@@ -338,7 +478,7 @@ function openQualityMenu(pageUrl) {
   setTimeout(() => document.addEventListener('click', onDocClickForMenu, true), 0);
 
   const pick = (quality) => {
-    chrome.runtime.sendMessage({ type: 'DN_DOWNLOAD_VIDEO', url: pageUrl, quality });
+    chrome.runtime.sendMessage({ type: 'DN_DOWNLOAD_VIDEO', url: pageUrl, quality, referer: referer || undefined, title: dnPageTitleGuess() || undefined });
     toast(DN_I18N.t('toast_video_started'));
     closeQualityMenu();
   };
@@ -359,14 +499,17 @@ function openQualityMenu(pageUrl) {
     }
     rows.push('<div class="dn-qitem dn-qaudio" data-q="audio"><span>' + DN_I18N.t('q_audio') + '</span></div>');
     body.innerHTML = rows.join('');
-    if (data && data.title) {
+    // yt-dlp, HLS manifestlerine dosya adından jenerik başlık verir (master/index/
+    // playlist...). Bunları menüde göstermek kafa karıştırır — yalnızca anlamlı başlıkları göster.
+    const genericTitle = /^(master|index|playlist|chunklist|manifest|stream|video|hls)$/i;
+    if (data && data.title && !genericTitle.test(String(data.title).trim())) {
       const t = document.createElement('div');
       t.className = 'dn-qtitle';
       t.textContent = data.title;
       menu.appendChild(t);
     }
     body.querySelectorAll('.dn-qitem').forEach(el => el.addEventListener('click', () => pick(el.dataset.q)));
-  });
+  }, referer);
 }
 
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeQualityMenu(); });
