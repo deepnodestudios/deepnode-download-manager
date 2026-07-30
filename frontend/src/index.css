@@ -1169,3 +1169,53 @@ body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* IDM tarzı "İndirme Tamamlandı" paneli (bağımsız ilerleme penceresi) */
+.dl-complete-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 12px 10px;
+  text-align: center;
+  animation: dlCompleteFade 0.35s ease-out;
+}
+.dl-complete-check {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  border: 2px solid var(--success);
+  color: var(--success-2);
+  animation: dlCheckPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.dl-complete-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--success-2);
+}
+.dl-complete-file {
+  font-size: 0.85rem;
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-complete-size {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+@keyframes dlCheckPop {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); }
+}
+@keyframes dlCompleteFade {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}

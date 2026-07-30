@@ -36,6 +36,16 @@ function qualityLabel(h) {
   return h >= 2160 ? ' (4K)' : h >= 1440 ? ' (2K)' : h >= 1080 ? ' (Full HD)' : h >= 720 ? ' (HD)' : '';
 }
 
+// Varyant satırı etiketi: "1080p (Full HD) · MP4 · AV1 — ~124 MB"
+function variantOptionLabel(v) {
+  const parts = [v.height + 'p' + qualityLabel(v.height)];
+  if (v.container) parts.push(v.container);
+  if (v.vcodec) parts.push(v.vcodec);
+  let s = parts.join(' · ');
+  if (v.size) s += ` — ~${formatBytes(v.size)}`;
+  return s;
+}
+
 // Dosya türünden kategori (klasör) tahmini — sunucudan cevap gelmeden anında uygulanır
 const CATEGORY_BY_EXT = {
   Video: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', 'mpg', 'mpeg', 'ts'],
@@ -81,6 +91,7 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
   const [loadingMetadata, setLoadingMetadata] = useState(false);
   const [videoTitle, setVideoTitle] = useState('');
   const [qualities, setQualities] = useState([]);
+  const [variants, setVariants] = useState([]); // aynı çözünürlüğün format varyantları (fmt:ID)
   const [quality, setQuality] = useState(initialQuality || 'best');
   const [formatError, setFormatError] = useState('');
 
@@ -97,6 +108,16 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
       setUrl(initialUrl);
     }
   }, [isOpen, initialUrl]);
+
+  // Eklentide seçilen kaliteyi GÜVENİLİR biçimde uygula. Eskiden kalite yalnızca
+  // /api/video/formats çağrısının başarılı .then'inde senkronlanıyordu; çağrı
+  // yavaş/başarısız olursa kalite mount değeri 'best'te kalıp arka plandaki ön
+  // indirmenin kalitesinden (ör. "1080") sapıyor ve sunucudaki devralma başarısız
+  // olup sıfırdan indirmeye düşüyordu. Artık initialQuality gelir gelmez uygulanır;
+  // kullanıcı menüden dilediğinde değiştirebilir (bu efekt yalnız prop değişince çalışır).
+  useEffect(() => {
+    if (initialQuality) setQuality(initialQuality);
+  }, [initialQuality]);
 
   // Klasörü dosya türüne (kategoriye) göre otomatik seç.
   // Kullanıcı elle klasör seçtiyse (Gözat / hızlı düğmeler / yazdıysa) ona dokunma.
@@ -115,6 +136,7 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
       setFileSizeStr('');
       setVideoTitle('');
       setQualities([]);
+      setVariants([]);
       setFormatError('');
       return;
     }
@@ -151,6 +173,7 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
             if (data.error) throw new Error(data.error);
             const q = data.qualities || (data.heights || []).map(h => ({ height: h, size: 0 }));
             setQualities(q);
+            setVariants(data.variants || []);
             setVideoTitle(data.title || '');
             // Sayfa başlığını (initialFilename) yt-dlp'nin "master" gibi metadata başlığına
             // tercih et — HLS/.txt kaynaklarında anlamlı tek isim sayfa başlığıdır.
@@ -164,6 +187,7 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
           .catch(err => {
             if (err.name === 'AbortError') return;
             setQualities([]);
+            setVariants([]);
             setFormatError(t('fmt_error'));
             // Format alınamasa da (ör. oturum korumalı HLS 404) sayfa başlığını ad olarak koy
             if (!filename) setFilename(initialFilename || '');
@@ -376,15 +400,26 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
                     onChange={(e) => setQuality(e.target.value)}
                   >
                     <option value="best">{t('q_best')}</option>
-                    {/* Seçili kalite henüz listede yoksa (liste yükleniyorsa) yine de görünsün */}
-                    {quality !== 'best' && quality !== 'audio' && !qualities.some(q => String(q.height) === String(quality)) && (
-                      <option value={quality}>{quality}p{qualityLabel(Number(quality))}</option>
-                    )}
-                    {qualities.map(q => (
-                      <option key={q.height} value={String(q.height)}>
-                        {q.height}p{qualityLabel(q.height)}{q.size ? ` — ~${formatBytes(q.size)}` : ''}
+                    {/* Seçili değer henüz listede yoksa (liste yükleniyorsa) yine de görünsün.
+                        fmt:ID biçimindeki varyant seçimi için okunaklı bir etiket göster. */}
+                    {quality !== 'best' && quality !== 'audio' &&
+                      !variants.some(v => `fmt:${v.formatId}` === quality) &&
+                      !qualities.some(q => String(q.height) === String(quality)) && (
+                      <option value={quality}>
+                        {String(quality).startsWith('fmt:') ? t('q_best') : `${quality}p${qualityLabel(Number(quality))}`}
                       </option>
-                    ))}
+                    )}
+                    {variants.length > 0
+                      ? variants.map(v => (
+                          <option key={v.formatId} value={`fmt:${v.formatId}`}>
+                            {variantOptionLabel(v)}
+                          </option>
+                        ))
+                      : qualities.map(q => (
+                          <option key={q.height} value={String(q.height)}>
+                            {q.height}p{qualityLabel(q.height)}{q.size ? ` — ~${formatBytes(q.size)}` : ''}
+                          </option>
+                        ))}
                     <option value="audio">{t('q_audio')}</option>
                   </select>
                   {videoTitle && <div style={{ fontSize: '0.78rem', color: 'var(--link)', marginTop: '6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>🎬 {videoTitle}</div>}

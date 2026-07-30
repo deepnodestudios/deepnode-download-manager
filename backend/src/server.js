@@ -156,6 +156,64 @@ function startPreflight(url, filename, headers) {
 }
 
 
+// Video ön indirmesi (yt-dlp): onay penceresi açılırken eklentide seçilen kaliteyle
+// arka planda GIZLI indirmeye başla. Kullanıcı "İndir" derse aynı motor kaldığı
+// baytlardan devam eder (confirm-video-preflight); pencere kapanırsa parçalar silinir
+// (cancel-preflight, dosya ön indirmesiyle aynı yol). Video siteleri kalite seçimine
+// bağlı olduğundan bu yol dosya startPreflight'ından ayrıdır.
+function startVideoPreflight(url, quality, referer, filename) {
+  try {
+    if (!url || preflights.has(url)) return;
+
+    const entry = { id: null, promise: null, video: true };
+    preflights.set(url, entry);
+
+    entry.promise = queueManager
+      .addDownload(url, filename || null, 'Video', 1, true, quality || 'best', null, null, true, referer || null)
+      .then((item) => {
+        if (preflights.get(url) !== entry) {
+          // pencere ön indirme hazırlanırken kapatıldı — kalıntı bırakma
+          if (item && item.id) queueManager.deleteDownload(item.id, true);
+          return;
+        }
+        if (!item || !item.id) { preflights.delete(url); return; }
+        entry.id = item.id;
+        queueManager.startDownload(item.id);
+        setTimeout(() => dropPreflight(url, entry), PREFLIGHT_TTL);
+      })
+      .catch(() => { if (preflights.get(url) === entry) preflights.delete(url); });
+  } catch (e) { /* ön indirme başlamasa da onay penceresi normal çalışır */ }
+}
+
+// Onaylanan video eklemesi bekleyen video ön indirmesini devralır: kalite/klasör/ad
+// tabanı aynıysa aynı motor kaldığı baytlardan sürer. Devralınamıyorsa (değişmiş
+// ya da yok) ön indirme silinir ve null döner — çağıran normal eklemeye düşer.
+async function confirmVideoPreflightForUrl(url, opts) {
+  const entry = url ? preflights.get(url) : null;
+  if (!entry || !entry.video || entry.confirming) return null;
+  entry.confirming = true;
+  try {
+    if (!entry.id && entry.promise) { try { await entry.promise; } catch (e) { /* ignore */ } }
+    if (!entry.id) { preflights.delete(url); return null; }
+    const snap = queueManager.confirmVideoPreflight(entry.id, opts || {});
+    if (!snap) {
+      // Kalite/klasör/ad değişti: kaldığı yerden devam mümkün değil — parçaları sil,
+      // çağıran sıfırdan indirir.
+      entry.confirming = false;
+      dropPreflight(url, entry);
+      return null;
+    }
+    if (opts && opts.autoStart !== false) serverEvents.emit('open-progress', entry.id);
+    preflights.delete(url);
+    return snap;
+  } catch (e) {
+    entry.confirming = false;
+    dropPreflight(url, entry);
+    return null;
+  }
+}
+
+
 // Dinlenen port: 5000 doluysa çalışma anında bir sonrakine düşülür (bkz. listen).
 // Güvenlik katmanı beyaz listeyi bu değerle kurduğu için fonksiyonla okunur.
 const DEFAULT_PORT = Number(process.env.DN_PORT) || 5000;
@@ -472,11 +530,21 @@ app.post('/api/download/video', async (req, res) => {
     // Eklentide seçilen kaliteyi ve referer'ı onay penceresine taşı (yoksa "en yüksek"e düşerdi)
     // video: true -> onay penceresi bunu daima video/manifest sayar (uzantıya bakmadan).
     // Uzantıdan gelen akış manifesti .txt gibi uzantısız olabilir; URL'den anlaşılmaz.
+    // IDM gibi: onay penceresi açılırken arka planda seçilen kaliteyle indirmeye başla.
+    startVideoPreflight(url, quality || null, referer || null, filename || null);
     serverEvents.emit('prompt-add', { url, quality: quality || null, referer: referer || null, video: true, filename: filename || null });
     return res.json({ status: 'prompted', message: 'Folder & download confirmation window opened.' });
   }
 
   try {
+    // IDM davranışı: onay penceresi açıkken arka planda inen video ön indirmesi varsa
+    // (kalite/klasör/ad aynıysa) yeni kayıt AÇMA — aynı motor kaldığı baytlardan devam eder.
+    const pf = await confirmVideoPreflightForUrl(url, { quality, filename, saveDir, autoStart });
+    if (pf) {
+      // open-progress zaten confirmVideoPreflightForUrl içinde emit edildi
+      return res.json(pf);
+    }
+
     const item = await queueManager.addDownload(url, filename, 'Video', 1, true, quality, saveDir, null, false, referer || null);
     if (autoStart === false && item && item.id) {
       queueManager.pauseDownload(item.id);
@@ -484,6 +552,31 @@ app.post('/api/download/video', async (req, res) => {
       serverEvents.emit('open-progress', item.id); // IDM tarzı ilerleme penceresi
     }
     res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 5.5. "Download all" (IDM tarzı): tek videonun birden çok kalitesini/varyantını
+// varsayılan Video klasörüne toplu ekler. Ayrı ayrı onay pencereleri açmadığı için
+// AÇIK bir kullanıcı eylemidir (kullanıcı eklentide "Tümünü indir"e tıkladı) ve
+// yalnızca video motoruna (yt-dlp) gider. Kötüye kullanımı sınırlamak için tavan var.
+app.post('/api/download/video-batch', async (req, res) => {
+  const { url, qualities, referer, filename } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+  if (!Array.isArray(qualities) || qualities.length === 0) {
+    return res.status(400).json({ error: 'qualities array is required' });
+  }
+  // Tekilleştir + tavan uygula (12): aynı çözünürlük iki kez kuyruğa girmesin.
+  const uniq = [...new Set(qualities.map((q) => String(q)))].slice(0, 12);
+  try {
+    const ids = [];
+    for (const q of uniq) {
+      const item = await queueManager.addDownload(url, filename || null, 'Video', 1, true, q, null, null, false, referer || null);
+      if (item && item.id) ids.push(item.id);
+    }
+    if (ids.length) serverEvents.emit('open-progress', ids[0]); // ilk indirme için ilerleme penceresi
+    res.json({ status: 'ok', count: ids.length, ids });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -242,6 +242,17 @@ async function sendVideoToApp(url, quality, referer, filename) {
   return (await postJson('/api/download/video', { url, quality: quality || 'best', referer: referer || undefined, filename: filename || undefined })) !== null;
 }
 
+// "Tümünü indir": tek istekte, her çözünürlükten bir kaliteyi varsayılan Video klasörüne
+// ekler (ayrı ayrı onay pencereleri açmadan). IDM'nin "Download all" davranışına denk.
+async function sendVideoBatchToApp(url, qualities, referer, filename) {
+  return (await postJson('/api/download/video-batch', {
+    url,
+    qualities: Array.isArray(qualities) ? qualities : [],
+    referer: referer || undefined,
+    filename: filename || undefined
+  })) !== null;
+}
+
 async function getVideoFormats(url, referer) {
   try {
     const res = await fetch(endpoint('/api/video/formats'), {
@@ -323,6 +334,19 @@ async function doVideo(url, quality, referer, title, tabId) {
     if (tabName) name = tabName;
   }
   const ok = await sendVideoToApp(url, quality, referer, name || undefined);
+  if (!ok) wakeApp(url);
+}
+
+// "Tümünü indir" akışı: doVideo ile aynı ad çözümlemesini yapar, sonra tüm kaliteleri
+// tek toplu istekte gönderir.
+async function doVideoAll(url, qualities, referer, title, tabId) {
+  if (!url) return;
+  let name = title || '';
+  if (referer && tabId != null) {
+    const tabName = await bestNameFromTab(tabId);
+    if (tabName) name = tabName;
+  }
+  const ok = await sendVideoBatchToApp(url, qualities, referer, name || undefined);
   if (!ok) wakeApp(url);
 }
 
@@ -527,6 +551,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'DN_DOWNLOAD_VIDEO') {
     doVideo(msg.url, msg.quality, msg.referer, msg.title, sender && sender.tab && sender.tab.id);
+    sendResponse({ ok: true });
+    return true;
+  }
+  if (msg.type === 'DN_DOWNLOAD_VIDEO_ALL') {
+    doVideoAll(msg.url, msg.qualities, msg.referer, msg.title, sender && sender.tab && sender.tab.id);
     sendResponse({ ok: true });
     return true;
   }

@@ -68,6 +68,26 @@ export function sanitizeFilename(name) {
     .trim();
 }
 
+// Eklenti, sekme başlığını dosya adı olarak gönderir; Shorts/SPA sayfalarında bu
+// çoğu zaman "YouTube" gibi jenerik site adıdır. Bunu gerçek başlık sanmak
+// dosyayı "YouTube [640p].mp4" yapıyordu — jenerik adlar başlık sorgusunu tetikler.
+const GENERIC_TITLE_RE = /^(youtube(\s+shorts)?|youtu\.?be|shorts|tiktok|instagram|facebook|fb|twitter|x|vimeo|dailymotion|twitch|reddit|soundcloud|bilibili|video|watch|video download)$/i;
+export function isGenericVideoTitle(name, url) {
+  if (!name) return true;
+  const base = String(name)
+    .replace(/\.(mp4|mkv|webm|m4a|mp3|aac|opus)$/i, '')
+    .replace(/\s*\[\d+p\]\s*$/i, '')
+    .trim();
+  if (!base) return true;
+  if (GENERIC_TITLE_RE.test(base)) return true;
+  try {
+    const host = new URL(url).hostname.replace(/^www\./i, '').toLowerCase();
+    const b = base.toLowerCase();
+    if (b === host || b === host.split('.')[0]) return true;
+  } catch (e) { /* url yoksa ad üzerinden karar verildi */ }
+  return false;
+}
+
 export function isVideoSiteUrl(url) {
   try {
     const u = new URL(url);
@@ -138,6 +158,22 @@ function isValidBinary(p) {
 }
 
 let lastUpdateCheck = 0;
+
+// yt-dlp'nin en güncel sürümünü DATA_DIR içine (yazılabilir kopya) indirir.
+// Kurulu uygulamada paketlenmiş bin/ klasörü salt-okunurdur (Program Files);
+// bu yüzden `-U` kendini güncelleyemez. Bu durumda güncel ikili buraya indirilir
+// ve ensureYtDlp önbelleği sıfırlanır ki sonraki tüm işlemler taze sürümü kullansın.
+async function downloadLatestYtDlp() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  await download(YTDLP_URL, YTDLP_PATH);
+  if (isValidBinary(YTDLP_PATH)) {
+    if (!isWin) { try { fs.chmodSync(YTDLP_PATH, 0o755); } catch (e) {} }
+    ytDlpReady = null; // sonraki ensureYtDlp() çağrısı taze kopyayı çözümlesin
+    return true;
+  }
+  return false;
+}
+
 export async function autoUpdateYtDlp(force = false) {
   const now = Date.now();
   if (!force && now - lastUpdateCheck < 6 * 3600 * 1000) return;
@@ -146,7 +182,18 @@ export async function autoUpdateYtDlp(force = false) {
   let bin;
   try { bin = await ensureYtDlp(); } catch (e) { return; }
 
-  return new Promise((resolve) => {
+  // Salt-okunur paketli ikili kendini güncelleyemez -> yazılabilir kopya indir.
+  // Böylece açılışta hâlâ eski (paketle gelen) sürümde olan kullanıcılar da
+  // güncel sürüme otomatik geçer.
+  if (path.resolve(bin) === path.resolve(BUNDLED_YTDLP)) {
+    try {
+      if (await downloadLatestYtDlp()) console.log('yt-dlp güncel sürümü indirildi (yazılabilir kopya).');
+    } catch (e) { console.error('yt-dlp indirilemedi:', e.message); }
+    return;
+  }
+
+  // Yazılabilir ikiliyi yerinde güncelle (-U). Başarısız olursa GitHub'dan taze indir.
+  await new Promise((resolve) => {
     let done = false;
     const finish = () => { if (!done) { done = true; resolve(); } };
     try {
@@ -156,9 +203,16 @@ export async function autoUpdateYtDlp(force = false) {
       p.stdout.on('data', (d) => { out += decoder.write(d); });
       p.stderr.on('data', (d) => { out += decoder.write(d); });
       p.on('error', finish);
-      p.on('close', () => {
+      p.on('close', async (code) => {
         if (/Updated yt-dlp|Updating to|has been updated/i.test(out)) {
           console.log('yt-dlp güncellendi.');
+        } else if (/up to date/i.test(out)) {
+          // Zaten güncel — yapılacak bir şey yok.
+        } else if (code !== 0 || /ERROR|failed|cannot|permission|read-only/i.test(out)) {
+          // -U başarısız (ör. salt-okunur konum / ağ) -> güncel sürümü yazılabilir kopyaya indir.
+          try {
+            if (await downloadLatestYtDlp()) console.log('yt-dlp -U başarısız; güncel sürüm indirildi.');
+          } catch (e) { console.error('yt-dlp yedek indirmesi başarısız:', e.message); }
         }
         finish();
       });
@@ -310,12 +364,59 @@ async function probeVideoInfo(url, referer, cacheKey) {
     return { height: h, size };
   });
 
+  // IDM benzeri ÇEŞİTLİLİK: aynı çözünürlükte hem düşük boyutlu (ör. AV1/mp4) hem yüksek
+  // boyutlu (ör. H.264/mp4 veya VP9/webm) varyantı ayrı satır olarak sun. Her (kapsayıcı,
+  // codec) ailesinden en yüksek bit hızlı formatı seçip dedup ederiz; kullanıcı hangi
+  // format_id'yi seçerse indirme tam onu (+ en iyi ses) getirir.
+  const codecName = (v) => {
+    const c = (v || '').toLowerCase();
+    if (c.startsWith('avc1') || c.startsWith('h264')) return 'H.264';
+    if (c.startsWith('av01') || c.startsWith('av1')) return 'AV1';
+    if (c.startsWith('vp9') || c.startsWith('vp09')) return 'VP9';
+    if (c.startsWith('vp8') || c.startsWith('vp08')) return 'VP8';
+    if (c.startsWith('hev1') || c.startsWith('hvc1') || c.startsWith('h265')) return 'H.265';
+    return ((v || '').split('.')[0] || '').toUpperCase();
+  };
+  const containerName = (f) => {
+    const e = (f.ext || '').toLowerCase();
+    if (e === 'mp4' || e === 'm4v') return 'MP4';
+    if (e === 'webm') return 'WebM';
+    if (e === 'mkv') return 'MKV';
+    return (e || '').toUpperCase();
+  };
+
+  const variants = [];
+  for (const h of heightsSet) {
+    const fmts = videoFormats.filter((f) => f.height === h);
+    const groups = new Map(); // anahtar: "KAPSAYICI|CODEC" -> o ailenin en iyi bit hızlısı
+    for (const f of fmts) {
+      const key = containerName(f) + '|' + codecName(f.vcodec);
+      const prev = groups.get(key);
+      if (!prev || (fsize(f) || 0) > (fsize(prev) || 0)) groups.set(key, f);
+    }
+    for (const f of groups.values()) {
+      const hasAudio = f.acodec && f.acodec !== 'none';
+      const size = fsize(f) + (hasAudio ? 0 : bestAudio);
+      variants.push({
+        height: h,
+        formatId: String(f.format_id),
+        container: containerName(f),
+        vcodec: codecName(f.vcodec),
+        hasAudio: !!hasAudio,
+        size
+      });
+    }
+  }
+  // Yükseklik azalan, sonra boyut azalan sırada düzenle (menüde derli toplu görünsün).
+  variants.sort((a, b) => b.height - a.height || (b.size || 0) - (a.size || 0));
+
   const info = {
     title: j.title || null,
     thumbnail: j.thumbnail || null,
     duration,
     heights: heightsSet,
     qualities,
+    variants,
     audioSize: bestAudio
   };
   infoCache.set(cacheKey, { info, ts: Date.now() });
@@ -438,9 +539,42 @@ export class VideoDownloader extends EventEmitter {
     this.percent = item.percent || 0;
     this.checksum = null;
     this.segmentsCount = 1;
+    this.preflight = item.preflight || false; // IDM ön indirmesi: onaylanana dek arayüzde gizli
     this.proc = null;
     this.errorMsg = item.errorMsg || null;
     this.createdFiles = new Set();
+    // Çok akışlı (video+ses) indirmede kümülatif boyut takibi
+    this._doneStreamsBytes = 0;
+    this._curStreamPath = null;
+    this._curStreamTotal = 0;
+    // İndirme ekranında baştan gösterilecek SABİT toplam boyut (video+ses birlikte)
+    this.plannedTotal = 0;
+  }
+
+  // Seçilen kaliteye göre indirmenin TOPLAM boyutunu (video+ses birleşik) döndürür.
+  // getVideoInfo, her yükseklik için `qualities[].size` içinde bu birleşik boyutu verir.
+  _plannedTotalFrom(info) {
+    if (!info) return 0;
+    if (this.quality === 'audio') return info.audioSize || 0;
+    // Belirli bir format_id seçildiyse (eklenti varyant listesi), boyutu variants'tan al.
+    if (this.quality && /^fmt:/.test(this.quality)) {
+      const fid = this.quality.slice(4);
+      const v = (info.variants || []).find((x) => String(x.formatId) === fid);
+      if (v) return v.size || 0;
+    }
+    const qs = info.qualities || [];
+    if (!qs.length) return 0;
+    if (this.quality && this.quality !== 'best') {
+      const h = parseInt(this.quality, 10);
+      const eq = qs.find((q) => q.height === h && q.size);
+      if (eq) return eq.size;
+      // Format seçici `height<=` kullandığı için istenen yüksekliğe kadarki en iyiyi al.
+      const le = qs.filter((q) => q.height <= h && q.size).sort((a, b) => b.height - a.height)[0];
+      if (le) return le.size;
+    }
+    // 'best' ya da eşleşme yok: en yüksek kalite (qualities zaten yükseklik azalan sırada).
+    const top = qs.find((q) => q.size);
+    return top ? top.size || 0 : 0;
   }
 
   async start() {
@@ -456,16 +590,40 @@ export class VideoDownloader extends EventEmitter {
       }
       bin = await ensureYtDlp();
 
-      // Resolve real video title if missing or placeholder
-      if (!this.filename || this.filename === 'Fetching video info…' || this.filename === 'Video Download' || this.filename.includes('…')) {
-        try {
-          const info = await getVideoInfo(this.url, this.referer);
-          if (info && info.title) {
-            const hStr = this.quality && this.quality !== 'best' && this.quality !== 'audio' ? ` [${this.quality}p]` : '';
-            this.filename = sanitizeFilename(`${info.title}${hStr}.mp4`);
-            this.emit('meta', { id: this.id });
-          }
-        } catch (e) {}
+      // Video bilgisini bir kez al (cache'li, ucuz): hem başlık hem de indirme
+      // ekranında gösterilecek TOPLAM boyut (video+ses birlikte) için kullanılır.
+      let vinfo = null;
+      try { vinfo = await getVideoInfo(this.url, this.referer); } catch (e) {}
+
+      // Resolve real video title if missing, placeholder or a generic site name
+      if (vinfo && vinfo.title && (!this.filename || this.filename === 'Fetching video info…' ||
+          this.filename === 'Video Download' || this.filename.includes('…') ||
+          isGenericVideoTitle(this.filename, this.url))) {
+        const hStr = this.quality && this.quality !== 'best' && this.quality !== 'audio' ? ` [${this.quality}p]` : '';
+        this.filename = sanitizeFilename(`${vinfo.title}${hStr}.mp4`);
+        this.emit('meta', { id: this.id });
+      }
+
+      // İndirme ekranında EN BAŞTAN sabit toplam boyut göster. Aksi hâlde çok akışlı
+      // (önce video, sonra ses) indirmede önce yalnız video boyutu görünüp ses akışı
+      // başlayınca boyut aniden büyüyordu. Planlı toplam = seçilen kalitenin video+ses
+      // birleşik boyutu.
+      const planned = this._plannedTotalFrom(vinfo);
+      if (planned) {
+        this.plannedTotal = planned;
+        if (!this.totalSize || this.totalSize < planned) {
+          this.totalSize = planned;
+          this.percent = this.totalSize ? Math.min(100, ((this.downloadedBytes || 0) / this.totalSize) * 100) : (this.percent || 0);
+          this.emit('progress', {
+            id: this.id,
+            downloadedBytes: this.downloadedBytes || 0,
+            totalSize: this.totalSize,
+            speed: 0,
+            eta: 0,
+            percent: Math.round(this.percent || 0),
+            segments: []
+          });
+        }
       }
     } catch (err) {
       this.status = 'error';
@@ -484,19 +642,37 @@ export class VideoDownloader extends EventEmitter {
     let format;
     if (q === 'audio') {
       format = 'ba/b';
+    } else if (q && /^fmt:/.test(q)) {
+      // Eklenti varyant listesinden gelen BELİRLİ video format_id'si. Kullanıcı aynı
+      // çözünürlüğün küçük (AV1) ya da büyük (H.264/VP9) varyantını seçebilir; tam
+      // seçtiği format + en iyi ses inip tek dosyaya birleşir (kapsayıcıyı yt-dlp seçer).
+      // Güvenlik: format_id yalnızca güvenli karakterlere sınırlanır, aksi halde 'best'.
+      const fid = q.slice(4);
+      if (/^[a-zA-Z0-9_\-]+$/.test(fid)) {
+        format = merge ? `${fid}+ba[ext=m4a]/${fid}+ba/${fid}` : `${fid}`;
+      } else {
+        format = merge ? 'bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b' : 'b[ext=mp4]/b';
+      }
     } else if (q && q !== 'best') {
       const h = parseInt(q, 10);
+      // mp4(avc1) video + m4a(AAC) ses tercih edilir: bu ikisi HERHANGİ bir ffmpeg
+      // ile transcode gerektirmeden temiz mp4'e birleşir. webm/opus ses ise eski
+      // ffmpeg'de "Postprocessing: Stream copy" hatası verip 3 ayrı dosya bırakıyordu.
+      // Uygun mp4/m4a yoksa genel bv*+ba'ya, o da yoksa tek parça 'b'ye düşülür.
       format = merge
-        ? `bv*[height<=${h}]+ba/b[height<=${h}]/b`
+        ? `bv*[height<=${h}][ext=mp4]+ba[ext=m4a]/bv*[height<=${h}]+ba/b[height<=${h}]/b`
         : `b[ext=mp4][height<=${h}]/b[height<=${h}]/b`;
     } else {
-      format = merge ? 'bv*+ba/b' : 'b[ext=mp4]/b';
+      format = merge
+        ? 'bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b'
+        : 'b[ext=mp4]/b';
     }
     // Eklenti/kullanıcı gerçek bir ad verdiyse (ör. sayfa başlığı) yt-dlp'nin %(title)s'i
     // yerine onu kullan — HLS master.txt gibi metadatasız kaynaklarda dosya "master" olmasın.
     let providedBase = null;
     if (this.filename && !this.filename.includes('…') &&
-        !/^(Fetching video info|Preparing|Error:|Video Download)/.test(this.filename)) {
+        !/^(Fetching video info|Preparing|Error:|Video Download)/.test(this.filename) &&
+        !isGenericVideoTitle(this.filename, this.url)) {
       providedBase = sanitizeFilename(this.filename)
         .replace(/\.(mp4|mkv|webm|m4a|mp3|aac|opus)$/i, '')
         .replace(/\s*\[\d+p\]\s*$/i, '')
@@ -519,11 +695,26 @@ export class VideoDownloader extends EventEmitter {
       '--continue',
       '--force-overwrites',
       '--no-mtime',
+      // %100'de takılma düzeltmesi: yanıt vermeyen soketler ve sonsuz parça
+      // yeniden denemeleri süreci asılı bırakıyordu — hepsi sınırlandı.
+      '--socket-timeout', '30',
+      '--retries', '3',
+      '--fragment-retries', '3',
+      '--retry-sleep', '2',
+      // Hız: DASH/HLS parçalarını IDM gibi PARALEL indir. Varsayılan (sıralı) indirmede
+      // her parça sırayla iniyor ve bant genişliği boşta kalıyordu; N parça aynı anda
+      // inince YouTube indirmeleri belirgin hızlanır. 4 güvenli/dengeli bir değer.
+      '--concurrent-fragments', '4',
       '--progress-template', 'download:OMNI|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s'
     ];
     args.push(...networkArgs(this.url)); // proxy / site girişi
     if (this.referer) args.push('--referer', this.referer);
-    if (merge && q !== 'audio') args.push('--merge-output-format', 'mp4');
+    // NOT: `--merge-output-format mp4` ZORLAMIYORUZ. mp4'e zorlamak, akışlar
+    // vp9/opus (webm) olduğunda eski bundled ffmpeg'de "Postprocessing: Stream
+    // copy" hatası verip indirmeyi 3 parça (video+ses+0KB temp) hâlinde bırakıyordu.
+    // Bayrak olmadan yt-dlp uyumlu konteyneri kendi seçer: mp4+m4a -> .mp4,
+    // vp9+opus -> .webm, uyumsuz karışım -> .mkv. Her durumda TEK dosya, hata yok.
+    // Format seçici zaten önce mp4+m4a tercih ettiği için yaygın durum yine .mp4.
     if (q === 'audio' && merge) args.push('-x', '--audio-format', 'mp3');
     if (ffmpegLoc) args.push('--ffmpeg-location', ffmpegLoc);
 
@@ -536,6 +727,11 @@ export class VideoDownloader extends EventEmitter {
   }
 
   _launch(bin, fullArgs) {
+    // Her indirme denemesi (ilk deneme + yeniden denemeler) sıfırdan başlar; çok
+    // akışlı (bv*+ba) boyut birikimini sıfırla ki toplam yanlış hesaplanmasın.
+    this._doneStreamsBytes = 0;
+    this._curStreamPath = null;
+    this._curStreamTotal = 0;
     try {
       this.proc = spawn(bin, fullArgs, { windowsHide: true, env: YTDLP_ENV });
     } catch (err) {
@@ -544,6 +740,27 @@ export class VideoDownloader extends EventEmitter {
       this.emit('error', { id: this.id, error: err.message });
       return;
     }
+
+    // Takılma bekçisi: yt-dlp bazen %100'den sonra hiç çıktı vermeden asılı
+    // kalıyor (ör. SABR/403 ses akışı). 120 sn sessizlikte süreç öldürülür;
+    // close işleyicisi bunu hata/yeniden deneme akışına sokar.
+    this._lastOutputTs = Date.now();
+    this._stalled = false;
+    if (this._stallTimer) clearInterval(this._stallTimer);
+    this._stallTimer = setInterval(() => {
+      if (this.status !== 'downloading' || !this.proc) return;
+      if (Date.now() - this._lastOutputTs > 120000) {
+        this._stalled = true;
+        try {
+          if (isWin && this.proc.pid) {
+            spawnSync('taskkill', ['/F', '/T', '/PID', this.proc.pid.toString()]);
+          } else {
+            this.proc.kill('SIGKILL');
+          }
+        } catch (e) {}
+      }
+    }, 15000);
+    if (this._stallTimer.unref) this._stallTimer.unref();
 
     this.proc.on('error', (err) => {
       this.proc = null;
@@ -558,6 +775,7 @@ export class VideoDownloader extends EventEmitter {
 
     let buffer = '';
     const handleStdout = (chunk) => {
+      this._lastOutputTs = Date.now();
       buffer += stdoutDecoder.write(chunk);
       const lines = buffer.split(/\r|\n/);
       buffer = lines.pop();
@@ -566,6 +784,7 @@ export class VideoDownloader extends EventEmitter {
 
     let errBuffer = '';
     const handleStderr = (chunk) => {
+      this._lastOutputTs = Date.now();
       errBuffer += stderrDecoder.write(chunk);
       const lines = errBuffer.split(/\r|\n/);
       errBuffer = lines.pop();
@@ -577,6 +796,7 @@ export class VideoDownloader extends EventEmitter {
 
     this.proc.on('close', (code) => {
       this.proc = null;
+      if (this._stallTimer) { clearInterval(this._stallTimer); this._stallTimer = null; }
       if (this.status === 'paused') return;
       if (code === 0) {
         this.status = 'completed';
@@ -591,6 +811,7 @@ export class VideoDownloader extends EventEmitter {
         }
         if (this.totalSize && !this.downloadedBytes) this.downloadedBytes = this.totalSize;
         this.emit('meta', { id: this.id });
+        this.emit('status-change', { id: this.id, status: 'completed' });
         this.emit('completed', { id: this.id, savePath: this.savePath, checksum: null });
       } else if (this.status !== 'error') {
         // Çerez okuma hatası (ör. Chrome App-Bound / DPAPI) -> çerezsiz bir kez daha dene
@@ -601,11 +822,33 @@ export class VideoDownloader extends EventEmitter {
           this._launch(bin, this._baseArgs);
           return;
         }
+        // YouTube web istemcisi takıldıysa/başarısızsa (SABR, 403, takılma
+        // bekçisinin öldürmesi) android istemciyle bir kez daha dene.
+        if (!this._ytRetried && this._baseArgs && this._isYouTube()) {
+          this._ytRetried = true;
+          const wasStalled = this._stalled;
+          this._stalled = false;
+          this.errorMsg = null;
+          console.log(`[VideoDownloader] ${wasStalled ? 'stalled' : 'exit ' + code} -> retrying with android player client`);
+          this._launch(bin, ['--extractor-args', 'youtube:player_client=android', ...this._baseArgs]);
+          return;
+        }
         this.status = 'error';
-        this.errorMsg = this.errorMsg || ('yt-dlp exit code ' + code);
+        this.errorMsg = this._stalled
+          ? 'Download stalled (no data received)'
+          : (this.errorMsg || ('yt-dlp exit code ' + code));
         this.emit('error', { id: this.id, error: this.errorMsg });
       }
     });
+  }
+
+  _isYouTube() {
+    try {
+      const host = new URL(this.url).hostname;
+      return /(^|\.)(youtube\.com|youtu\.be)$/i.test(host);
+    } catch (e) {
+      return false;
+    }
   }
 
   cleanup() {
@@ -677,6 +920,19 @@ export class VideoDownloader extends EventEmitter {
   parseLine(line) {
     if (!line) return;
 
+    // Çok akışlı indirmede her yeni akış "[download] Destination:" ile başlar.
+    // Yeni akışa geçildiğinde önceki akışın toplam boyutunu tabana taşı ki
+    // OMNI ilerlemesinde toplam/indirilen düşmesin (boyut hesabı doğru kalsın).
+    const destStart = line.match(/\[download\]\s+Destination:\s+(.+)$/);
+    if (destStart) {
+      const d = destStart[1].trim().replace(/^"|"$/g, '');
+      if (this._curStreamPath && this._curStreamPath !== d) {
+        this._doneStreamsBytes = (this._doneStreamsBytes || 0) + (this._curStreamTotal || 0);
+        this._curStreamTotal = 0;
+      }
+      this._curStreamPath = d;
+    }
+
     // Track output file paths
     let m = line.match(/\[download\]\s+Destination:\s+(.+)$/)
          || line.match(/Merging formats into\s+"(.+)"/)
@@ -717,8 +973,17 @@ export class VideoDownloader extends EventEmitter {
       const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
       const downloaded = num(p[0]);
       const total = num(p[1]) || num(p[2]);
-      this.downloadedBytes = Math.round(downloaded);
-      if (total) this.totalSize = Math.round(total);
+      // Çok akışlı indirmede (video sonra ses) her akışın total'ı ayrı raporlanır;
+      // önceki akışların toplamını tabana ekleyerek boyutun düşmesini engelle.
+      const base = this._doneStreamsBytes || 0;
+      if (total) this._curStreamTotal = total;
+      this.downloadedBytes = Math.round(base + downloaded);
+      const combinedTotal = base + (this._curStreamTotal || total || 0);
+      // Toplam boyut ASLA küçülmesin: baştan hesaplanan planlı toplamı ve o ana dek
+      // görülen en büyük değeri taban al. Çok akışlıda tek akışın total'ı gerçek
+      // birleşik boyuttan küçük olduğu için ekranda boyut düşmesin.
+      const bestTotal = Math.max(combinedTotal || 0, this.plannedTotal || 0, this.totalSize || 0);
+      if (bestTotal) this.totalSize = Math.round(bestTotal);
       this.speed = Math.round(num(p[3]));
       this.eta = Math.round(num(p[4]));
       this.percent = this.totalSize ? Math.min(100, (this.downloadedBytes / this.totalSize) * 100) : this.percent;
@@ -796,6 +1061,7 @@ export class VideoDownloader extends EventEmitter {
       segmentsCount: 1,
       checksum: null,
       errorMsg: this.errorMsg,
+      preflight: this.preflight ? true : undefined,
       segments: []
     };
   }

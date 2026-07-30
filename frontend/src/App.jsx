@@ -6,6 +6,7 @@ import SpeedChart from './components/SpeedChart';
 import ChunkProgressModal from './components/ChunkProgressModal';
 import AddDownloadModal from './components/AddDownloadModal';
 import DownloadProgressWindow from './components/DownloadProgressWindow';
+import DownloadCompleteWindow from './components/DownloadCompleteWindow';
 import MediaSnifferModal from './components/MediaSnifferModal';
 import SettingsModal from './components/SettingsModal';
 import AboutModal from './components/AboutModal';
@@ -44,6 +45,11 @@ export default function App() {
   const [standaloneProgressId] = useState(() => {
     const p = new URLSearchParams(window.location.search);
     return p.get('mode') === 'progress' ? p.get('id') : null;
+  });
+  // IDM tarzı "İndirme Tamamlandı" diyaloğu (mode=complete&id=...)
+  const [standaloneCompleteId] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get('mode') === 'complete' ? p.get('id') : null;
   });
 
   const wsRef = useRef(null);
@@ -407,10 +413,18 @@ export default function App() {
     }
   };
 
+  if (standaloneCompleteId) {
+    return (
+      <I18nProvider languagePref={settings?.language}>
+        <DownloadCompleteWindow download={downloads.find(d => d.id === standaloneCompleteId)} />
+      </I18nProvider>
+    );
+  }
+
   if (standaloneProgressId) {
     return (
       <I18nProvider languagePref={settings?.language}>
-        <DownloadProgressWindow download={downloads.find(d => d.id === standaloneProgressId)} />
+        <DownloadProgressWindow download={downloads.find(d => d.id === standaloneProgressId)} settings={settings} />
       </I18nProvider>
     );
   }

@@ -1,12 +1,12 @@
 import React, { useEffect, useRef } from 'react';
-import { X, Minus, Download, Pause, Play, FolderOpen, FileText, Loader } from 'lucide-react';
+import { X, Minus, Download, Pause, Play, FolderOpen, FileText, Loader, Check } from 'lucide-react';
 import { useT } from '../i18n';
 import { closeWindow, minimizeWindow, resizeWindow } from '../native';
 
 // IDM tarzı bağımsız indirme ilerleme penceresi (mode=progress&id=...).
 // İndirme verisi App'in WS aboneliğinden prop olarak gelir; pencere içeriğe göre
 // otomatik boyutlanır (AddDownloadModal ile aynı resize-add-window IPC deseni).
-export default function DownloadProgressWindow({ download }) {
+export default function DownloadProgressWindow({ download, settings }) {
   const { t } = useT();
   const boxRef = useRef(null);
 
@@ -61,6 +61,16 @@ export default function DownloadProgressWindow({ download }) {
   const isActive = download && (download.status === 'downloading' || download.status === 'merging');
   const isDone = download && download.status === 'completed';
 
+  // IDM davranışı: tamamlanınca ayrı "İndirme Tamamlandı" diyaloğu açılır
+  // (Electron download-completed ile). Diyalog etkinse bu pencere kendini kapatır;
+  // diyalog kapatılmışsa ("bir daha gösterme") burada tamamlanma paneli kalır.
+  useEffect(() => {
+    if (isDone && settings && settings.showCompleteDialog !== false) {
+      const timer = setTimeout(() => closeWindow(), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [isDone, settings]);
+
   const act = (action) => fetch(`/api/download/${download.id}/${action}`, { method: 'POST' }).catch(() => {});
 
   const rows = download ? [
@@ -95,6 +105,18 @@ export default function DownloadProgressWindow({ download }) {
           {!download ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.85rem', padding: '12px 0' }}>
               <Loader size={16} className="dn-spin" /> {t('prog_loading')}
+            </div>
+          ) : isDone ? (
+            /* IDM tarzı tamamlanma görünümü: animasyonlu onay işareti + dosya bilgisi */
+            <div className="dl-complete-panel">
+              <div className="dl-complete-check">
+                <Check size={30} strokeWidth={3} />
+              </div>
+              <div className="dl-complete-title">{t('prog_done_title')}</div>
+              <div className="dl-complete-file" title={download.filename}>{download.filename}</div>
+              {download.totalSize > 0 && (
+                <div className="dl-complete-size">{formatBytes(download.totalSize)}</div>
+              )}
             </div>
           ) : (
             <>

@@ -293,7 +293,7 @@ serverEvents.on('settings-changed', (s) => {
   if (getLanguage() !== prevLang) buildTrayMenu();
 });
 
-// İndirme bitince bildirim + ses
+// İndirme bitince bildirim + ses + IDM tarzı "İndirme Tamamlandı" diyaloğu
 serverEvents.on('download-completed', (item) => {
   try {
     if (appSettings.notifyOnComplete !== false && Notification.isSupported()) {
@@ -307,8 +307,38 @@ serverEvents.on('download-completed', (item) => {
     if (appSettings.soundNotifications !== false) {
       shell.beep();
     }
+    // IDM'deki gibi tamamlanma diyaloğu (ayarlardan "bir daha gösterme" ile kapatılabilir)
+    if (appSettings.showCompleteDialog !== false && item && item.id) {
+      createCompleteWindow(item.id);
+    }
   } catch (e) { /* ignore */ }
 });
+
+// IDM tarzı "Download complete" diyaloğu: dosya bilgisi + Aç / Klasörü Aç.
+// İlerleme pencereleriyle aynı frameless desen ve resize IPC'sini kullanır.
+function createCompleteWindow(downloadId) {
+  if (!downloadId) return;
+  const win = new BrowserWindow({
+    width: 560,
+    height: 320,
+    minWidth: 480,
+    minHeight: 200,
+    title: et('notif_dl_complete'),
+    backgroundColor: '#1b1a24',
+    frame: false,
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, 'icon.png'),
+    center: true,
+    resizable: true,
+    skipTaskbar: false,
+    alwaysOnTop: true, // IDM gibi öne çıkar; kullanıcı görene kadar üstte kalır
+    webPreferences: { ...SECURE_WEB_PREFERENCES }
+  });
+  hardenWindow(win);
+  win.loadURL(appUrl('/?mode=complete&id=') + encodeURIComponent(downloadId));
+  // Açıldıktan sonra kalıcı "her zaman üstte" davranışı bırakılır
+  win.once('ready-to-show', () => setTimeout(() => { try { win.setAlwaysOnTop(false); } catch (e) {} }, 1500));
+}
 
 // Tüm indirmeler bitince: bir şey yapma / uygulamayı kapat / bilgisayarı kapat
 serverEvents.on('all-complete', () => {

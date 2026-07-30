@@ -506,7 +506,7 @@ function openQualityMenu(pageUrl, referer) {
   menu.className = 'dn-qmenu';
   const r = btn.getBoundingClientRect();
   menu.style.top = (window.scrollY + r.bottom + 4) + 'px';
-  menu.style.left = (window.scrollX + Math.max(4, r.right - 240)) + 'px';
+  menu.style.left = (window.scrollX + Math.max(4, r.right - 300)) + 'px';
   const preloaded = formatsCache.get(pageKey(pageUrl));
   const loadingText = (preloaded && preloaded.data) ? '' : DN_I18N.t('q_loading');
   menu.innerHTML = '<div class="dn-qhead">' + DN_I18N.t('q_title') + '</div><div class="dn-qbody">' + (loadingText ? `<div class="dn-qload">${loadingText}</div>` : '') + '</div>';
@@ -519,14 +519,45 @@ function openQualityMenu(pageUrl, referer) {
     closeQualityMenu();
   };
 
+  // "Tümünü indir": her çözünürlükten bir tane (IDM gibi) — varsayılan Video klasörüne,
+  // ayrı ayrı onay pencereleri açmadan toplu eklenir.
+  const pickAll = (heights) => {
+    dnSendMessage({
+      type: 'DN_DOWNLOAD_VIDEO_ALL',
+      url: pageUrl,
+      referer: referer || undefined,
+      title: dnPageTitleGuess() || undefined,
+      qualities: (heights || []).map(String)
+    });
+    toast(DN_I18N.t('toast_video_started'));
+    closeQualityMenu();
+  };
+
   fetchFormats(pageUrl, (data) => {
     const body = menu.querySelector('.dn-qbody');
     if (!body) return;
     const rows = [];
-    rows.push('<div class="dn-qitem" data-q="best"><span>' + DN_I18N.t('q_best') + '</span></div>');
+    const variants = (data && data.variants) || [];
     const qualities = (data && data.qualities) || [];
+    // "Tümünü indir" satırı: mevcut çözünürlükler (her birinden bir kalite).
+    const allHeights = (data && data.heights && data.heights.length)
+      ? data.heights
+      : [...new Set(qualities.map(q => q.height))];
+    // IDM gibi menünün EN ÜSTÜNDE dursun.
+    if (!(data && data.error) && allHeights.length > 1) {
+      rows.push('<div class="dn-qitem dn-qall" data-q="__all__"><span>' + DN_I18N.t('g_download_all') + '</span></div>');
+    }
+    rows.push('<div class="dn-qitem" data-q="best"><span>' + DN_I18N.t('q_best') + '</span></div>');
     if (data && data.error) {
       rows.push('<div class="dn-qnote">' + DN_I18N.t('q_error') + '</div>');
+    } else if (variants.length) {
+      // Aynı çözünürlüğün her format varyantı (ör. 1080p MP4·AV1 küçük, 1080p MP4·H.264 büyük):
+      // kapsayıcı + codec + boyut göster; seçilince tam o format_id iner.
+      variants.forEach(v => {
+        const size = v.size ? `<span class="dn-qsize">~${fmtBytes(v.size)}</span>` : '';
+        const meta = [v.container, v.vcodec].filter(Boolean).join(' · ');
+        rows.push(`<div class="dn-qitem" data-q="fmt:${v.formatId}"><span>${v.height}p${qLabel(v.height)}${meta ? ' · ' + meta : ''}</span>${size}</div>`);
+      });
     } else {
       qualities.forEach(q => {
         const size = q.size ? `<span class="dn-qsize">~${fmtBytes(q.size)}</span>` : '';
@@ -544,7 +575,10 @@ function openQualityMenu(pageUrl, referer) {
       t.textContent = data.title;
       menu.appendChild(t);
     }
-    body.querySelectorAll('.dn-qitem').forEach(el => el.addEventListener('click', () => pick(el.dataset.q)));
+    body.querySelectorAll('.dn-qitem').forEach(el => el.addEventListener('click', () => {
+      if (el.dataset.q === '__all__') pickAll(allHeights);
+      else pick(el.dataset.q);
+    }));
   }, referer);
 }
 

@@ -1,6 +1,6 @@
 import storageService from './StorageService.js';
 import { DownloadEngine } from './DownloadEngine.js';
-import { VideoDownloader, isVideoSiteUrl, isStreamManifestUrl, getVideoInfo } from './VideoDownloader.js';
+import { VideoDownloader, isVideoSiteUrl, isStreamManifestUrl, getVideoInfo, isGenericVideoTitle } from './VideoDownloader.js';
 import { safeName } from '../utils/paths.js';
 import fs from 'fs';
 import path from 'path';
@@ -24,7 +24,7 @@ class QueueManager {
       // listeye alma, parçalarını ve varsa dosyasını temizle
       if (item.preflight) {
         try {
-          const eng = new DownloadEngine(item);
+          const eng = item.kind === 'video' ? new VideoDownloader(item) : new DownloadEngine(item);
           eng.cleanup();
           if (eng.savePath && fs.existsSync(eng.savePath)) fs.unlinkSync(eng.savePath);
         } catch (e) { /* ignore */ }
@@ -98,14 +98,15 @@ class QueueManager {
       const videoReferer = referer || (headers && (headers.Referer || headers.referer)) || null;
 
       let videoTitle = customFilename;
-      if (!videoTitle) {
+      // Eklentiden gelen ad "YouTube" gibi jenerik bir site adıysa gerçek başlığı sorgula
+      if (!videoTitle || isGenericVideoTitle(videoTitle, url)) {
         try {
           const info = await getVideoInfo(url, videoReferer);
           if (info && info.title) {
             videoTitle = info.title + '.mp4';
           }
         } catch (e) {
-          videoTitle = 'Video Download';
+          if (!videoTitle) videoTitle = 'Video Download';
         }
       }
 
@@ -116,7 +117,8 @@ class QueueManager {
         quality: quality || 'best',
         referer: videoReferer,
         saveDir,
-        status: 'queued'
+        status: 'queued',
+        preflight // IDM ön indirmesi: onaylanana dek arayüzde gizli
       });
       this.attachEngineListeners(engine);
       this.engines.set(id, engine);
@@ -387,6 +389,38 @@ class QueueManager {
       else if (engine.status === 'queued') engine.status = 'paused';
     } else if (['paused', 'queued', 'error'].includes(engine.status)) {
       engine.start(); // kaldığı yerden devam
+    }
+
+    this.saveState();
+    const snap = engine.toSnapshot();
+    this.broadcast({ type: 'DOWNLOAD_ADDED', payload: snap });
+    return snap;
+  }
+
+  // Video ön indirmesi onaylandı (yt-dlp motoru). Dosya motorundan farklı olarak
+  // yt-dlp çıktıyı ÖN İNDİRMENİN BAŞLADIĞI yola yazar ve --continue yalnız o yola
+  // bakar. Bu yüzden devam edebilmenin tek koşulu KALİTENİN aynı olmasıdır (kalite
+  // hangi akışların indiğini belirler). Kalite değiştiyse kaldığı baytlar geçersiz —
+  // null döner, çağıran ön indirmeyi silip (parçalar temizlenir) sıfırdan indirir.
+  //
+  // Klasör/ad onay penceresinde değiştirilse bile AKTİF ön indirme dosyaları o an
+  // yt-dlp tarafından açık olduğundan taşınamaz; bu nedenle motor kendi yolunda
+  // devam eder (kullanıcının açık önceliği: sıfırdan başlamasın). Eskiden klasör/ad
+  // farkı yanlış "değişti" tespitiyle gereksiz yere sıfırdan indirmeye yol açıyordu.
+  confirmVideoPreflight(id, opts = {}) {
+    const engine = this.engines.get(id);
+    if (!engine || engine.kind !== 'video' || !engine.preflight) return null;
+
+    const newQuality = opts.quality || engine.quality;
+    if (String(newQuality) !== String(engine.quality)) return null; // kalite değişti → sıfırdan
+
+    // Kalite aynı: gizlilikten çıkar, kaldığı yerden devam et.
+    engine.preflight = false;
+    if (opts.autoStart === false) {
+      if (engine.status === 'downloading') engine.pause();
+      else if (engine.status === 'queued') engine.status = 'paused';
+    } else if (['paused', 'queued', 'error'].includes(engine.status)) {
+      engine.start(); // kaldığı baytlardan devam
     }
 
     this.saveState();

@@ -31,6 +31,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
   const [connectionTimeoutSec, setConnectionTimeoutSec] = useState(settings?.connectionTimeoutSec ?? 30);
   const [notifyOnComplete, setNotifyOnComplete] = useState(settings?.notifyOnComplete ?? true);
   const [soundNotifications, setSoundNotifications] = useState(settings?.soundNotifications ?? true);
+  const [showCompleteDialog, setShowCompleteDialog] = useState(settings?.showCompleteDialog ?? true);
   const [confirmOnDelete, setConfirmOnDelete] = useState(settings?.confirmOnDelete ?? true);
   const [afterAllComplete, setAfterAllComplete] = useState(settings?.afterAllComplete || 'nothing');
   const [clipboardWatch, setClipboardWatch] = useState(settings?.clipboardWatch ?? true);
@@ -82,6 +83,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
     setConnectionTimeoutSec(settings.connectionTimeoutSec ?? 30);
     setNotifyOnComplete(settings.notifyOnComplete ?? true);
     setSoundNotifications(settings.soundNotifications ?? true);
+    setShowCompleteDialog(settings.showCompleteDialog ?? true);
     setConfirmOnDelete(settings.confirmOnDelete ?? true);
     setAfterAllComplete(settings.afterAllComplete || 'nothing');
     setClipboardWatch(settings.clipboardWatch ?? true);
@@ -124,6 +126,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
       connectionTimeoutSec: Number(connectionTimeoutSec),
       notifyOnComplete,
       soundNotifications,
+      showCompleteDialog,
       confirmOnDelete,
       afterAllComplete,
       clipboardWatch,
@@ -420,6 +423,10 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                 <label className="dn-check">
                   <input type="checkbox" checked={soundNotifications} onChange={(e) => setSoundNotifications(e.target.checked)} />
                   <span>{t('chk_sound')}</span>
+                </label>
+                <label className="dn-check">
+                  <input type="checkbox" checked={showCompleteDialog} onChange={(e) => setShowCompleteDialog(e.target.checked)} />
+                  <span>{t('chk_complete_dialog')}</span>
                 </label>
                 <label className="dn-check">
                   <input type="checkbox" checked={confirmOnDelete} onChange={(e) => setConfirmOnDelete(e.target.checked)} />

@@ -103,7 +103,7 @@
 .dn-qmenu{
   position:absolute;
   z-index:2147483647;
-  width:240px;
+  width:300px;
   background:#f0f0eb;
   border:1px solid #a9adb5;
   border-radius:6px;
@@ -117,8 +117,11 @@
 .dn-qload{padding:12px;color:#6b7078;text-align:center;font-size:12px;}
 .dn-qitem{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;cursor:pointer;border-bottom:1px solid #e4e6ea;}
 .dn-qitem:hover{background:#cfe3f8;}
-.dn-qsize{color:#4a4f57;font-size:11px;font-family:monospace;}
+.dn-qitem>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.dn-qsize{color:#4a4f57;font-size:11px;font-family:monospace;flex:none;white-space:nowrap;}
 .dn-qaudio{color:#b56b00;}
+.dn-qall{color:#1f6fc4;font-weight:600;background:#e8f1fb;}
+.dn-qall:hover{background:#cfe3f8;}
 .dn-qnote{padding:8px 12px;color:#6b7078;font-size:11px;border-bottom:1px solid #e4e6ea;}
 .dn-qtitle{padding:6px 12px;font-size:11px;color:#6b7078;border-top:1px solid #c2c6cd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
