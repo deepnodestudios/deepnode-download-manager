@@ -589,8 +589,10 @@ if (!gotTheLock) {
     await loadSettings();
     applyStartupSetting();
 
-    const showWindow = !protocolUrl && !launchedHidden && appSettings.startMinimized !== true;
-    createWindow(showWindow); // tepside gizli başlatma desteği
+    // Tepside gizli başlatma yalnız otomatik açılışta (--hidden, Windows login item):
+    // kullanıcı kısayoldan elle açtığında pencere her zaman görünür.
+    const showWindow = !protocolUrl && !launchedHidden;
+    createWindow(showWindow);
     createTray();
     startClipboardWatcher();
 
