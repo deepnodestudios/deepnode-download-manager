@@ -1,0 +1,8 @@
+{
+  "extName": {
+    "message": "DeepNode Download Manager - Intégration du Navigateur"
+  },
+  "extDesc": {
+    "message": "Capture les téléchargements du navigateur et affiche un bouton Télécharger dans le coin des médias. Fonctionne avec DeepNode Download Manager."
+  }
+}

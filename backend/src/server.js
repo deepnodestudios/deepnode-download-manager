@@ -38,6 +38,11 @@ function stashHeaders(url, headers) {
     for (const [k, v] of pendingHeaders) {
       if (now - v.ts > PENDING_TTL) pendingHeaders.delete(k);
     }
+    // Süresi dolmuş girdi yoksa da sınırı uygula: 200+ TAZE yakalama patlaması
+    // çerezleri bellekte tutmaya devam etmesin — en eskiler atılır.
+    while (pendingHeaders.size > 200) {
+      pendingHeaders.delete(pendingHeaders.keys().next().value);
+    }
   }
 }
 
@@ -60,6 +65,9 @@ function stashName(url, filename) {
     const now = Date.now();
     for (const [k, v] of pendingNames) {
       if (now - v.ts > PENDING_TTL) pendingNames.delete(k);
+    }
+    while (pendingNames.size > 200) { // taze patlamada da sınırı koru
+      pendingNames.delete(pendingNames.keys().next().value);
     }
   }
 }
@@ -282,8 +290,10 @@ app.post('/api/download/inspect', async (req, res) => {
   try {
     // Reuse the browser session captured at capture-time so cookie/login
     // protected links (e.g. torrent sites) return the real file metadata.
+    // (takeHeaders gibi TTL'e uy; ama girdiyi SİLME — onay anında hâlâ lazım.)
     const hit = pendingHeaders.get(url);
-    const sessionHeaders = (headers && Object.keys(headers).length) ? headers : (hit ? hit.headers : {});
+    const fresh = hit && (Date.now() - hit.ts) <= PENDING_TTL;
+    const sessionHeaders = (headers && Object.keys(headers).length) ? headers : (fresh ? hit.headers : {});
     const info = await DownloadEngine.inspectUrl(url, sessionHeaders);
     // Prefer a filename already resolved during automatic capture.
     const cached = peekName(url);

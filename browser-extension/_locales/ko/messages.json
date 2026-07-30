@@ -1,0 +1,8 @@
+{
+  "extName": {
+    "message": "DeepNode Download Manager - 브라우저 통합"
+  },
+  "extDesc": {
+    "message": "브라우저 다운로드를 가로채고 미디어 모서리에 다운로드 버튼을 표시합니다. DeepNode Download Manager와 함께 작동합니다."
+  }
+}

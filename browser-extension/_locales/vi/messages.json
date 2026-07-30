@@ -1,0 +1,8 @@
+{
+  "extName": {
+    "message": "DeepNode Download Manager - Tích hợp Trình duyệt"
+  },
+  "extDesc": {
+    "message": "Bắt các lượt tải xuống của trình duyệt và hiển thị nút Tải xuống ở góc media. Hoạt động cùng DeepNode Download Manager."
+  }
+}

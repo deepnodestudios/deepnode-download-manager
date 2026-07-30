@@ -223,8 +223,46 @@ function runYtDlpJson(bin, url, extraArgs, timeoutMs) {
   });
 }
 
-export async function getVideoInfo(url, referer = null) {
+// Hover-prefetch fırtınası koruması: her benzersiz video bir yt-dlp süreci
+// doğurur; feed'de fare gezdirmek 10-30 eşzamanlı süreç başlatabilirdi
+// (CPU/RAM sıçraması + siteden IP rate-limit riski). Aynı anahtar için uçuştaki
+// sorgu paylaşılır, toplam eşzamanlı sorgu sayısı sınırlanır.
+const MAX_INFO_PROBES = 3;
+let activeInfoProbes = 0;
+const infoProbeWaiters = [];
+function acquireInfoSlot() {
+  if (activeInfoProbes < MAX_INFO_PROBES) { activeInfoProbes++; return Promise.resolve(); }
+  return new Promise((r) => infoProbeWaiters.push(r));
+}
+function releaseInfoSlot() {
+  const next = infoProbeWaiters.shift();
+  if (next) next(); else activeInfoProbes--;
+}
+const inflightInfo = new Map();
+
+export function getVideoInfo(url, referer = null) {
   const cacheKey = url + '|' + (referer || '');
+  const cached = infoCache.get(cacheKey);
+  if (cached && (Date.now() - cached.ts) < INFO_TTL) return Promise.resolve(cached.info);
+
+  const running = inflightInfo.get(cacheKey);
+  if (running) return running;
+
+  const p = (async () => {
+    await acquireInfoSlot();
+    try {
+      return await probeVideoInfo(url, referer, cacheKey);
+    } finally {
+      releaseInfoSlot();
+    }
+  })();
+  inflightInfo.set(cacheKey, p);
+  p.catch(() => {}).finally(() => inflightInfo.delete(cacheKey));
+  return p;
+}
+
+async function probeVideoInfo(url, referer, cacheKey) {
+  // Semafor beklerken başka bir sorgu cache'i doldurmuş olabilir
   const cached = infoCache.get(cacheKey);
   if (cached && (Date.now() - cached.ts) < INFO_TTL) return cached.info;
 
@@ -286,6 +324,14 @@ export async function getVideoInfo(url, referer = null) {
 
 const infoCache = new Map();
 const INFO_TTL = 10 * 60 * 1000;
+// Süresi dolan girdiler yalnız okunurken atlanıyordu, hiç silinmiyordu —
+// yoğun prefetch'te bellek uygulama ömrü boyunca büyürdü. Periyodik süpür.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of infoCache) {
+    if ((now - v.ts) >= INFO_TTL) infoCache.delete(k);
+  }
+}, INFO_TTL).unref();
 
 function ffmpegOnPath() {
   try {

@@ -1,0 +1,8 @@
+{
+  "extName": {
+    "message": "DeepNode Download Manager - ブラウザ連携"
+  },
+  "extDesc": {
+    "message": "ブラウザのダウンロードをキャッチし、メディアの隅にダウンロードボタンを表示します。DeepNode Download Manager と連携して動作します。"
+  }
+}

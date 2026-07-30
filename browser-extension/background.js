@@ -423,7 +423,17 @@ chrome.downloads.onCreated.addListener(async (item) => {
   // re-fetched by URL, so leave those to the browser.
   if (!captureEnabled) return; // capture disabled from app Settings
   if (!/^https?:/i.test(url)) return;
-  if (url.includes('localhost:' + cfg.port)) return; // avoid feedback loop
+  // Geri besleme döngüsünü önle: kendi backend'imizden gelen indirmeyi yakalama.
+  // Eski `localhost:PORT` string kontrolü 127.0.0.1'i ve yedek portu (EADDRINUSE
+  // sonrası 5001+) kaçırıyordu — adresi gerçekten ayrıştırıp karşılaştır.
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+      const p = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
+      const appPorts = [cfg.port, resolvedPort, 5000, 5001, 5002, 5003].filter(Boolean);
+      if (appPorts.includes(p)) return;
+    }
+  } catch (e) { /* URL bozuksa yakalama akışı zaten aşağıda eler */ }
 
   // Chrome, tarayıcı açılışında ve MV3 servis çalışanı her yeniden başladığında,
   // hâlâ süren / duraklatılmış / yarıda kalmış ESKİ indirmeler için de onCreated
@@ -454,7 +464,15 @@ chrome.downloads.onCreated.addListener(async (item) => {
   const result = await sendToApp(url, name, item.referrer);
   if (result === 'accepted') {
     try {
-      await chrome.downloads.cancel(item.id);
+      // Küçük/hızlı dosya cancel'dan önce tamamlanmış olabilir: cancel başarısız
+      // olur, erase yalnız geçmiş kaydını siler ve dosya dupe olarak diskte
+      // kalırdı (biri tarayıcı UI'ında görünmez). Tamamlandıysa dosyayı da sil —
+      // tek kopya DDM'inki olsun.
+      try { await chrome.downloads.cancel(item.id); } catch (e) { /* bitmiş olabilir */ }
+      const [d] = await chrome.downloads.search({ id: item.id });
+      if (d && d.state === 'complete') {
+        try { await chrome.downloads.removeFile(item.id); } catch (e) { /* dosya zaten yok */ }
+      }
       await chrome.downloads.erase({ id: item.id });
     } catch (e) { /* ignore */ }
     notify(DN_I18N.t('notif_captured'), name || url);

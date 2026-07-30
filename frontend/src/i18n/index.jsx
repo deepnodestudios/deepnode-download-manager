@@ -1,16 +1,43 @@
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
 import en from './en';
 import tr from './tr';
+import es from './es';
+import ptBR from './pt-BR';
+import ru from './ru';
+import de from './de';
+import fr from './fr';
+import zhCN from './zh-CN';
+import ar from './ar';
+import hi from './hi';
+import id from './id';
+import vi from './vi';
+import ja from './ja';
+import ko from './ko';
 
-const dictionaries = { en, tr };
-export const SUPPORTED_LANGS = ['en', 'tr'];
+const dictionaries = {
+  en, tr, es, 'pt-BR': ptBR, ru, de, fr, 'zh-CN': zhCN, ar, hi, id, vi, ja, ko
+};
+export const SUPPORTED_LANGS = Object.keys(dictionaries);
+
+// Sağdan sola yazılan diller (document.dir için)
+export const RTL_LANGS = ['ar'];
+
+// 'pt' gibi taban kodları desteklenen bölgesel koda eşle
+const BASE_LANG_MAP = { pt: 'pt-BR', zh: 'zh-CN' };
 
 // Resolve the effective UI language.
-// pref: 'auto' | 'tr' | 'en'  ('auto' = follow the OS/browser language, English fallback)
+// pref: 'auto' | supported lang code  ('auto' = follow the OS/browser language, English fallback)
 export function resolveLanguage(pref) {
   if (SUPPORTED_LANGS.includes(pref)) return pref;
-  const nav = String((typeof navigator !== 'undefined' && navigator.language) || 'en').toLowerCase();
-  return nav.startsWith('tr') ? 'tr' : 'en';
+  const nav = String((typeof navigator !== 'undefined' && navigator.language) || 'en');
+  // Tam eşleşme dene (ör. pt-BR, zh-CN) — büyük/küçük harf duyarsız
+  const exact = SUPPORTED_LANGS.find(l => l.toLowerCase() === nav.toLowerCase());
+  if (exact) return exact;
+  // Taban dil eşleşmesi (ör. 'de-AT' → 'de', 'pt-PT' → 'pt-BR')
+  const base = nav.toLowerCase().split('-')[0];
+  if (SUPPORTED_LANGS.includes(base)) return base;
+  if (BASE_LANG_MAP[base]) return BASE_LANG_MAP[base];
+  return 'en';
 }
 
 const I18nContext = createContext({
@@ -58,6 +85,7 @@ export function I18nProvider({ languagePref, children }) {
 
   useEffect(() => {
     document.documentElement.lang = lang;
+    document.documentElement.dir = RTL_LANGS.includes(lang) ? 'rtl' : 'ltr';
   }, [lang]);
 
   const value = useMemo(() => {

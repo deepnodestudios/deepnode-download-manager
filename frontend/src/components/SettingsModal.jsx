@@ -321,6 +321,18 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                       <option value="auto">{t('lang_auto')}</option>
                       <option value="tr">Türkçe</option>
                       <option value="en">English</option>
+                      <option value="es">Español</option>
+                      <option value="pt-BR">Português (Brasil)</option>
+                      <option value="ru">Русский</option>
+                      <option value="de">Deutsch</option>
+                      <option value="fr">Français</option>
+                      <option value="zh-CN">简体中文</option>
+                      <option value="ar">العربية</option>
+                      <option value="hi">हिन्दी</option>
+                      <option value="id">Bahasa Indonesia</option>
+                      <option value="vi">Tiếng Việt</option>
+                      <option value="ja">日本語</option>
+                      <option value="ko">한국어</option>
                     </select>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-dark)' }}>
                       {t('language_note')}

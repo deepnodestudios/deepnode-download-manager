@@ -400,7 +400,10 @@ class QueueManager {
     const old = this.engines.get(id);
     if (!old) return null;
 
-    const snap = old.toSnapshot();
+    // secrets:true — headers/referer olmadan oturum korumalı yakalamalar 403
+    // ya da login HTML'i indirirdi. Dahili çağrı: sırlar süreç dışına çıkmıyor
+    // (aşağıdaki broadcast yalnız id taşıyor).
+    const snap = old.toSnapshot({ secrets: true });
     old.pause();
     if (typeof old.cleanup === 'function') { try { old.cleanup(); } catch (e) {} }
     try {
@@ -411,7 +414,10 @@ class QueueManager {
     this.broadcast({ type: 'DOWNLOAD_DELETED', payload: { id } });
 
     if (snap.kind === 'video') {
-      return this.addDownload(snap.url, snap.filename, 'Video', 1, true, snap.quality || 'best', snap.saveDir);
+      return this.addDownload(
+        snap.url, snap.filename, 'Video', 1, true, snap.quality || 'best',
+        snap.saveDir, null, false, snap.referer || null
+      );
     }
     return this.addDownload(
       snap.url, snap.filename, snap.category, snap.segmentsCount,

@@ -138,7 +138,12 @@ export class LinkSniffer {
       for (const link of extractHrefs(html, url)) {
         if (isMediaLink(link, allowedExts)) {
           if (!foundMedia.has(link)) {
-            const filename = decodeURIComponent(path.basename(new URL(link).pathname)) || 'media';
+            // Bozuk %-dizili tek bir link (örn. "file%zz.zip") URIError fırlatıp
+            // TÜM taramayı 500'e düşürüyordu — ham ada geri düş.
+            const rawName = path.basename(new URL(link).pathname);
+            let filename;
+            try { filename = decodeURIComponent(rawName) || 'media'; }
+            catch (e) { filename = rawName || 'media'; }
             const extension = path.extname(filename).toLowerCase();
             foundMedia.set(link, {
               url: link,

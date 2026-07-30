@@ -271,7 +271,7 @@ export class DownloadEngine extends EventEmitter {
     // silinmiş bir motoru yeniden koşturur; baştan indirme için "Yeniden İndir"
     // (redownload) vardır.
     if (this.status === 'downloading' || this.status === 'merging' || this.status === 'completed') return;
-    const epoch = ++this._epoch;
+    let epoch = ++this._epoch;
     this.status = 'downloading';
     this.ensureTempDir();
 
@@ -321,6 +321,11 @@ export class DownloadEngine extends EventEmitter {
         // tek bağlantıya düşüp baştan indir (yavaş ama DOĞRU sonuç).
         if (err && err.code === 'RANGE_NOT_HONORED' && epoch === this._epoch && this.status === 'downloading') {
           console.warn(`[${this.id}] Sunucu Range desteklemiyor — tek parçaya düşülüyor.`);
+          // Kuşağı artır: retry backoff'unda bekleyen ESKİ segment işçileri
+          // (activeRequests'te değiller, destroy onlara ulaşmaz) uyanınca
+          // epoch kontrolünden dönsün — yoksa silinen temp klasöre yeniden
+          // yazar ve downloadedBytes sayacını bozarlardı.
+          epoch = ++this._epoch;
           this.activeRequests.forEach((ctl) => { try { ctl.destroy(); } catch (e) { /* kapalı */ } });
           this.activeRequests = [];
           try { fs.rmSync(this.tempDir, { recursive: true, force: true }); } catch (e) { /* yoktu */ }
@@ -474,6 +479,16 @@ export class DownloadEngine extends EventEmitter {
       throw err;
     }
 
+    // TEK parçalı devam ettirmede de aynı yalan olur: `bytes=N-` isteğine 200 +
+    // tüm gövde dönerse append modu dosyayı [0..N]+[0..total] yapar; kırpma
+    // boyutu tutturduğu için indirme "tamamlandı" görünürdü (sessiz bozulma).
+    // Diskteki parçayı sıfırla ve baştan yaz.
+    if (headers.Range && res.statusCode === 200 && segment.downloaded > 0) {
+      try { fs.truncateSync(segment.tempFilePath, 0); } catch (e) { /* dosya yok */ }
+      segment.downloaded = 0;
+      this.downloadedBytes = this.sumSegmentBytes();
+    }
+
     await new Promise((resolve, reject) => {
       const writeStream = fs.createWriteStream(segment.tempFilePath, {
         flags: segment.downloaded > 0 ? 'a' : 'w'
@@ -583,9 +598,16 @@ export class DownloadEngine extends EventEmitter {
     const finalStream = fs.createWriteStream(this.savePath);
     let mergedBytes = 0;
 
+    // pipe() yazma tarafı hatalarını iletmez; dinleyici döngüden SONRA takılırsa
+    // ENOSPC/AV kilidi anında dinleyicisiz 'error' süreç çökertir (Electron
+    // altında ise yutulup indirme sonsuza dek 'merging'de kalırdı).
+    let writeErr = null;
+    finalStream.on('error', (e) => { writeErr = e || new Error('Write failed'); });
+
     // Segmentleri sırayla stream ile birleştir (belleğe tümünü okumadan)
     try {
       for (const segment of this.segments) {
+        if (writeErr) throw writeErr;
         if (!fs.existsSync(segment.tempFilePath)) {
           throw new Error(`Missing segment file (part ${segment.id})`);
         }
@@ -593,15 +615,16 @@ export class DownloadEngine extends EventEmitter {
           const readStream = fs.createReadStream(segment.tempFilePath);
           readStream.on('data', (chunk) => { mergedBytes += chunk.length; });
           readStream.on('error', reject);
-          readStream.on('end', resolve);
+          readStream.on('end', () => (writeErr ? reject(writeErr) : resolve()));
           readStream.pipe(finalStream, { end: false });
         });
       }
 
-      // Yazma tamamlanana kadar bekle
+      // Yazma tamamlanana kadar bekle (hata gelirse 'finish' hiç gelmez — reject şart)
       await new Promise((resolve, reject) => {
-        finalStream.on('finish', resolve);
-        finalStream.on('error', reject);
+        if (writeErr) return reject(writeErr);
+        finalStream.once('error', reject);
+        finalStream.on('finish', () => (writeErr ? reject(writeErr) : resolve()));
         finalStream.end();
       });
     } catch (err) {

@@ -11,6 +11,22 @@ function dnCtxValid() {
   try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; }
 }
 
+// Yetim script'te chrome.runtime.sendMessage SENKRON "Extension context invalidated"
+// fırlatır (storage guard'ları bunu kapsamıyordu). Tüm mesajlar bu sarmalayıcıdan
+// geçer; bağlam geçersiz/hata varsa callback null alır (lastError burada tüketilir).
+function dnSendMessage(msg, cb) {
+  if (!dnCtxValid()) { if (cb) cb(null); return; }
+  try {
+    if (cb) {
+      chrome.runtime.sendMessage(msg, (resp) => {
+        cb(chrome.runtime.lastError ? null : (resp || null));
+      });
+    } else {
+      chrome.runtime.sendMessage(msg);
+    }
+  } catch (e) { if (cb) cb(null); }
+}
+
 // ---- Dil: uygulama ayarı ('auto'|'tr'|'en') → yoksa tarayıcı dili ----
 function refreshLang() {
   let ui = 'en';
@@ -97,15 +113,22 @@ function isMedia(el) {
 // holds the configured "bypass" key (hold-to-not-capture).
 function reportMods(e) {
   try {
-    chrome.runtime.sendMessage({ type: 'DN_MODS', ev: e.type, mods: { Alt: e.altKey, Control: e.ctrlKey, Shift: e.shiftKey } });
+    dnSendMessage({ type: 'DN_MODS', ev: e.type, mods: { Alt: e.altKey, Control: e.ctrlKey, Shift: e.shiftKey } });
   } catch (err) { /* ignore */ }
 }
 window.addEventListener('keydown', reportMods, true);
 window.addEventListener('keyup', reportMods, true);
 window.addEventListener('mousedown', reportMods, true);
 window.addEventListener('blur', () => {
-  try { chrome.runtime.sendMessage({ type: 'DN_MODS', mods: { Alt: false, Control: false, Shift: false } }); } catch (err) {}
+  try { dnSendMessage({ type: 'DN_MODS', mods: { Alt: false, Control: false, Shift: false } }); } catch (err) {}
 });
+
+// Hover prefetch debounce: feed'de fare gezdirirken üzerinden geçilen HER video
+// için anında format sorgusu gitmesin (backend'de her biri bir yt-dlp süreci).
+// Yalnızca aynı videoda ~400ms kalınırsa ısıtma yapılır; cache zaten mükerrer
+// sorguyu engelliyor, bu sadece "yoldan geçerken" ateşlemeyi keser.
+let hoverPrefetchTimer = null;
+let hoverPrefetchCtx = null;
 
 function place(el) {
   const r = el.getBoundingClientRect();
@@ -117,7 +140,11 @@ function place(el) {
   // Warm the formats cache for THIS video as soon as the button appears
   // (feed pages like Twitter/X/YouTube have per-item URLs different from location.href)
   const ctx = getVideoContextUrl(el);
-  if (onVideoSite || (ctx && ctx !== location.href)) fetchFormats(ctx, null);
+  if (!(onVideoSite || (ctx && ctx !== location.href))) return;
+  if (ctx === hoverPrefetchCtx) return; // bu video için zaten planlandı/ateşlendi
+  clearTimeout(hoverPrefetchTimer);
+  hoverPrefetchCtx = ctx;
+  hoverPrefetchTimer = setTimeout(() => { fetchFormats(ctx, null); }, 400);
 }
 
 function hide() { btn.style.display = 'none'; current = null; }
@@ -205,10 +232,14 @@ window.addEventListener('message', (e) => {
   if (e.source !== window) return;
   const d = e.data;
   if (!(d && d.__dnHls && d.url)) return;
-  if (!dnSniffed.includes(d.url)) dnSniffed.unshift(d.url);
+  if (!dnSniffed.includes(d.url)) {
+    dnSniffed.unshift(d.url);
+    if (dnSniffed.length > 100) dnSniffed.length = 100; // uzun oturumda sınırsız büyümesin
+  }
   // Master tercih edilir: yt-dlp'ye master verirsek oynatıcıdaki tüm kaliteler gelir.
   if (d.master && !dnMasters.includes(d.url)) {
     dnMasters.unshift(d.url);
+    if (dnMasters.length > 100) dnMasters.length = 100;
     // Kaliteleri ARKA PLANDA ısıt: kullanıcı "DDM ile İndir"e bastığında menü anında
     // hazır olsun (yt-dlp master+varyant probe gecikmesi tıklamadan ÖNCE yapılır).
     try { fetchFormats(d.url, null, location.href); } catch (e) { /* ignore */ }
@@ -237,15 +268,21 @@ function fetchFormats(url, cb, referer) {
     formatsCache.delete(key);
   }
   const entry = { pending: true, data: null, failedAt: 0, waiters: cb ? [cb] : [] };
+  // Sonsuz kaydırmalı SPA oturumlarında (YouTube) video başına bir girdi
+  // birikiyordu — en eskisini atarak sınırla (Map ekleme sırasını korur).
+  if (formatsCache.size >= 200) {
+    const oldest = formatsCache.keys().next().value;
+    if (oldest !== undefined) formatsCache.delete(oldest);
+  }
   formatsCache.set(key, entry);
-  chrome.runtime.sendMessage({ type: 'DN_GET_FORMATS', url, referer: referer || undefined }, (resp) => {
-    const data = (!chrome.runtime.lastError && resp) ? resp : { error: true };
+  dnSendMessage({ type: 'DN_GET_FORMATS', url, referer: referer || undefined }, (resp) => {
+    const data = resp || { error: true };
     entry.pending = false;
     entry.data = data;
     entry.waiters.forEach(w => w(data));
     entry.waiters = [];
     // Mark failures for retry (e.g. once the app is running)
-    if (data.error) { entry.failedAt = Date.now(); lastPrefetchKey = null; }
+    if (data.error) { entry.failedAt = Date.now(); lastPrefetchKey = null; hoverPrefetchCtx = null; }
   });
 }
 
@@ -395,7 +432,7 @@ btn.addEventListener('click', (e) => {
       openQualityMenu(url, location.href);
       return;
     }
-    chrome.runtime.sendMessage({ type: 'DN_DOWNLOAD', url, referer: location.href });
+    dnSendMessage({ type: 'DN_DOWNLOAD', url, referer: location.href });
     toast(DN_I18N.t('toast_added'));
     return;
   }
@@ -406,10 +443,9 @@ btn.addEventListener('click', (e) => {
     openQualityMenu(localManifest, location.href);
     return;
   }
-  chrome.runtime.sendMessage({ type: 'DN_GET_STREAMS' }, (resp) => {
-    const ok = !chrome.runtime.lastError && resp;
-    const streams = (ok && resp.streams) || [];
-    const manifests = (ok && resp.manifests) || [];
+  dnSendMessage({ type: 'DN_GET_STREAMS' }, (resp) => {
+    const streams = (resp && resp.streams) || [];
+    const manifests = (resp && resp.manifests) || [];
     // Önce master (tüm kaliteler), sonra doğrulanmış manifest, sonra ilk akış
     const manifest = dnMasters[0] || manifests[0] || streams.find(isManifestUrl) || dnSniffed[0];
     if (manifest) {
@@ -417,7 +453,7 @@ btn.addEventListener('click', (e) => {
       return;
     }
     if (streams.length) {
-      chrome.runtime.sendMessage({ type: 'DN_DOWNLOAD', url: streams[0], referer: location.href });
+      dnSendMessage({ type: 'DN_DOWNLOAD', url: streams[0], referer: location.href });
       toast(DN_I18N.t('toast_stream'));
     } else {
       toast(DN_I18N.t('toast_blob_fail'));
@@ -478,7 +514,7 @@ function openQualityMenu(pageUrl, referer) {
   setTimeout(() => document.addEventListener('click', onDocClickForMenu, true), 0);
 
   const pick = (quality) => {
-    chrome.runtime.sendMessage({ type: 'DN_DOWNLOAD_VIDEO', url: pageUrl, quality, referer: referer || undefined, title: dnPageTitleGuess() || undefined });
+    dnSendMessage({ type: 'DN_DOWNLOAD_VIDEO', url: pageUrl, quality, referer: referer || undefined, title: dnPageTitleGuess() || undefined });
     toast(DN_I18N.t('toast_video_started'));
     closeQualityMenu();
   };
@@ -559,9 +595,9 @@ function collectPageMedia(cb) {
   document.querySelectorAll('a[href]').forEach((a) => {
     if (/\.(mp4|mkv|webm|mp3|m4a|flac|wav|zip|rar|7z|pdf|exe|msi|iso|apk|docx|xlsx|pptx)(\?|$)/i.test(a.href)) add(a.href);
   });
-  chrome.runtime.sendMessage({ type: 'DN_GET_STREAMS' }, (resp) => {
+  dnSendMessage({ type: 'DN_GET_STREAMS' }, (resp) => {
     // Ağdan yakalanan akışlar (m3u8/googlevideo) uzantısız olabilir -> video say
-    if (!chrome.runtime.lastError && resp && resp.streams) resp.streams.forEach((u) => add(u, 'video'));
+    if (resp && resp.streams) resp.streams.forEach((u) => add(u, 'video'));
     cb(Array.from(map, ([url, type]) => ({ url, type })));
   });
 }
@@ -609,7 +645,7 @@ function openPanel(entries) {
 
   panel.querySelector('.dn-x').addEventListener('click', () => panel.remove());
   panel.querySelectorAll('.dn-get').forEach((b) => b.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'DN_DOWNLOAD', url: b.dataset.u });
+    dnSendMessage({ type: 'DN_DOWNLOAD', url: b.dataset.u });
     b.textContent = DN_I18N.t('g_added');
     b.disabled = true;
   }));
@@ -618,7 +654,7 @@ function openPanel(entries) {
     // Yalnızca aktif filtreden geçen (görünen) dosyaları indir
     const urls = visibleUrls();
     if (!urls.length) return;
-    chrome.runtime.sendMessage({ type: 'DN_DOWNLOAD_MANY', urls });
+    dnSendMessage({ type: 'DN_DOWNLOAD_MANY', urls });
     all.textContent = DN_I18N.t('g_all_added', { n: urls.length });
     all.disabled = true;
   });

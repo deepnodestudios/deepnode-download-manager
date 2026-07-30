@@ -89,16 +89,22 @@
       this.__dnUrl = url;
       // Hızlı yol: URL zaten manifest
       if (isM3u8Url(url)) post(url);
-      this.addEventListener('load', function () {
-        try {
-          var ct = this.getResponseHeader && this.getResponseHeader('content-type');
-          var isM3u8 = isM3u8Url(this.__dnUrl) || (ct && CT_RE.test(ct));
-          if (!isM3u8) return;
-          var txt = '';
-          try { txt = this.responseText || ''; } catch (e) { /* non-text responseType */ }
-          post(this.__dnUrl, looksMaster(txt));
-        } catch (e) { /* ignore */ }
-      });
+      // Oynatıcılar tek XHR nesnesini onlarca segment isteği için yeniden
+      // kullanır — her open() yeni dinleyici eklerse birikir ve mükerrer
+      // post atılır. Nesne başına bir kez tak (__dnUrl her open'da güncel).
+      if (!this.__dnHooked) {
+        this.__dnHooked = true;
+        this.addEventListener('load', function () {
+          try {
+            var ct = this.getResponseHeader && this.getResponseHeader('content-type');
+            var isM3u8 = isM3u8Url(this.__dnUrl) || (ct && CT_RE.test(ct));
+            if (!isM3u8) return;
+            var txt = '';
+            try { txt = this.responseText || ''; } catch (e) { /* non-text responseType */ }
+            post(this.__dnUrl, looksMaster(txt));
+          } catch (e) { /* ignore */ }
+        });
+      }
     } catch (e) { /* ignore */ }
     return origOpen.apply(this, arguments);
   };
