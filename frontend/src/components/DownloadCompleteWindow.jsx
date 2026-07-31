@@ -86,14 +86,16 @@ export default function DownloadCompleteWindow({ download }) {
                   <CheckCircle2 size={26} />
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: '700', fontSize: '0.95rem', color: 'var(--success-2)' }}>
-                    {t('prog_done_title')}
+                  {/* Üst satır: dosya adı (başlıkta zaten "İndirme Tamamlandı" var, burada tekrar etme) */}
+                  <div style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={download.filename || ''}>
+                    {download.filename || t('prog_done_title')}
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    {bytesNum > 0
-                      ? t('done_downloaded', { size: formatBytes(bytesNum), bytes: bytesNum.toLocaleString() })
-                      : (download.filename || '')}
-                  </div>
+                  {bytesNum > 0 && (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--success-2)' }}>
+                      {t('done_downloaded', { size: formatBytes(bytesNum), bytes: bytesNum.toLocaleString() })}
+                    </div>
+                  )}
                 </div>
               </div>
 
