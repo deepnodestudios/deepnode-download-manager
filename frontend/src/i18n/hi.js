@@ -321,10 +321,10 @@ export default {
   ext_step3: 'ऊपर दाईं ओर डेवलपर मोड टॉगल चालू करें।',
   ext_step4: 'Load unpacked → चरण 1 का browser-extension फ़ोल्डर चुनें।',
   ext_step5: 'DeepNode आइकन टूलबार में दिखाई देता है। कनेक्शन स्थिति देखने के लिए क्लिक करें। यह स्थायी है।',
-  ff_step1: 'एड्रेस बार में about:debugging#/runtime/this-firefox टाइप करें।',
-  ff_step2: 'Load Temporary Add-on → browser-extension फ़ोल्डर के अंदर manifest.json फ़ाइल चुनें।',
-  ff_step3: 'नोट: Firefox बंद होने पर अस्थायी ऐड-ऑन हटा देता है; हर बार शुरू करने पर इसे फिर से लोड करना होगा।',
-  ext_why_note: 'स्वचालित क्यों नहीं? सुरक्षा कारणों से ब्राउज़र ऐप्स को चुपचाप एक्सटेंशन इंस्टॉल करने की अनुमति नहीं देते। एक-क्लिक स्थायी इंस्टॉल तभी संभव है जब एक्सटेंशन Chrome Web Store / Edge Add-ons / Firefox AMO पर प्रकाशित हो।',
+  ff_step1: 'ऊपर “एक्सटेंशन फ़ोल्डर खोलें” बटन पर क्लिक करें।',
+  ff_step2: 'deepnode-extension-firefox.xpi फ़ाइल को Firefox विंडो में खींचें (या about:addons → गियर आइकन → “Install Add-on From File…”) और “Add” से पुष्टि करें।',
+  ff_step3: 'about:addons में एक्सटेंशन का अनुमतियाँ (Permissions) टैब खोलें और सभी साइटों तक पहुँच की अनुमति दें। एक्सटेंशन Mozilla द्वारा हस्ताक्षरित है; इंस्टॉल स्थायी है।',
+  ext_why_note: 'स्वचालित क्यों नहीं? सुरक्षा कारणों से ब्राउज़र ऐप्स को चुपचाप एक्सटेंशन इंस्टॉल करने की अनुमति नहीं देते। Firefox पैकेज Mozilla द्वारा हस्ताक्षरित है और स्थायी रूप से इंस्टॉल होता है; Chrome/Edge में एक-क्लिक स्थायी इंस्टॉल तभी संभव है जब एक्सटेंशन Chrome Web Store / Edge Add-ons पर प्रकाशित हो।',
   btn_save: 'सेटिंग्स सहेजें',
 
   // Standalone download progress window (IDM-style)

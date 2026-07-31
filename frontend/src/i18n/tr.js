@@ -321,10 +321,10 @@ export default {
   ext_step3: 'Sağ üstten Geliştirici modu (Developer mode) anahtarını aç.',
   ext_step4: 'Paketlenmemiş öğe yükle (Load unpacked) → açılan pencerede az önceki browser-extension klasörünü seç.',
   ext_step5: 'Araç çubuğunda DeepNode simgesi çıkar. Simgeye tıklayıp bağlantı durumunu görebilirsin. Kalıcıdır.',
-  ff_step1: 'Adres çubuğuna about:debugging#/runtime/this-firefox yaz.',
-  ff_step2: 'Geçici Eklenti Yükle (Load Temporary Add-on) → browser-extension klasöründeki manifest.json dosyasını seç.',
-  ff_step3: 'Not: Firefox geçici eklentileri tarayıcı kapanınca kaldırır; her açılışta tekrar yüklemen gerekir.',
-  ext_why_note: 'Neden otomatik kurulmuyor? Tarayıcılar güvenlik gereği bir uygulamanın kendilerine sessizce eklenti kurmasına izin vermez. Kalıcı/tek-tık kurulum ancak eklenti Chrome Web Mağazası / Edge Add-ons / Firefox AMO’da yayınlanınca mümkün olur.',
+  ff_step1: 'Yukarıdaki “Eklenti Klasörünü Aç” butonuna tıkla.',
+  ff_step2: 'deepnode-extension-firefox.xpi dosyasını Firefox penceresine sürükle (veya about:addons → dişli simgesi → “Eklentiyi dosyadan kur…”) ve “Ekle” ile onayla.',
+  ff_step3: 'about:addons → DeepNode eklentisi → İzinler sekmesinden tüm sitelere erişime izin ver. Eklenti Mozilla imzalıdır, kurulum kalıcıdır.',
+  ext_why_note: 'Neden otomatik kurulmuyor? Tarayıcılar güvenlik gereği bir uygulamanın kendilerine sessizce eklenti kurmasına izin vermez. Firefox paketi Mozilla imzalıdır ve kalıcı kurulur; Chrome/Edge’de kalıcı/tek-tık kurulum ancak eklenti Chrome Web Mağazası / Edge Add-ons’ta yayınlanınca mümkün olur.',
   btn_save: 'Ayarları Kaydet',
 
   // Bağımsız indirme ilerleme penceresi (IDM tarzı)

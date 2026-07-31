@@ -74,11 +74,26 @@ btn.className = 'dn-dl-btn';
 btn.setAttribute('role', 'button');
 document.documentElement.appendChild(btn);
 
+// innerHTML yerine güvenli DOM kurucu — AMO "Unsafe assignment to innerHTML"
+// uyarısına takılmamak için tüm dinamik içerik textContent ile yazılır.
+function dnEl(tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text != null && text !== '') el.textContent = text;
+  return el;
+}
+
 function applyButtonText() {
-  btn.innerHTML = '<span class="dn-ic">↓</span><span>' + DN_I18N.t('btn_download_with') + '</span><span class="dn-close" role="button" aria-label="' + DN_I18N.t('btn_hide') + '" title="' + DN_I18N.t('btn_hide') + '">×</span>';
+  btn.textContent = '';
+  btn.appendChild(dnEl('span', 'dn-ic', '↓'));
+  btn.appendChild(dnEl('span', '', DN_I18N.t('btn_download_with')));
+  const closeEl = dnEl('span', 'dn-close', '×');
+  closeEl.setAttribute('role', 'button');
+  closeEl.setAttribute('aria-label', DN_I18N.t('btn_hide'));
+  closeEl.title = DN_I18N.t('btn_hide');
+  closeEl.addEventListener('click', onCloseClick);
+  btn.appendChild(closeEl);
   btn.setAttribute('aria-label', DN_I18N.t('btn_aria'));
-  const closeEl = btn.querySelector('.dn-close');
-  if (closeEl) closeEl.addEventListener('click', onCloseClick);
 }
 applyButtonText();
 
@@ -509,7 +524,10 @@ function openQualityMenu(pageUrl, referer) {
   menu.style.left = (window.scrollX + Math.max(4, r.right - 300)) + 'px';
   const preloaded = formatsCache.get(pageKey(pageUrl));
   const loadingText = (preloaded && preloaded.data) ? '' : DN_I18N.t('q_loading');
-  menu.innerHTML = '<div class="dn-qhead">' + DN_I18N.t('q_title') + '</div><div class="dn-qbody">' + (loadingText ? `<div class="dn-qload">${loadingText}</div>` : '') + '</div>';
+  menu.appendChild(dnEl('div', 'dn-qhead', DN_I18N.t('q_title')));
+  const qbody = dnEl('div', 'dn-qbody');
+  if (loadingText) qbody.appendChild(dnEl('div', 'dn-qload', loadingText));
+  menu.appendChild(qbody);
   document.documentElement.appendChild(menu);
   setTimeout(() => document.addEventListener('click', onDocClickForMenu, true), 0);
 
@@ -536,7 +554,15 @@ function openQualityMenu(pageUrl, referer) {
   fetchFormats(pageUrl, (data) => {
     const body = menu.querySelector('.dn-qbody');
     if (!body) return;
-    const rows = [];
+    body.textContent = '';
+    // Kalite satırı kurucusu: data-q + etiket + opsiyonel boyut rozeti
+    const addRow = (q, label, sizeBytes, extraClass) => {
+      const row = dnEl('div', 'dn-qitem' + (extraClass ? ' ' + extraClass : ''));
+      row.dataset.q = q;
+      row.appendChild(dnEl('span', '', label));
+      if (sizeBytes) row.appendChild(dnEl('span', 'dn-qsize', '~' + fmtBytes(sizeBytes)));
+      body.appendChild(row);
+    };
     const variants = (data && data.variants) || [];
     const qualities = (data && data.qualities) || [];
     // "Tümünü indir" satırı: mevcut çözünürlükler (her birinden bir kalite).
@@ -545,27 +571,24 @@ function openQualityMenu(pageUrl, referer) {
       : [...new Set(qualities.map(q => q.height))];
     // IDM gibi menünün EN ÜSTÜNDE dursun.
     if (!(data && data.error) && allHeights.length > 1) {
-      rows.push('<div class="dn-qitem dn-qall" data-q="__all__"><span>' + DN_I18N.t('g_download_all') + '</span></div>');
+      addRow('__all__', DN_I18N.t('g_download_all'), 0, 'dn-qall');
     }
-    rows.push('<div class="dn-qitem" data-q="best"><span>' + DN_I18N.t('q_best') + '</span></div>');
+    addRow('best', DN_I18N.t('q_best'));
     if (data && data.error) {
-      rows.push('<div class="dn-qnote">' + DN_I18N.t('q_error') + '</div>');
+      body.appendChild(dnEl('div', 'dn-qnote', DN_I18N.t('q_error')));
     } else if (variants.length) {
       // Aynı çözünürlüğün her format varyantı (ör. 1080p MP4·AV1 küçük, 1080p MP4·H.264 büyük):
       // kapsayıcı + codec + boyut göster; seçilince tam o format_id iner.
       variants.forEach(v => {
-        const size = v.size ? `<span class="dn-qsize">~${fmtBytes(v.size)}</span>` : '';
         const meta = [v.container, v.vcodec].filter(Boolean).join(' · ');
-        rows.push(`<div class="dn-qitem" data-q="fmt:${v.formatId}"><span>${v.height}p${qLabel(v.height)}${meta ? ' · ' + meta : ''}</span>${size}</div>`);
+        addRow('fmt:' + v.formatId, `${v.height}p${qLabel(v.height)}${meta ? ' · ' + meta : ''}`, v.size);
       });
     } else {
       qualities.forEach(q => {
-        const size = q.size ? `<span class="dn-qsize">~${fmtBytes(q.size)}</span>` : '';
-        rows.push(`<div class="dn-qitem" data-q="${q.height}"><span>${q.height}p${qLabel(q.height)}</span>${size}</div>`);
+        addRow(String(q.height), `${q.height}p${qLabel(q.height)}`, q.size);
       });
     }
-    rows.push('<div class="dn-qitem dn-qaudio" data-q="audio"><span>' + DN_I18N.t('q_audio') + '</span></div>');
-    body.innerHTML = rows.join('');
+    addRow('audio', DN_I18N.t('q_audio'), 0, 'dn-qaudio');
     // yt-dlp, HLS manifestlerine dosya adından jenerik başlık verir (master/index/
     // playlist...). Bunları menüde göstermek kafa karıştırır — yalnızca anlamlı başlıkları göster.
     const genericTitle = /^(master|index|playlist|chunklist|manifest|stream|video|hls)$/i;
@@ -644,18 +667,49 @@ function openPanel(entries) {
   // Tür filtresi: yalnızca sayfada bulunan türler için chip göster, tümü seçili başlar
   const presentTypes = Array.from(new Set(entries.map((it) => it.type)));
   const activeTypes = new Set(presentTypes);
-  const chips = presentTypes.map((t) =>
-    `<button class="dn-ft dn-ft-on" data-t="${t}">${dnTypeLabel(t)}</button>`
-  ).join('');
 
-  const items = entries.length
-    ? entries.map((it) => `<div class="dn-item" data-t="${it.type}"><span class="dn-name" title="${it.url.replace(/"/g, '&quot;')}">${fileName(it.url)}</span><span class="dn-tag">${dnTypeLabel(it.type)}</span><button class="dn-get" data-u="${it.url.replace(/"/g, '&quot;')}">${DN_I18N.t('g_download')}</button></div>`).join('')
-    : '<div class="dn-empty">' + DN_I18N.t('g_empty') + '</div>';
-  panel.innerHTML =
-    '<div class="dn-panel-h"><span>DeepNode Grabber (' + entries.length + ')</span><span class="dn-x" role="button" aria-label="' + DN_I18N.t('g_close') + '">×</span></div>' +
-    (presentTypes.length > 1 ? '<div class="dn-filters">' + chips + '</div>' : '') +
-    '<div class="dn-panel-b">' + items + '</div>' +
-    (entries.length ? '<div class="dn-panel-f"><button class="dn-all">' + DN_I18N.t('g_download_all') + '</button></div>' : '');
+  const header = dnEl('div', 'dn-panel-h');
+  header.appendChild(dnEl('span', '', 'DeepNode Grabber (' + entries.length + ')'));
+  const closeX = dnEl('span', 'dn-x', '×');
+  closeX.setAttribute('role', 'button');
+  closeX.setAttribute('aria-label', DN_I18N.t('g_close'));
+  header.appendChild(closeX);
+  panel.appendChild(header);
+
+  if (presentTypes.length > 1) {
+    const filters = dnEl('div', 'dn-filters');
+    presentTypes.forEach((t) => {
+      const chip = dnEl('button', 'dn-ft dn-ft-on', dnTypeLabel(t));
+      chip.dataset.t = t;
+      filters.appendChild(chip);
+    });
+    panel.appendChild(filters);
+  }
+
+  const listBody = dnEl('div', 'dn-panel-b');
+  if (entries.length) {
+    entries.forEach((it) => {
+      const row = dnEl('div', 'dn-item');
+      row.dataset.t = it.type;
+      const name = dnEl('span', 'dn-name', fileName(it.url));
+      name.title = it.url;
+      row.appendChild(name);
+      row.appendChild(dnEl('span', 'dn-tag', dnTypeLabel(it.type)));
+      const get = dnEl('button', 'dn-get', DN_I18N.t('g_download'));
+      get.dataset.u = it.url;
+      row.appendChild(get);
+      listBody.appendChild(row);
+    });
+  } else {
+    listBody.appendChild(dnEl('div', 'dn-empty', DN_I18N.t('g_empty')));
+  }
+  panel.appendChild(listBody);
+
+  if (entries.length) {
+    const foot = dnEl('div', 'dn-panel-f');
+    foot.appendChild(dnEl('button', 'dn-all', DN_I18N.t('g_download_all')));
+    panel.appendChild(foot);
+  }
   document.documentElement.appendChild(panel);
 
   const visibleUrls = () => entries.filter((it) => activeTypes.has(it.type)).map((it) => it.url);

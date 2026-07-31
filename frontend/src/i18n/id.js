@@ -321,10 +321,10 @@ export default {
   ext_step3: 'Nyalakan sakelar Mode pengembang di kanan atas.',
   ext_step4: 'Muat yang belum dikemas → pilih folder browser-extension dari langkah 1.',
   ext_step5: 'Ikon DeepNode muncul di bilah alat. Klik untuk melihat status koneksi. Bersifat permanen.',
-  ff_step1: 'Ketik about:debugging#/runtime/this-firefox di bilah alamat.',
-  ff_step2: 'Muat Pengaya Sementara → pilih berkas manifest.json di dalam folder browser-extension.',
-  ff_step3: 'Catatan: Firefox menghapus pengaya sementara saat ditutup; Anda perlu memuatnya ulang setiap kali mulai.',
-  ext_why_note: 'Mengapa tidak otomatis? Demi keamanan, browser tidak mengizinkan aplikasi memasang ekstensi secara diam-diam. Pemasangan permanen sekali klik hanya mungkin setelah ekstensi diterbitkan di Chrome Web Store / Edge Add-ons / Firefox AMO.',
+  ff_step1: 'Klik tombol “Buka Folder Ekstensi” di atas.',
+  ff_step2: 'Seret deepnode-extension-firefox.xpi ke jendela Firefox (atau about:addons → ikon roda gigi → “Install Add-on From File…”) lalu konfirmasi dengan “Add”.',
+  ff_step3: 'Di about:addons, buka tab Izin ekstensi dan izinkan akses ke semua situs. Ekstensi ditandatangani Mozilla; pemasangan bersifat permanen.',
+  ext_why_note: 'Mengapa tidak otomatis? Demi keamanan, browser tidak mengizinkan aplikasi memasang ekstensi secara diam-diam. Paket Firefox ditandatangani Mozilla dan terpasang permanen; untuk Chrome/Edge, pemasangan permanen sekali klik hanya mungkin setelah ekstensi diterbitkan di Chrome Web Store / Edge Add-ons.',
   btn_save: 'Simpan Pengaturan',
 
   // Standalone download progress window (IDM-style)

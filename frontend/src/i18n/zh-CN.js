@@ -321,10 +321,10 @@ export default {
   ext_step3: '打开右上角的“开发者模式”开关。',
   ext_step4: '“加载已解压的扩展程序” → 选择第 1 步中的 browser-extension 文件夹。',
   ext_step5: 'DeepNode 图标会出现在工具栏中。点击可查看连接状态。安装是永久的。',
-  ff_step1: '在地址栏输入 about:debugging#/runtime/this-firefox。',
-  ff_step2: '“临时载入附加组件” → 选择 browser-extension 文件夹中的 manifest.json 文件。',
-  ff_step3: '注意：Firefox 关闭时会移除临时附加组件；每次启动都需要重新加载。',
-  ext_why_note: '为什么不能自动安装？出于安全考虑，浏览器不允许应用静默安装扩展。只有当扩展发布到 Chrome 应用商店 / Edge 加载项 / Firefox AMO 后，才能实现一键永久安装。',
+  ff_step1: '点击上方“打开扩展文件夹”按钮。',
+  ff_step2: '将 deepnode-extension-firefox.xpi 拖入 Firefox 窗口（或在 about:addons 中点击齿轮图标 → “从文件安装附加组件…”），然后点击“添加”确认。',
+  ff_step3: '在 about:addons 中打开扩展的“权限”选项卡，允许访问所有网站。附加组件已由 Mozilla 签名，安装是永久的。',
+  ext_why_note: '为什么不能自动安装？出于安全考虑，浏览器不允许应用静默安装扩展。Firefox 安装包已由 Mozilla 签名，可永久安装；Chrome/Edge 只有在扩展发布到 Chrome 应用商店 / Edge 加载项后，才能实现一键永久安装。',
   btn_save: '保存设置',
 
   // Standalone download progress window (IDM-style)

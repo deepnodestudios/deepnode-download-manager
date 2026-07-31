@@ -321,10 +321,10 @@ export default {
   ext_step3: 'فعّل مفتاح وضع المطور في أعلى اليمين.',
   ext_step4: '«تحميل غير مضغوط» ← اختر مجلد browser-extension من الخطوة 1.',
   ext_step5: 'يظهر رمز DeepNode في شريط الأدوات. انقر عليه لرؤية حالة الاتصال. التثبيت دائم.',
-  ff_step1: 'اكتب about:debugging#/runtime/this-firefox في شريط العناوين.',
-  ff_step2: '«تحميل إضافة مؤقتة» ← اختر ملف manifest.json داخل مجلد browser-extension.',
-  ff_step3: 'ملاحظة: يزيل Firefox الإضافات المؤقتة عند إغلاقه؛ يجب إعادة تحميلها عند كل تشغيل.',
-  ext_why_note: 'لماذا ليس تلقائيًا؟ لأسباب أمنية، لا تسمح المتصفحات للتطبيقات بتثبيت الإضافات بصمت. التثبيت الدائم بنقرة واحدة ممكن فقط بعد نشر الإضافة في Chrome Web Store / Edge Add-ons / Firefox AMO.',
+  ff_step1: 'انقر على زر «فتح مجلد الإضافة» أعلاه.',
+  ff_step2: 'اسحب ملف deepnode-extension-firefox.xpi إلى نافذة Firefox (أو about:addons ← رمز الترس ← «تثبيت إضافة من ملف…») وأكد بـ «إضافة».',
+  ff_step3: 'في about:addons افتح تبويب الأذونات للإضافة واسمح بالوصول إلى جميع المواقع. الإضافة موقّعة من Mozilla والتثبيت دائم.',
+  ext_why_note: 'لماذا ليس تلقائيًا؟ لأسباب أمنية، لا تسمح المتصفحات للتطبيقات بتثبيت الإضافات بصمت. حزمة Firefox موقّعة من Mozilla وتُثبّت بشكل دائم؛ أما في Chrome/Edge فالتثبيت الدائم بنقرة واحدة ممكن فقط بعد نشر الإضافة في Chrome Web Store / Edge Add-ons.',
   btn_save: 'حفظ الإعدادات',
 
   // Standalone download progress window (IDM-style)

@@ -29,12 +29,12 @@ ses+görüntü birleştirme için sistemde **ffmpeg** kurulu olması önerilir; 
 3. **Paketlenmemiş öğe yükle** (Load unpacked) → bu `browser-extension` klasörünü seç.
 4. Araç çubuğunda DeepNode simgesi çıkar. Simgeye tıklayıp durumu (bağlı/kapalı) görebilir, ayarları değiştirebilirsin.
 
-### Firefox (sürüm 121+)
-1. Adres çubuğuna `about:debugging#/runtime/this-firefox` yaz.
-2. **Geçici Eklenti Yükle** (Load Temporary Add-on) → bu klasördeki `manifest.json` dosyasını seç.
-3. Not: Firefox'ta geçici eklentiler tarayıcı kapanınca kaldırılır; her açılışta tekrar yüklemen gerekir (imzasız eklenti sınırı). Kalıcı kurulum için eklentinin Mozilla (AMO) tarafından imzalanması gerekir.
+### Firefox (140+)
+1. Bu klasördeki `deepnode-extension-firefox.xpi` dosyasını Firefox penceresine sürükle (veya `about:addons` → dişli simgesi → **Eklentiyi dosyadan kur…**) ve **Ekle** ile onayla.
+2. `about:addons` → DeepNode → **İzinler** sekmesinden tüm sitelere erişime izin ver.
+3. Eklenti Mozilla (AMO) imzalıdır; kurulum **kalıcıdır**. Yeni sürüm imzalatma süreci için bkz. [SIGNING.md](SIGNING.md).
 
-> Neden "kurulum sırasında otomatik" değil? Tarayıcılar (Chrome, Firefox) güvenlik nedeniyle bir uygulamanın kendilerine sessizce eklenti kurmasına izin vermez. Kalıcı ve tek-tık kurulum için eklentiyi Chrome Web Mağazası / Edge Add-ons / Firefox AMO'da yayınlamak gerekir.
+> Neden "kurulum sırasında otomatik" değil? Tarayıcılar (Chrome, Firefox) güvenlik nedeniyle bir uygulamanın kendilerine sessizce eklenti kurmasına izin vermez. Firefox paketi Mozilla imzalı olduğu için sürükle-bırak ile kalıcı kurulur; Chrome/Edge'de tek-tık kalıcı kurulum için eklentiyi Chrome Web Mağazası / Edge Add-ons'ta yayınlamak gerekir.
 
 ## Notlar
 - Eklenti uygulamayla `http://localhost:5000/api/download/add` üzerinden konuşur. Uygulamada portu değiştirirsen, eklenti açılır penceresinden portu güncelle.

@@ -321,10 +321,10 @@ export default {
   ext_step3: '右上のデベロッパーモードをオンにします。',
   ext_step4: '「パッケージ化されていない拡張機能を読み込む」→ 手順 1 の browser-extension フォルダーを選択します。',
   ext_step5: 'DeepNode アイコンがツールバーに表示されます。クリックすると接続状態を確認できます。恒久的にインストールされます。',
-  ff_step1: 'アドレスバーに about:debugging#/runtime/this-firefox と入力します。',
-  ff_step2: '「一時的なアドオンを読み込む」→ browser-extension フォルダー内の manifest.json を選択します。',
-  ff_step3: '注意：Firefox は終了時に一時的なアドオンを削除するため、起動のたびに再読み込みが必要です。',
-  ext_why_note: 'なぜ自動でないのか？ セキュリティ上の理由から、ブラウザーはアプリによる拡張機能のサイレントインストールを許可していません。ワンクリックの恒久インストールは、拡張機能が Chrome ウェブストア / Edge アドオン / Firefox AMO で公開された後にのみ可能です。',
+  ff_step1: '上の「拡張機能フォルダーを開く」ボタンをクリックします。',
+  ff_step2: 'deepnode-extension-firefox.xpi を Firefox のウィンドウにドラッグ（または about:addons → 歯車アイコン →「ファイルからアドオンをインストール…」）し、「追加」で確認します。',
+  ff_step3: 'about:addons で拡張機能の「権限」タブを開き、すべてのサイトへのアクセスを許可します。アドオンは Mozilla 署名済みで、インストールは恒久的です。',
+  ext_why_note: 'なぜ自動でないのか？ セキュリティ上の理由から、ブラウザーはアプリによる拡張機能のサイレントインストールを許可していません。Firefox パッケージは Mozilla 署名済みで恒久的にインストールされます。Chrome/Edge でのワンクリック恒久インストールは、拡張機能が Chrome ウェブストア / Edge アドオンで公開された後にのみ可能です。',
   btn_save: '設定を保存',
 
   // Standalone download progress window (IDM-style)

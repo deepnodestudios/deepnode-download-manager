@@ -321,10 +321,10 @@ export default {
   ext_step3: 'Activez le Mode développeur en haut à droite.',
   ext_step4: '« Charger l’extension non empaquetée » → sélectionnez le dossier browser-extension de l’étape 1.',
   ext_step5: 'L’icône DeepNode apparaît dans la barre d’outils. Cliquez dessus pour voir l’état de la connexion. C’est permanent.',
-  ff_step1: 'Saisissez about:debugging#/runtime/this-firefox dans la barre d’adresse.',
-  ff_step2: '« Charger un module temporaire » → sélectionnez le fichier manifest.json dans le dossier browser-extension.',
-  ff_step3: 'Remarque : Firefox supprime les modules temporaires à la fermeture ; il faut les recharger à chaque démarrage.',
-  ext_why_note: 'Pourquoi pas automatique ? Pour des raisons de sécurité, les navigateurs n’autorisent pas les applications à installer des extensions en silence. L’installation permanente en un clic ne sera possible qu’une fois l’extension publiée sur le Chrome Web Store / Edge Add-ons / Firefox AMO.',
+  ff_step1: 'Cliquez sur le bouton « Ouvrir le dossier de l’extension » ci-dessus.',
+  ff_step2: 'Glissez deepnode-extension-firefox.xpi dans la fenêtre de Firefox (ou about:addons → engrenage → « Installer un module depuis un fichier… ») et confirmez avec « Ajouter ».',
+  ff_step3: 'Dans about:addons, ouvrez l’onglet Permissions de l’extension et autorisez l’accès à tous les sites. Le module est signé par Mozilla ; l’installation est permanente.',
+  ext_why_note: 'Pourquoi pas automatique ? Pour des raisons de sécurité, les navigateurs n’autorisent pas les applications à installer des extensions en silence. Le paquet Firefox est signé par Mozilla et s’installe de façon permanente ; pour Chrome/Edge, l’installation permanente en un clic ne sera possible qu’une fois l’extension publiée sur le Chrome Web Store / Edge Add-ons.',
   btn_save: 'Enregistrer les paramètres',
 
   // Standalone download progress window (IDM-style)

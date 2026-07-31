@@ -321,10 +321,10 @@ export default {
   ext_step3: 'Turn on the Developer mode toggle in the top right.',
   ext_step4: 'Load unpacked → select the browser-extension folder from step 1.',
   ext_step5: 'The DeepNode icon appears in the toolbar. Click it to see the connection status. It is permanent.',
-  ff_step1: 'Type about:debugging#/runtime/this-firefox in the address bar.',
-  ff_step2: 'Load Temporary Add-on → select the manifest.json file inside the browser-extension folder.',
-  ff_step3: 'Note: Firefox removes temporary add-ons when it closes; you need to reload it on every start.',
-  ext_why_note: 'Why not automatic? Browsers don\'t allow apps to silently install extensions for security reasons. Permanent one-click install is only possible once the extension is published on the Chrome Web Store / Edge Add-ons / Firefox AMO.',
+  ff_step1: 'Click the “Open Extension Folder” button above.',
+  ff_step2: 'Drag deepnode-extension-firefox.xpi into the Firefox window (or use about:addons → gear icon → “Install Add-on From File…”) and confirm with “Add”.',
+  ff_step3: 'In about:addons, open the extension’s Permissions tab and allow access to all sites. The add-on is signed by Mozilla; the install is permanent.',
+  ext_why_note: 'Why not automatic? Browsers don\'t allow apps to silently install extensions for security reasons. The Firefox package is signed by Mozilla and installs permanently; for Chrome/Edge, permanent one-click install is only possible once the extension is published on the Chrome Web Store / Edge Add-ons.',
   btn_save: 'Save Settings',
 
   // Standalone download progress window (IDM-style)

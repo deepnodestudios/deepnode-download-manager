@@ -710,7 +710,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
 
                 <div className="form-group">
                   <label className="form-label" style={{ color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <CheckCircle2 size={15} /> Firefox (121+)
+                    <CheckCircle2 size={15} /> Firefox (140+)
                   </label>
                   <ol style={{ margin: '4px 0 0 18px', padding: 0, fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
                     <li>{t('ff_step1')}</li>

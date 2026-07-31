@@ -321,10 +321,10 @@ export default {
   ext_step3: 'Bật công tắc Chế độ nhà phát triển ở góc trên bên phải.',
   ext_step4: 'Tải tiện ích đã giải nén → chọn thư mục browser-extension từ bước 1.',
   ext_step5: 'Biểu tượng DeepNode xuất hiện trên thanh công cụ. Nhấp để xem trạng thái kết nối. Cài đặt là vĩnh viễn.',
-  ff_step1: 'Gõ about:debugging#/runtime/this-firefox vào thanh địa chỉ.',
-  ff_step2: 'Tải tiện ích tạm thời → chọn tệp manifest.json trong thư mục browser-extension.',
-  ff_step3: 'Lưu ý: Firefox xóa tiện ích tạm thời khi đóng; bạn cần tải lại mỗi lần khởi động.',
-  ext_why_note: 'Tại sao không tự động? Vì lý do bảo mật, trình duyệt không cho phép ứng dụng cài tiện ích một cách âm thầm. Cài đặt vĩnh viễn một cú nhấp chỉ khả thi khi tiện ích được phát hành trên Chrome Web Store / Edge Add-ons / Firefox AMO.',
+  ff_step1: 'Nhấp nút “Mở thư mục tiện ích” ở trên.',
+  ff_step2: 'Kéo tệp deepnode-extension-firefox.xpi vào cửa sổ Firefox (hoặc about:addons → biểu tượng bánh răng → “Cài đặt tiện ích từ tệp…”) và xác nhận bằng “Thêm”.',
+  ff_step3: 'Trong about:addons, mở tab Quyền của tiện ích và cho phép truy cập tất cả trang web. Tiện ích được Mozilla ký; cài đặt là vĩnh viễn.',
+  ext_why_note: 'Tại sao không tự động? Vì lý do bảo mật, trình duyệt không cho phép ứng dụng cài tiện ích một cách âm thầm. Gói Firefox được Mozilla ký và cài đặt vĩnh viễn; với Chrome/Edge, cài đặt vĩnh viễn một cú nhấp chỉ khả thi khi tiện ích được phát hành trên Chrome Web Store / Edge Add-ons.',
   btn_save: 'Lưu cài đặt',
 
   // Standalone download progress window (IDM-style)

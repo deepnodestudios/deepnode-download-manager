@@ -1,6 +1,11 @@
 // DeepNode Download Manager - browser integration (MV3 service worker)
 
-importScripts('strings.js');
+// Chrome: service worker → sözlük importScripts ile yüklenir.
+// Firefox: service_worker yok, manifest background.scripts strings.js'i zaten
+// background.js'ten ÖNCE yükler (importScripts tanımlı değildir).
+if (typeof importScripts === 'function') {
+  importScripts('strings.js');
+}
 
 const DEFAULTS = { enabled: true, captureDownloads: true, showButton: true, port: 5000, disabledSites: [], appLanguage: 'auto' };
 let cfg = { ...DEFAULTS };

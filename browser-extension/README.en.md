@@ -31,12 +31,12 @@ First, run the **DeepNode Download Manager** app (`localhost:5000` must be runni
 3. **Load unpacked** → select this `browser-extension` folder.
 4. The DeepNode icon appears in the toolbar. Click it to see the status (connected/offline) and change settings.
 
-### Firefox (version 121+)
-1. Go to `about:debugging#/runtime/this-firefox`.
-2. **Load Temporary Add-on** → select the `manifest.json` file in this folder.
-3. Note: temporary add-ons are removed when Firefox closes; you need to reload it on every start (unsigned extension limitation). Permanent installation requires the extension to be signed by Mozilla (AMO).
+### Firefox (140+)
+1. Drag the `deepnode-extension-firefox.xpi` file from this folder into a Firefox window (or use `about:addons` → gear icon → **Install Add-on From File…**) and confirm with **Add**.
+2. In `about:addons` → DeepNode → **Permissions** tab, allow access to all sites.
+3. The add-on is signed by Mozilla (AMO); the install is **permanent**. See [SIGNING.md](SIGNING.md) for the release signing process.
 
-> Why not "automatic during setup"? Browsers (Chrome, Firefox) don't allow an application to silently install extensions for security reasons. One-click permanent installation requires publishing the extension on the Chrome Web Store / Edge Add-ons / Firefox AMO.
+> Why not "automatic during setup"? Browsers (Chrome, Firefox) don't allow an application to silently install extensions for security reasons. The Firefox package is Mozilla-signed, so drag-and-drop installs it permanently; for Chrome/Edge, one-click permanent installation requires publishing the extension on the Chrome Web Store / Edge Add-ons.
 
 ## Notes
 - The extension talks to the app via `http://localhost:5000/api/download/add`. If you change the port in the app, update it from the extension popup.

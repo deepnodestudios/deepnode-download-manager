@@ -4,6 +4,8 @@ node_modules/
 # Build outputs
 dist_exe/
 frontend/dist/
+# Not: browser-extension/deepnode-extension-firefox.xpi İMZALI dağıtım kopyasıdır, depoya GİRER
+browser-extension/.amo-upload-uuid
 
 # External binaries — see bin/README.md for download instructions
 bin/*.exe

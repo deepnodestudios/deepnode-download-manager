@@ -321,10 +321,10 @@ export default {
   ext_step3: '오른쪽 위의 개발자 모드 토글을 켜세요.',
   ext_step4: '압축해제된 확장 프로그램을 로드합니다 → 1단계의 browser-extension 폴더를 선택하세요.',
   ext_step5: 'DeepNode 아이콘이 도구 모음에 나타납니다. 클릭하면 연결 상태를 볼 수 있습니다. 영구적으로 유지됩니다.',
-  ff_step1: '주소창에 about:debugging#/runtime/this-firefox를 입력하세요.',
-  ff_step2: '임시 부가 기능 로드 → browser-extension 폴더 안의 manifest.json 파일을 선택하세요.',
-  ff_step3: '참고: Firefox는 종료 시 임시 부가 기능을 제거하므로 시작할 때마다 다시 로드해야 합니다.',
-  ext_why_note: '왜 자동이 아닌가요? 보안상의 이유로 브라우저는 앱이 확장 프로그램을 조용히 설치하는 것을 허용하지 않습니다. 원클릭 영구 설치는 확장 프로그램이 Chrome 웹 스토어 / Edge 추가 기능 / Firefox AMO에 게시된 후에만 가능합니다.',
+  ff_step1: '위의 “확장 프로그램 폴더 열기” 버튼을 클릭하세요.',
+  ff_step2: 'deepnode-extension-firefox.xpi 파일을 Firefox 창으로 끌어다 놓으세요 (또는 about:addons → 톱니바퀴 아이콘 → “파일에서 부가 기능 설치…”). “추가”로 확인하세요.',
+  ff_step3: 'about:addons에서 확장 프로그램의 권한 탭을 열고 모든 사이트 접근을 허용하세요. Mozilla 서명된 부가 기능이므로 설치는 영구적입니다.',
+  ext_why_note: '왜 자동이 아닌가요? 보안상의 이유로 브라우저는 앱이 확장 프로그램을 조용히 설치하는 것을 허용하지 않습니다. Firefox 패키지는 Mozilla 서명되어 영구적으로 설치됩니다. Chrome/Edge의 원클릭 영구 설치는 확장 프로그램이 Chrome 웹 스토어 / Edge 추가 기능에 게시된 후에만 가능합니다.',
   btn_save: '설정 저장',
 
   // Standalone download progress window (IDM-style)

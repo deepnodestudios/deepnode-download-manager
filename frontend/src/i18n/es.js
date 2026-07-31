@@ -321,10 +321,10 @@ export default {
   ext_step3: 'Activa el interruptor de Modo desarrollador arriba a la derecha.',
   ext_step4: 'Cargar descomprimida → selecciona la carpeta browser-extension del paso 1.',
   ext_step5: 'El icono de DeepNode aparece en la barra de herramientas. Haz clic para ver el estado de conexión. Es permanente.',
-  ff_step1: 'Escribe about:debugging#/runtime/this-firefox en la barra de direcciones.',
-  ff_step2: 'Cargar complemento temporal → selecciona el archivo manifest.json dentro de la carpeta browser-extension.',
-  ff_step3: 'Nota: Firefox elimina los complementos temporales al cerrarse; debes recargarlo en cada inicio.',
-  ext_why_note: '¿Por qué no es automático? Los navegadores no permiten que las aplicaciones instalen extensiones en silencio por seguridad. La instalación permanente con un clic solo es posible cuando la extensión esté publicada en Chrome Web Store / Edge Add-ons / Firefox AMO.',
+  ff_step1: 'Haz clic en el botón “Abrir carpeta de la extensión” de arriba.',
+  ff_step2: 'Arrastra deepnode-extension-firefox.xpi a la ventana de Firefox (o usa about:addons → engranaje → “Instalar complemento desde archivo…”) y confirma con “Añadir”.',
+  ff_step3: 'En about:addons, abre la pestaña Permisos de la extensión y permite el acceso a todos los sitios. El complemento está firmado por Mozilla; la instalación es permanente.',
+  ext_why_note: '¿Por qué no es automático? Los navegadores no permiten que las aplicaciones instalen extensiones en silencio por seguridad. El paquete de Firefox está firmado por Mozilla y se instala de forma permanente; en Chrome/Edge, la instalación permanente con un clic solo es posible cuando la extensión esté publicada en Chrome Web Store / Edge Add-ons.',
   btn_save: 'Guardar ajustes',
 
   // Standalone download progress window (IDM-style)
