@@ -310,6 +310,23 @@ async function run() {
       fs.statSync(sloppyDone.savePath).size === SIZE,
       sloppyDone && sloppyDone.savePath && fs.existsSync(sloppyDone.savePath)
         ? String(fs.statSync(sloppyDone.savePath).size) : 'dosya yok');
+
+    console.log('\nR9 — Ön indirme (preflight) onaylanmadan tamamlanma diyaloğu açmaz');
+    const pfUrl = `http://127.0.0.1:${ORIGIN_SRC}/real.zip?pf=1`;
+    const addPrompt = await call('/api/download/add', {
+      origin: EXT_ORIGIN,
+      method: 'POST',
+      body: { url: pfUrl, filename: 'pf_test.zip' }
+    });
+    check('eklenti isteği onay penceresi tetikler', addPrompt.json && addPrompt.json.status === 'prompted');
+    await sleep(1500);
+    const pfConfirmed = await call('/api/download/confirm-preflight', {
+      origin: APP_ORIGIN,
+      method: 'POST',
+      body: { url: pfUrl, filename: 'pf_confirmed.zip', autoStart: true }
+    });
+    check('onaylanan ön indirme tamamlanmış olarak devralındı', pfConfirmed.json && pfConfirmed.json.status === 'completed');
+    check('onaylanan ön indirmede preflight bayrağı kalktı', pfConfirmed.json && !pfConfirmed.json.preflight);
   } finally {
     backend.child.kill('SIGKILL');
     origin.close();

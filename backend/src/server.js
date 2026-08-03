@@ -117,11 +117,18 @@ async function confirmPreflightForUrl(url, opts) {
     // Ön indirme henüz hazırlanıyorsa (HEAD sürüyor) kurulmasını bekle
     if (!entry.id && entry.promise) { try { await entry.promise; } catch (e) { /* ignore */ } }
     if (!entry.id) { preflights.delete(url); return null; }
-    // İlerleme penceresini taşıma/yeniden bağlanma bitmeden AÇ — kullanıcı
-    // mevcut baytları hemen görür, algılanan gecikme kısalır.
-    if (opts && opts.autoStart !== false) serverEvents.emit('open-progress', entry.id);
+
     const snap = await queueManager.confirmPreflight(entry.id, opts);
     preflights.delete(url);
+    if (snap) {
+      if (snap.status === 'completed') {
+        if (opts && opts.autoStart !== false) {
+          serverEvents.emit('download-completed', snap);
+        }
+      } else if (opts && opts.autoStart !== false) {
+        serverEvents.emit('open-progress', entry.id);
+      }
+    }
     return snap || null;
   } catch (e) {
     entry.confirming = false;
@@ -203,8 +210,14 @@ async function confirmVideoPreflightForUrl(url, opts) {
       dropPreflight(url, entry);
       return null;
     }
-    if (opts && opts.autoStart !== false) serverEvents.emit('open-progress', entry.id);
     preflights.delete(url);
+    if (snap.status === 'completed') {
+      if (opts && opts.autoStart !== false) {
+        serverEvents.emit('download-completed', snap);
+      }
+    } else if (opts && opts.autoStart !== false) {
+      serverEvents.emit('open-progress', entry.id);
+    }
     return snap;
   } catch (e) {
     entry.confirming = false;
@@ -289,12 +302,17 @@ queueManager.setBroadcastCallback((message) => {
   try {
     if (message && message.type === 'COMPLETED') {
       const snap = queueManager.getDownloadById(message.payload.id);
-      serverEvents.emit('download-completed', snap || message.payload);
-
-      const busy = queueManager.getAllDownloads().some(
-        (d) => d.status === 'downloading' || d.status === 'merging' || d.status === 'queued'
+      const isPreflight = Boolean(
+        (snap && snap.preflight) || (message.payload && message.payload.preflight)
       );
-      if (!busy) serverEvents.emit('all-complete');
+      if (!isPreflight) {
+        serverEvents.emit('download-completed', snap || message.payload);
+
+        const busy = queueManager.getAllDownloads().some(
+          (d) => (d.status === 'downloading' || d.status === 'merging' || d.status === 'queued') && !d.preflight
+        );
+        if (!busy) serverEvents.emit('all-complete');
+      }
     }
   } catch (e) { /* ignore */ }
 

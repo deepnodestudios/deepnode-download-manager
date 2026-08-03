@@ -1,6 +1,6 @@
 {
   "name": "deepnode-download-manager",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "DeepNode Download Manager - Desktop Download Manager",
   "main": "electron/main.js",
   "type": "module",
