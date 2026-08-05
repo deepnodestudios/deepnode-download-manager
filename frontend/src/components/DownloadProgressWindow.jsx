@@ -73,6 +73,12 @@ export default function DownloadProgressWindow({ download, settings }) {
 
   const act = (action) => fetch(`/api/download/${download.id}/${action}`, { method: 'POST' }).catch(() => {});
 
+  // Tamamlanma panelindeki Aç / Klasörü Aç: işletim sistemine devredince pencere kapanır (IDM davranışı).
+  const actAndClose = (action) =>
+    fetch(`/api/download/${download.id}/${action}`, { method: 'POST' })
+      .then((res) => { if (res.ok) closeWindow(); })
+      .catch(() => {});
+
   const rows = download ? [
     [t('lbl_status'), t('st_' + download.status) , download.status === 'error' ? 'var(--danger)' : (isDone ? 'var(--success-2)' : 'var(--link)')],
     [t('lbl_file_size'), download.totalSize > 0 ? formatBytes(download.totalSize) : '-'],
@@ -174,10 +180,10 @@ export default function DownloadProgressWindow({ download, settings }) {
         <div className="modal-footer">
           {download && isDone && (
             <>
-              <button className="btn btn-success" onClick={() => act('open')}>
+              <button className="btn btn-success" onClick={() => actAndClose('open')}>
                 <FileText size={15} /> {t('ctx_open')}
               </button>
-              <button className="btn btn-secondary" onClick={() => act('reveal')}>
+              <button className="btn btn-secondary" onClick={() => actAndClose('reveal')}>
                 <FolderOpen size={15} /> {t('ctx_open_folder')}
               </button>
             </>

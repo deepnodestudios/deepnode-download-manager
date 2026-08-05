@@ -39,7 +39,12 @@ export default function DownloadCompleteWindow({ download }) {
     if (download) document.title = '✓ ' + (download.filename || '');
   }, [download]);
 
-  const act = (action) => fetch(`/api/download/${download.id}/${action}`, { method: 'POST' }).catch(() => {});
+  // IDM davranışı: dosyayı/klasörü açma işlemi işletim sistemine devredildiğinde
+  // diyalog kapanır (Firefox/Chrome'daki "Open/Reveal kapatır" deseni).
+  const act = (action) =>
+    fetch(`/api/download/${download.id}/${action}`, { method: 'POST' })
+      .then((res) => { if (res.ok) closeWindow(); })
+      .catch(() => {});
 
   // "Bu pencereyi bir daha gösterme" — ayara yazılır, sonraki indirmelerde diyalog açılmaz
   const toggleDontShow = (checked) => {
