@@ -18,6 +18,7 @@ export default function DownloadList({
   onStart,
   onPause,
   onDelete,
+  onBulkDelete,
   onInspectChunks,
   onOpenFile,
   onRevealFolder,
@@ -122,9 +123,15 @@ export default function DownloadList({
 
   // --- Bulk actions ---
   const bulkDelete = useCallback(() => {
-    selectedIds.forEach(id => onDelete(id));
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    if (ids.length > 1) {
+      onBulkDelete(ids);
+    } else {
+      ids.forEach(id => onDelete(id));
+    }
     clearSelection();
-  }, [selectedIds, onDelete, clearSelection]);
+  }, [selectedIds, onDelete, onBulkDelete, clearSelection]);
 
   const bulkPause = useCallback(() => {
     selectedIds.forEach(id => {

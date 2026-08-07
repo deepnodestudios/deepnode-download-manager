@@ -8,6 +8,7 @@ export default {
   nav_sniffer: 'كاشف الوسائط',
   nav_settings: 'الإعدادات',
   nav_about: 'حول',
+  nav_open_download_folder: 'مجلد التنزيل الافتراضي',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'عوامل تصفية الحالة',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: 'سيُزال من القائمة.',
   delete_also_file: 'حذف الملف الذي تم تنزيله من القرص أيضًا',
   delete_permanent: 'سيُحذف الملف نهائيًا (لن يُنقل إلى سلة المحذوفات).',
+  confirm_bulk_delete: 'سيتم إزالة {n} تنزيل من القائمة. متابعة؟',
   btn_cancel: 'إلغاء',
   btn_minimize: 'تصغير',
   btn_delete: 'حذف',

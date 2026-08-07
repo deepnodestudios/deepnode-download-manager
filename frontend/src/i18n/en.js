@@ -8,6 +8,7 @@ export default {
   nav_sniffer: 'Media Sniffer',
   nav_settings: 'Settings',
   nav_about: 'About',
+  nav_open_download_folder: 'Default Download Folder',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'STATUS FILTERS',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: 'will be removed from the list.',
   delete_also_file: 'Also delete the downloaded file from disk',
   delete_permanent: 'The file will be permanently deleted (not moved to Recycle Bin).',
+  confirm_bulk_delete: '{n} downloads will be removed from the list. Continue?',
   btn_cancel: 'Cancel',
   btn_minimize: 'Minimize',
   btn_delete: 'Delete',

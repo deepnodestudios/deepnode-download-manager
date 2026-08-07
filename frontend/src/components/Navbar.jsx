@@ -1,6 +1,6 @@
 import React, { useLayoutEffect, useRef } from 'react';
 import {
-  Plus, Play, Pause, Globe, Settings, Info
+  Plus, Play, Pause, Globe, FolderOpen, Settings, Info
 } from 'lucide-react';
 import { useT } from '../i18n';
 
@@ -10,7 +10,8 @@ export default function Navbar({
   onPauseAll,
   onOpenSnifferModal,
   onOpenSettingsModal,
-  onOpenAboutModal
+  onOpenAboutModal,
+  onOpenDownloadRootDir
 }) {
   const { t } = useT();
   const rowRef = useRef(null);
@@ -86,6 +87,10 @@ export default function Navbar({
         </div>
 
         <span className="toolbar-sep" />
+
+        <button className="tb-btn" onClick={onOpenDownloadRootDir} title={t('nav_open_download_folder')}>
+          <FolderOpen size={18} />
+        </button>
 
         <button className="tb-btn" onClick={onOpenSettingsModal} title={t('nav_settings')}>
           <Settings size={18} />

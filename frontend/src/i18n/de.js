@@ -8,6 +8,7 @@ export default {
   nav_sniffer: 'Medien-Sniffer',
   nav_settings: 'Einstellungen',
   nav_about: 'Info',
+  nav_open_download_folder: 'Standard-Download-Ordner',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'STATUSFILTER',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: 'wird aus der Liste entfernt.',
   delete_also_file: 'Auch die heruntergeladene Datei von der Festplatte löschen',
   delete_permanent: 'Die Datei wird dauerhaft gelöscht (nicht in den Papierkorb verschoben).',
+  confirm_bulk_delete: '{n} Downloads werden aus der Liste entfernt. Fortfahren?',
   btn_cancel: 'Abbrechen',
   btn_minimize: 'Minimieren',
   btn_delete: 'Löschen',

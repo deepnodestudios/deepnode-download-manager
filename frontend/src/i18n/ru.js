@@ -8,6 +8,7 @@ export default {
   nav_sniffer: 'Перехватчик медиа',
   nav_settings: 'Настройки',
   nav_about: 'О программе',
+  nav_open_download_folder: 'Папка загрузок по умолчанию',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'ФИЛЬТРЫ СТАТУСА',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: 'будет удалена из списка.',
   delete_also_file: 'Также удалить загруженный файл с диска',
   delete_permanent: 'Файл будет удалён безвозвратно (не в Корзину).',
+  confirm_bulk_delete: '{n} загрузок будет удалено из списка. Продолжить?',
   btn_cancel: 'Отмена',
   btn_minimize: 'Свернуть',
   btn_delete: 'Удалить',

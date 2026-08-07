@@ -8,6 +8,7 @@ export default {
   nav_sniffer: 'मीडिया स्निफ़र',
   nav_settings: 'सेटिंग्स',
   nav_about: 'ऐप के बारे में',
+  nav_open_download_folder: 'डिफ़ॉल्ट डाउनलोड फ़ोल्डर',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'स्थिति फ़िल्टर',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: 'सूची से हटा दिया जाएगा।',
   delete_also_file: 'डिस्क से डाउनलोड की गई फ़ाइल भी हटाएँ',
   delete_permanent: 'फ़ाइल स्थायी रूप से हटा दी जाएगी (रीसायकल बिन में नहीं जाएगी)।',
+  confirm_bulk_delete: '{n} डाउनलोड सूची से हटा दिए जाएंगे। जारी रखें?',
   btn_cancel: 'रद्द करें',
   btn_minimize: 'छोटा करें',
   btn_delete: 'हटाएँ',

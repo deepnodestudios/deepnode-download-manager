@@ -8,6 +8,7 @@ export default {
   nav_sniffer: 'Medya Yakalayıcı',
   nav_settings: 'Ayarlar',
   nav_about: 'Hakkında',
+  nav_open_download_folder: 'Varsayılan İndirme Klasörü',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'DURUM FİLTRELERİ',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: 'listeden kaldırılacak.',
   delete_also_file: 'İndirilen dosyayı diskten de sil',
   delete_permanent: 'Dosya kalıcı olarak silinecek (geri dönüşüm kutusuna gitmez).',
+  confirm_bulk_delete: '{n} indirme listeden kaldırılacak. Devam edilsin mi?',
   btn_cancel: 'İptal',
   btn_minimize: 'Küçült',
   btn_delete: 'Sil',

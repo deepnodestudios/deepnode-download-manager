@@ -8,6 +8,7 @@ export default {
   nav_sniffer: 'Detector de mídia',
   nav_settings: 'Configurações',
   nav_about: 'Sobre',
+  nav_open_download_folder: 'Pasta de download padrão',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'FILTROS DE STATUS',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: 'será removido da lista.',
   delete_also_file: 'Excluir também o arquivo baixado do disco',
   delete_permanent: 'O arquivo será excluído permanentemente (não irá para a Lixeira).',
+  confirm_bulk_delete: '{n} downloads serão removidos da lista. Continuar?',
   btn_cancel: 'Cancelar',
   btn_minimize: 'Minimizar',
   btn_delete: 'Excluir',

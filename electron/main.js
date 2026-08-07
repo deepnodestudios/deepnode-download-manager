@@ -390,11 +390,9 @@ process.on('unhandledRejection', (reason) => {
 function createWindow(showWindow = true) {
   mainWindow = new BrowserWindow({
     show: showWindow,
-    width: 1000,
+    width: 1078,
     height: 580,
-    // Header butonları (etiketli) TR dilinde ~949px viewport ister;
-    // çerçeve payıyla 980px altına inilirse butonlar taşar/gizlenir.
-    minWidth: 980,
+    minWidth: 1078,
     minHeight: 420,
     title: 'DeepNode Download Manager',
     backgroundColor: '#0b0f19',

@@ -8,6 +8,7 @@ export default {
   nav_sniffer: 'Detector de medios',
   nav_settings: 'Ajustes',
   nav_about: 'Acerca de',
+  nav_open_download_folder: 'Carpeta de descargas predeterminada',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'FILTROS DE ESTADO',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: 'se quitará de la lista.',
   delete_also_file: 'Eliminar también el archivo descargado del disco',
   delete_permanent: 'El archivo se eliminará permanentemente (no irá a la Papelera).',
+  confirm_bulk_delete: '{n} descargas se eliminarán de la lista. ¿Continuar?',
   btn_cancel: 'Cancelar',
   btn_minimize: 'Minimizar',
   btn_delete: 'Eliminar',

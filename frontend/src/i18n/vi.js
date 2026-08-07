@@ -8,6 +8,7 @@ export default {
   nav_sniffer: 'Trình dò media',
   nav_settings: 'Cài đặt',
   nav_about: 'Giới thiệu',
+  nav_open_download_folder: 'Thư mục tải xuống mặc định',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'BỘ LỌC TRẠNG THÁI',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: 'sẽ bị xóa khỏi danh sách.',
   delete_also_file: 'Đồng thời xóa tệp đã tải khỏi ổ đĩa',
   delete_permanent: 'Tệp sẽ bị xóa vĩnh viễn (không chuyển vào Thùng rác).',
+  confirm_bulk_delete: '{n} bản tải xuống sẽ bị xóa khỏi danh sách. Tiếp tục?',
   btn_cancel: 'Hủy',
   btn_minimize: 'Thu nhỏ',
   btn_delete: 'Xóa',

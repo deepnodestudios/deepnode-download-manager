@@ -8,6 +8,7 @@ export default {
   nav_sniffer: '媒体嗅探器',
   nav_settings: '设置',
   nav_about: '关于',
+  nav_open_download_folder: '默认下载文件夹',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: '状态筛选',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: '将从列表中移除。',
   delete_also_file: '同时从磁盘删除已下载的文件',
   delete_permanent: '文件将被永久删除（不会移入回收站）。',
+  confirm_bulk_delete: '{n} 个下载将从列表中移除。继续吗？',
   btn_cancel: '取消',
   btn_minimize: '最小化',
   btn_delete: '删除',

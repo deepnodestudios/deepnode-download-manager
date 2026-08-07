@@ -8,6 +8,7 @@ export default {
   nav_sniffer: 'Détecteur de médias',
   nav_settings: 'Paramètres',
   nav_about: 'À propos',
+  nav_open_download_folder: 'Dossier de téléchargement par défaut',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'FILTRES D’ÉTAT',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: 'sera retiré de la liste.',
   delete_also_file: 'Supprimer aussi le fichier téléchargé du disque',
   delete_permanent: 'Le fichier sera supprimé définitivement (pas envoyé à la Corbeille).',
+  confirm_bulk_delete: '{n} téléchargements seront retirés de la liste. Continuer ?',
   btn_cancel: 'Annuler',
   btn_minimize: 'Réduire',
   btn_delete: 'Supprimer',

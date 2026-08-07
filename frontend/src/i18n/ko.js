@@ -8,6 +8,7 @@ export default {
   nav_sniffer: '미디어 스니퍼',
   nav_settings: '설정',
   nav_about: '정보',
+  nav_open_download_folder: '기본 다운로드 폴더',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: '상태 필터',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: '목록에서 제거됩니다.',
   delete_also_file: '다운로드한 파일도 디스크에서 삭제',
   delete_permanent: '파일이 영구적으로 삭제됩니다 (휴지통으로 이동하지 않음).',
+  confirm_bulk_delete: '{n}개의 다운로드가 목록에서 제거됩니다. 계속하시겠습니까?',
   btn_cancel: '취소',
   btn_minimize: '최소화',
   btn_delete: '삭제',

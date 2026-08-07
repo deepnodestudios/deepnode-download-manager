@@ -8,6 +8,7 @@ export default {
   nav_sniffer: 'Pendeteksi Media',
   nav_settings: 'Pengaturan',
   nav_about: 'Tentang',
+  nav_open_download_folder: 'Folder Unduhan Bawaan',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'FILTER STATUS',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: 'akan dihapus dari daftar.',
   delete_also_file: 'Hapus juga berkas yang terunduh dari disk',
   delete_permanent: 'Berkas akan dihapus permanen (tidak dipindahkan ke Recycle Bin).',
+  confirm_bulk_delete: '{n} unduhan akan dihapus dari daftar. Lanjutkan?',
   btn_cancel: 'Batal',
   btn_minimize: 'Minimalkan',
   btn_delete: 'Hapus',

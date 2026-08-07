@@ -96,6 +96,8 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+  gap: 14px;
+  align-items: center;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
@@ -120,8 +122,8 @@ body {
   align-items: center;
   gap: 11px;
   min-width: 0;
-  /* Pencere daralırsa butonlar değil marka alanı sıkışır — tüm butonlar daima görünür */
-  flex: 0 1 auto;
+  width: 260px;
+  flex: 0 1 260px;
   overflow: hidden;
 }
 
@@ -206,7 +208,8 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 15px 8px 9px;
+  height: 38px;
+  padding: 0 15px 0 9px;
   border: none;
   border-radius: 12px;
   background: linear-gradient(135deg, var(--primary), var(--primary-2));
@@ -239,6 +242,7 @@ body {
   align-items: center;
   gap: 2px;
   padding: 3px;
+  height: 38px;
   border-radius: 12px;
   background: var(--bg-hover);
   border: 1px solid var(--border-color);
@@ -248,7 +252,8 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  height: 30px;
+  padding: 0 12px;
   border: none;
   border-radius: 9px;
   background: transparent;
@@ -274,7 +279,8 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 7px 13px;
+  height: 38px;
+  padding: 0 13px;
   border-radius: 12px;
   background: rgba(45, 225, 194, 0.10);
   border: 1px solid rgba(45, 225, 194, 0.30);
@@ -325,9 +331,34 @@ body {
 
 /* Dar pencerede etiketler gizlenmez; yalnızca dolgular daraltılır */
 @media (max-width: 1000px) {
-  .top-navbar .btn-add { padding: 8px 12px; }
-  .top-navbar .seg-action { padding: 6px 10px; }
-  .top-navbar .btn-sniff { padding: 7px 10px; }
+  .top-navbar .btn-add { padding: 0 12px; }
+  .top-navbar .seg-action { padding: 0 10px; }
+  .top-navbar .btn-sniff { padding: 0 10px; }
+}
+
+/* Etiketler daraldığında buton metinleri gizlenir (~949px viewport eşiği) */
+@media (max-width: 940px) {
+  .top-navbar .btn-label { display: none; }
+  .top-navbar .btn-add { padding: 0 10px; }
+  .top-navbar .btn-add .btn-add-plus { margin-right: 0; }
+  .top-navbar .btn-sniff { padding: 0 8px; }
+  .top-navbar .seg-action { padding: 0 8px; }
+}
+
+/* Aşırı dar pencere: Sniffer gizlenir, ayraçlar kalkar, her şey kompakt */
+@media (max-width: 620px) {
+  .top-navbar .btn-sniff { display: none; }
+  .top-navbar .toolbar-sep { display: none; }
+  .top-navbar .seg-divider { display: none; }
+  .top-navbar { gap: 4px; padding: 8px 8px; }
+  .top-navbar .btn-add { padding: 0 0 0 7px; gap: 0; }
+  .top-navbar .btn-add, .top-navbar .btn-sniff { height: 32px; }
+  .top-navbar .seg-actions { height: 32px; padding: 2px; }
+  .top-navbar .seg-action { height: 26px; padding: 0 6px; }
+  .tb-btn { width: 32px; height: 32px; }
+  .brand-section { gap: 6px; }
+  .brand-title { font-size: 0.9rem; }
+  .brand-badge { font-size: 0.5rem; padding: 1px 5px; }
 }
 
 /* ── Buttons ───────────────────────────────────────────────── */
@@ -449,7 +480,7 @@ body {
 
 /* ── Sidebar ───────────────────────────────────────────────── */
 .sidebar {
-  width: 200px;
+  width: 276px;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-color);
   padding: 14px 10px;

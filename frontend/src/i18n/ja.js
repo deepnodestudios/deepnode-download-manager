@@ -8,6 +8,7 @@ export default {
   nav_sniffer: 'メディアスニファー',
   nav_settings: '設定',
   nav_about: 'このアプリについて',
+  nav_open_download_folder: '既定のダウンロードフォルダー',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'ステータスフィルター',
@@ -103,6 +104,7 @@ export default {
   delete_will_remove: 'リストから削除されます。',
   delete_also_file: 'ダウンロード済みファイルもディスクから削除する',
   delete_permanent: 'ファイルは完全に削除されます（ごみ箱には移動しません）。',
+  confirm_bulk_delete: '{n} 件のダウンロードをリストから削除します。続行しますか？',
   btn_cancel: 'キャンセル',
   btn_minimize: '最小化',
   btn_delete: '削除',

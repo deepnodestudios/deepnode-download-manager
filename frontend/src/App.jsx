@@ -318,13 +318,22 @@ export default function App() {
     fetch(`/api/download/${id}?deleteFile=${deleteFile ? 'true' : 'false'}`, { method: 'DELETE' });
 
   // Silme isteği: "diskten de silinsin mi?" onay penceresini açar
-  const handleDelete = (id, deleteFile) => {
+  const handleDelete = (id, deleteFile, skipConfirm) => {
     const item = downloads.find(d => d.id === id);
-    if (settings?.confirmOnDelete === false) {
+    if (skipConfirm || settings?.confirmOnDelete === false) {
       return doDelete(id, deleteFile === true);
     }
-    setDeleteAlsoFile(deleteFile === true); // sağ tık > "Dosyayla Birlikte Sil" ise işaretli gelsin
+    setDeleteAlsoFile(deleteFile === true);
     setDeleteTarget({ item, preferFile: deleteFile === true });
+  };
+
+  const handleBulkDelete = (ids) => {
+    if (settings?.confirmOnDelete === false) {
+      ids.forEach(id => doDelete(id, false));
+    } else {
+      setDeleteAlsoFile(false);
+      setDeleteTarget({ ids, count: ids.length });
+    }
   };
 
   const handleRedownload = async (item) => {
@@ -390,6 +399,15 @@ export default function App() {
   const handleRevealFolder = async (id) => {
     try {
       const res = await fetch(`/api/download/${id}/reveal`, { method: 'POST' });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+    } catch (err) {
+      alert(tt('alert_reveal_failed', { msg: err.message }));
+    }
+  };
+
+  const handleOpenDownloadRootDir = async () => {
+    try {
+      const res = await fetch('/api/open-download-root', { method: 'POST' });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
     } catch (err) {
       alert(tt('alert_reveal_failed', { msg: err.message }));
@@ -467,6 +485,7 @@ export default function App() {
           onOpenSnifferModal={() => setIsSnifferModalOpen(true)}
           onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
           onOpenAboutModal={() => setIsAboutModalOpen(true)}
+          onOpenDownloadRootDir={handleOpenDownloadRootDir}
         />
 
         {extStatus?.stale && !extWarnDismissed && (
@@ -541,6 +560,7 @@ export default function App() {
               onStart={handleStart}
               onPause={handlePause}
               onDelete={handleDelete}
+              onBulkDelete={handleBulkDelete}
               onInspectChunks={(item) => setSelectedDownloadForChunks(item)}
               onOpenFile={handleOpenFile}
               onRevealFolder={handleRevealFolder}
@@ -588,9 +608,15 @@ export default function App() {
                 <button className="btn btn-ghost btn-icon" onClick={() => setDeleteTarget(null)}>×</button>
               </div>
               <div className="modal-body">
-                <p style={{ marginBottom: '14px' }}>
-                  <strong>{deleteTarget.item?.filename || tt('delete_this_download')}</strong> {tt('delete_will_remove')}
-                </p>
+                {deleteTarget.ids ? (
+                  <p style={{ marginBottom: '14px' }}>
+                    {tt('confirm_bulk_delete', { n: deleteTarget.count })}
+                  </p>
+                ) : (
+                  <p style={{ marginBottom: '14px' }}>
+                    <strong>{deleteTarget.item?.filename || tt('delete_this_download')}</strong> {tt('delete_will_remove')}
+                  </p>
+                )}
                 <label className="dn-check">
                   <input
                     type="checkbox"
@@ -604,7 +630,7 @@ export default function App() {
                     {tt('delete_permanent')}
                   </div>
                 )}
-                {deleteTarget.item?.savePath && (
+                {!deleteTarget.ids && deleteTarget.item?.savePath && (
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-dark)', marginTop: '10px', wordBreak: 'break-all' }}>
                     {deleteTarget.item.savePath}
                   </div>
@@ -615,7 +641,11 @@ export default function App() {
                 <button
                   className="btn btn-danger"
                   onClick={() => {
-                    doDelete(deleteTarget.item.id, deleteAlsoFile);
+                    if (deleteTarget.ids) {
+                      deleteTarget.ids.forEach(id => doDelete(id, deleteAlsoFile));
+                    } else {
+                      doDelete(deleteTarget.item.id, deleteAlsoFile);
+                    }
                     setDeleteTarget(null);
                   }}
                 >

@@ -687,6 +687,14 @@ app.post('/api/open-extension-folder', appOnly(getPort), async (req, res) => {
   res.json({ success: true, path: dir });
 });
 
+// Open the default download root folder
+app.post('/api/open-download-root', appOnly(getPort), async (req, res) => {
+  const root = storageService.settings.downloadDir;
+  if (!root) return res.status(404).json({ error: 'Download directory not configured' });
+  await openPath(root);
+  res.json({ success: true, path: root });
+});
+
 // Yeniden indir: dosyayı ve parçaları silip baştan indirir
 app.post('/api/download/:id/redownload', appOnly(getPort), async (req, res) => {
   try {
