@@ -220,11 +220,20 @@ class QueueManager {
   }
 
   startAll() {
+    // "Tümünü Başlat" ve zamanlayıcı da eşzamanlılık sınırına UYMALI. Eskiden
+    // burada her motora doğrudan `start()` çağrılıyor, `maxConcurrentDownloads`
+    // tamamen atlanıyordu: 50 sıralı indirme varken buton (veya zamanlanmış
+    // başlangıç) hepsini AYNI ANDA başlatıp bağlantı/bant genişliğini boğuyordu.
+    // Çözüm: uygun indirmeleri 'queued' yapıp slot doldurmayı `_fillSlots`'a
+    // bırak — o hem sınırı hem önceliği uygular (checkQueue ile aynı mantık).
     this.engines.forEach((engine) => {
-      if (engine.status === 'paused' || engine.status === 'queued' || engine.status === 'error') {
-        engine.start();
+      if (engine.status === 'paused' || engine.status === 'error') {
+        engine.status = 'queued';
+        this.broadcast({ type: 'STATUS_CHANGE', payload: { id: engine.id, status: 'queued' } });
       }
     });
+    this.saveState();
+    this._fillSlots();
   }
 
   pauseAll() {
@@ -269,7 +278,13 @@ class QueueManager {
   checkQueue() {
     // "Eklenince otomatik başlat" kapalıysa kuyruktakiler kullanıcı başlatana kadar bekler
     if (storageService.settings.autoStartDownloads === false) return;
+    this._fillSlots();
+  }
 
+  // Boş slotları (maxConcurrentDownloads - aktif) önceliğe göre kuyruktakilerle
+  // doldurur. `checkQueue` (otomatik başlat) ve `startAll` (buton/zamanlayıcı) bunu
+  // ortak kullanır; böylece eşzamanlılık sınırı HER iki yolda da uygulanır.
+  _fillSlots() {
     const maxActive = storageService.settings.maxConcurrentDownloads || 3;
     let activeCount = 0;
 

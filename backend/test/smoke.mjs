@@ -11,6 +11,9 @@
 //   R5  Çerezler API/WebSocket yanıtına sızmaz ama diske (devam için) yazılır
 //   R6  Duraklat/devam yarışında yarım dosya "tamamlandı" sayılmaz
 //   R7  safeName: yol bileşenli dosya adı klasör dışına yazamaz
+//   R8  Range bitişini yok sayan sunucuda segment taşmaz
+//   R9  Onaylanmamış ön indirme (preflight) tamamlanma diyaloğu açmaz
+//   R10 "Tümünü Başlat"/zamanlayıcı maxConcurrentDownloads sınırına uyar
 import http from 'http';
 import fs from 'fs';
 import os from 'os';
@@ -327,6 +330,41 @@ async function run() {
     });
     check('onaylanan ön indirme tamamlanmış olarak devralındı', pfConfirmed.json && pfConfirmed.json.status === 'completed');
     check('onaylanan ön indirmede preflight bayrağı kalktı', pfConfirmed.json && !pfConfirmed.json.preflight);
+
+    console.log('\nR10 — "Tümünü Başlat" eşzamanlılık sınırına uyar');
+    // Otomatik başlatı kapat: kuyruk kendiliğinden başlamasın, kontrol testte olsun.
+    await call('/api/settings', {
+      origin: APP_ORIGIN, method: 'POST',
+      body: { autoStartDownloads: false, maxConcurrentDownloads: 2 }
+    });
+
+    const saIds = [];
+    for (let i = 0; i < 5; i++) {
+      const r = await addDownload(`http://127.0.0.1:${ORIGIN_SRC}/slow.zip`, { filename: `sa_${i}.zip` });
+      saIds.push(r.json.id);
+    }
+    const listOf = async () =>
+      ((await call('/api/downloads', { origin: APP_ORIGIN })).json || []).filter((d) => saIds.includes(d.id));
+
+    // autoStart kapalı: hepsi 'queued' beklemeli, hiçbiri kendiliğinden başlamamalı
+    const before = await listOf();
+    check('otomatik başlat kapalıyken hiçbiri başlamadı',
+      before.length === 5 && before.every((d) => d.status === 'queued'),
+      before.map((d) => d.status).join(','));
+
+    // "Tümünü Başlat" → yalnız maxConcurrentDownloads (2) kadarı aktif olmalı.
+    // Hata durumunda 5'inin hepsi birden başlıyordu.
+    await call('/api/download/start-all', { origin: APP_ORIGIN, method: 'POST' });
+    await sleep(1500);
+    const after = await listOf();
+    const active = after.filter((d) => d.status === 'downloading' || d.status === 'merging').length;
+    const queued = after.filter((d) => d.status === 'queued').length;
+    check('aktif indirme sayısı sınırı aşmadı (<=2)', active <= 2, `active=${active}`);
+    check('kalanlar kuyrukta bekliyor (sınır uygulandı)', active === 2 && queued === 3,
+      `active=${active}, queued=${queued}`);
+
+    // Testi toparla: arka planda ağ/disk tüketmesinler
+    await call('/api/download/pause-all', { origin: APP_ORIGIN, method: 'POST' });
   } finally {
     backend.child.kill('SIGKILL');
     origin.close();
