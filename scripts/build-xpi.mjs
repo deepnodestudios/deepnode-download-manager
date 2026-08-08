@@ -48,7 +48,10 @@ const archive = archiver('zip', { zlib: { level: 9 } });
 // Firefox yok sayıp AMO linter'ında uyarı üretir — xpi'ye girmeden çıkarılır.
 // Kaynak manifest.json'a DOKUNULMAZ (Chrome "load unpacked" aynı klasörü kullanır).
 const manifest = JSON.parse(fs.readFileSync(path.join(srcDir, 'manifest.json'), 'utf8'));
-if (manifest.background) delete manifest.background.service_worker;
+if (manifest.background) {
+  delete manifest.background.service_worker;
+  manifest.background.scripts = ['strings.js', 'background.js'];
+}
 
 output.on('close', () => {
   console.log(`build-xpi: ${path.basename(outFile)} (v${manifest.version}, ${files.length} dosya, ${archive.pointer()} bayt)`);
