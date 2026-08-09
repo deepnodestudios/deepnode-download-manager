@@ -543,6 +543,17 @@ app.post('/api/download/video', async (req, res) => {
   const { url, filename, saveDir, quality, referer, autoStart, confirmedByUser } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
+  // OTOMATİK SESSİZ REFRESH: Duraklatılmış/hatalı aynı video listede varsa
+  // onay penceresi açmadan adresi sessizce güncelle ve %25'ten devam ettir!
+  const existing = queueManager.findIncompleteDownloadByContext({ url, referer, filename });
+  if (existing) {
+    console.log(`[Server] Silent auto-refresh for #${existing.id}: updating expired stream URL with fresh token`);
+    const updated = queueManager.updateDownloadUrl(existing.id, url, referer);
+    queueManager.startDownload(existing.id);
+    serverEvents.emit('open-progress', existing.id);
+    return res.json({ status: 'auto_refreshed', id: existing.id, download: updated });
+  }
+
   // STRICT USER GUARD: If user has not confirmed in the Save Location Dialog, DO NOT add or start download!
   if (!confirmedByUser) {
     // Eklentide seçilen kaliteyi ve referer'ı onay penceresine taşı (yoksa "en yüksek"e düşerdi)

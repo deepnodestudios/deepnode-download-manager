@@ -1,6 +1,7 @@
 import storageService from './StorageService.js';
 import { DownloadEngine } from './DownloadEngine.js';
 import { VideoDownloader, isVideoSiteUrl, isStreamManifestUrl, getVideoInfo, isGenericVideoTitle } from './VideoDownloader.js';
+import { LinkSniffer } from './LinkSniffer.js';
 import { safeName } from '../utils/paths.js';
 import fs from 'fs';
 import path from 'path';
@@ -69,6 +70,25 @@ class QueueManager {
       this.saveState();
       this.checkQueue();
       this.broadcast({ type: 'ERROR', payload: { id, error } });
+    });
+
+    engine.on('link-expired', async ({ id, referer }) => {
+      if (!referer) return;
+      console.log(`[QueueManager] Link expired for download #${id}, auto-sniffing referer page: ${referer}`);
+      try {
+        const sniffed = await LinkSniffer.sniffPage(referer, { depth: 1, maxPages: 2 });
+        if (sniffed && sniffed.links && sniffed.links.length > 0) {
+          const newStream = sniffed.links.find(l => /\.m3u8|\.mpd|\.txt|master/i.test(l.url)) || sniffed.links[0];
+          if (newStream && newStream.url) {
+            console.log(`[QueueManager] Auto-refreshed stream URL for #${id}: ${newStream.url}`);
+            this.updateDownloadUrl(id, newStream.url, referer);
+            this.startDownload(id);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn(`[QueueManager] Auto-sniff refresh failed for #${id}:`, err.message);
+      }
     });
   }
 
@@ -265,6 +285,38 @@ class QueueManager {
     this.saveState();
     this.broadcast({ type: 'DOWNLOAD_ADDED', payload: engine.toSnapshot() });
     return engine.toSnapshot();
+  }
+
+  findIncompleteDownloadByContext({ url, referer, filename }) {
+    for (const engine of this.engines.values()) {
+      if (engine.status !== 'paused' && engine.status !== 'error') continue;
+
+      // 1. Eşleşme 1: Referer (sayfa URL'si) aynı mı?
+      if (referer && engine.referer) {
+        try {
+          const r1 = referer.split('?')[0].toLowerCase();
+          const r2 = engine.referer.split('?')[0].toLowerCase();
+          if (r1 === r2) return engine;
+        } catch (e) {}
+      }
+
+      // 2. Eşleşme 2: Dosya adı / video başlığı aynı mı?
+      if (filename && engine.filename) {
+        const clean1 = filename.replace(/\.(mp4|mkv|webm|txt|m3u8)$/i, '').replace(/\s*\[\d+p\]\s*$/i, '').trim().toLowerCase();
+        const clean2 = engine.filename.replace(/\.(mp4|mkv|webm|txt|m3u8)$/i, '').replace(/\s*\[\d+p\]\s*$/i, '').trim().toLowerCase();
+        if (clean1 && clean2 && (clean1 === clean2 || clean1.includes(clean2) || clean2.includes(clean1))) return engine;
+      }
+
+      // 3. Eşleşme 3: URL yol bileşeni aynı mı? (token parametreleri hariç)
+      if (url && engine.url) {
+        try {
+          const u1 = new URL(url).pathname.toLowerCase();
+          const u2 = new URL(engine.url).pathname.toLowerCase();
+          if (u1 && u2 && u1 === u2 && u1 !== '/') return engine;
+        } catch (e) {}
+      }
+    }
+    return null;
   }
 
   deleteDownload(id, deleteFile = false) {
