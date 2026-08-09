@@ -563,6 +563,7 @@ export default function DownloadList({
           {colOrder.map(colId => (
             <col key={colId} style={{ width: colWidths[colId] }} />
           ))}
+          <col style={{ width: 'auto' }} />
         </colgroup>
         <thead>
           <tr>
@@ -594,6 +595,7 @@ export default function DownloadList({
                 </th>
               );
             })}
+            <th key="spacer"></th>
           </tr>
         </thead>
         <tbody>
@@ -732,6 +734,7 @@ export default function DownloadList({
                     default: return null;
                   }
                 })}
+                <td key="spacer"></td>
               </tr>
             );
           })}
