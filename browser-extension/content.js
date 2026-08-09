@@ -426,48 +426,31 @@ btn.addEventListener('click', (e) => {
   const url = mediaUrl(current);
   const targetPageUrl = getVideoContextUrl(current);
 
-  // Known streaming site (YouTube, Twitter etc.): show a quality menu, then download chosen quality
-  if (onVideoSite && (current.tagName === 'VIDEO' || !url || url.startsWith('blob:'))) {
-    openQualityMenu(targetPageUrl);
-    return;
-  }
-
-  // Herhangi bir sitede feed/liste: video başka bir sayfaya (permalink) giden bir
-  // linkin içindeyse ve doğrudan dosya değilse, o sayfayı yt-dlp'ye gönder.
-  if (targetPageUrl !== location.href &&
-      (current.tagName === 'VIDEO' || current.tagName === 'AUDIO') &&
-      (!url || url.startsWith('blob:'))) {
-    openQualityMenu(targetPageUrl);
-    return;
-  }
-
-  if (url && !url.startsWith('blob:')) {
-    // Doğrudan m3u8/mpd veya video MP4 kaynağı: kalite menüsüyle çözünürlük seçeneklerini sun
-    openQualityMenu(isManifestUrl(url) ? url : location.href, location.href);
-    return;
-  }
-  // blob/streaming video -> önce bu çerçevede yakalanan manifest (inject.js), sonra
-  // arka plandaki sniff edilmiş akışlar (HER sitede çalışır, 16 site sınırı yok)
-  const localManifest = dnMasters[0] || dnSniffed[0];
+  const localManifest = dnMasters[0] || dnSniffed[0] || (url && isManifestUrl(url) ? url : null);
   if (localManifest) {
     openQualityMenu(localManifest, location.href);
     return;
   }
+
+  if (onVideoSite || targetPageUrl !== location.href) {
+    openQualityMenu(targetPageUrl, location.href);
+    return;
+  }
+
+  if (url && !url.startsWith('blob:')) {
+    openQualityMenu(url, location.href);
+    return;
+  }
+
   dnSendMessage({ type: 'DN_GET_STREAMS' }, (resp) => {
     const streams = (resp && resp.streams) || [];
     const manifests = (resp && resp.manifests) || [];
-    // Önce master (tüm kaliteler), sonra doğrulanmış manifest, sonra ilk akış
-    const manifest = dnMasters[0] || manifests[0] || streams.find(isManifestUrl) || dnSniffed[0];
+    const manifest = manifests[0] || streams.find(isManifestUrl) || streams[0];
     if (manifest) {
       openQualityMenu(manifest, location.href);
       return;
     }
-    if (streams.length) {
-      dnSendMessage({ type: 'DN_DOWNLOAD', url: streams[0], referer: location.href });
-      toast(DN_I18N.t('toast_stream'));
-    } else {
-      toast(DN_I18N.t('toast_blob_fail'));
-    }
+    toast(DN_I18N.t('toast_blob_fail'));
   });
 });
 

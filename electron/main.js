@@ -554,6 +554,10 @@ function bringToFront() {
 }
 
 function startClipboardWatcher() {
+  try {
+    lastClipboardText = clipboard.readText() || '';
+  } catch (e) {}
+
   setInterval(async () => {
     try {
       const text = clipboard.readText();
