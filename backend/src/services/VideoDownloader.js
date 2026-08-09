@@ -1021,8 +1021,12 @@ export class VideoDownloader extends EventEmitter {
       });
     }
 
-    if (/^ERROR:/.test(line)) {
-      this.errorMsg = line.replace(/^ERROR:\s*/, '').slice(0, 300);
+    if (/^ERROR:/i.test(line) || /HTTP Error (404|403)/i.test(line)) {
+      if (/404|403|Forbidden|Not Found|Expired/i.test(line)) {
+        this.errorMsg = 'Bağlantı süresi doldu (404/403). İndirme adresini yenileyin.';
+      } else {
+        this.errorMsg = line.replace(/^ERROR:\s*/, '').slice(0, 300);
+      }
     }
   }
 

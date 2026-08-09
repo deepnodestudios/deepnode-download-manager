@@ -719,6 +719,18 @@ app.post('/api/download/:id/rename', appOnly(getPort), (req, res) => {
   }
 });
 
+app.post('/api/download/:id/update-url', appOnly(getPort), (req, res) => {
+  const { url, referer } = req.body || {};
+  if (!url || !url.trim()) return res.status(400).json({ error: 'New URL required' });
+  try {
+    const item = queueManager.updateDownloadUrl(req.params.id, url.trim(), referer);
+    if (!item) return res.status(404).json({ error: 'Download not found' });
+    res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 11. Start All / Pause All
 app.post('/api/download/start-all', appOnly(getPort), (req, res) => {
   queueManager.startAll();

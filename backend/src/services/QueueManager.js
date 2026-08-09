@@ -244,6 +244,29 @@ class QueueManager {
     });
   }
 
+  updateDownloadUrl(id, newUrl, newReferer) {
+    const engine = this.engines.get(id);
+    if (!engine) return null;
+
+    if (engine.status === 'downloading' || engine.status === 'merging') {
+      engine.pause();
+    }
+
+    engine.url = newUrl;
+    if (newReferer !== undefined && newReferer !== null) {
+      engine.referer = newReferer;
+    }
+
+    if (engine.status === 'error' || engine.status === 'paused') {
+      engine.status = 'paused';
+      engine.errorMsg = null;
+    }
+
+    this.saveState();
+    this.broadcast({ type: 'DOWNLOAD_ADDED', payload: engine.toSnapshot() });
+    return engine.toSnapshot();
+  }
+
   deleteDownload(id, deleteFile = false) {
     const engine = this.engines.get(id);
     if (!engine) {

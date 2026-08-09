@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Play, Pause, Trash2, Layers, Video, Music, Archive, FileText, Cpu, Image as ImageIcon, Folder, FolderOpen, ExternalLink, AlertCircle, CheckCircle2, Clock,
-  RotateCcw, Link2, Edit3, Info, XCircle, CheckSquare, Square, DownloadCloud
+  RotateCcw, Link2, Edit3, Info, XCircle, CheckSquare, Square, DownloadCloud, RefreshCw
 } from 'lucide-react';
 import { useT } from '../i18n';
 import { isElectron, popupDownloadMenu } from '../native';
+import RefreshUrlModal from './RefreshUrlModal';
 
 // Sabit sütun genişlikleri (px) — içerik değişse bile sütunlar yatay kaymaz.
 // Kullanıcı ayraçları sürükleyerek değiştirebilir; tercihler localStorage'da saklanır.
@@ -33,6 +34,22 @@ export default function DownloadList({
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [dragBox, setDragBox] = useState(null); // { x1, y1, x2, y2 } in container coords
+  const [refreshingItem, setRefreshingItem] = useState(null);
+
+  const handleRefreshUrlSubmit = async (id, newUrl) => {
+    try {
+      const res = await fetch(`/api/download/${id}/update-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: newUrl })
+      });
+      if (res.ok && onStart) {
+        onStart(id);
+      }
+    } catch (err) {
+      console.error('Failed to update download URL:', err);
+    }
+  };
   const lastClickedIndex = useRef(-1);
   const containerRef = useRef(null);
   const dragState = useRef(null); // { startX, startY, ctrlHeld }
@@ -352,6 +369,7 @@ export default function DownloadList({
     if (item.status === 'downloading') it.push({ command: 'pause', label: t('ctx_pause') });
     else if (item.status !== 'completed') it.push({ command: 'start', label: t('ctx_start') });
     it.push({ command: 'redownload', label: t('ctx_redownload') });
+    it.push({ command: 'refreshurl', label: t('ctx_refresh_url') });
     it.push({ command: 'rename', label: t('ctx_rename') });
     it.push({ type: 'separator' });
     const pr = item.priority || 'normal';
@@ -377,6 +395,7 @@ export default function DownloadList({
       case 'start': onStart && onStart(item.id); break;
       case 'pause': onPause && onPause(item.id); break;
       case 'redownload': onRedownload && onRedownload(item); break;
+      case 'refreshurl': setRefreshingItem(item); break;
       case 'rename': onRename && onRename(item); break;
       case 'copyurl': onCopyUrl && onCopyUrl(item); break;
       case 'chunks': onInspectChunks && onInspectChunks(item); break;
@@ -706,6 +725,9 @@ export default function DownloadList({
           <div className="dn-ctx-item" onClick={() => run(onRedownload, menu.item)}>
             <RotateCcw size={14} /> {t('ctx_redownload')}
           </div>
+          <div className="dn-ctx-item" onClick={() => run(() => setRefreshingItem(menu.item))}>
+            <RefreshCw size={14} /> {t('ctx_refresh_url')}
+          </div>
           <div className="dn-ctx-item" onClick={() => run(onRename, menu.item)}>
             <Edit3 size={14} /> {t('ctx_rename')}
           </div>
@@ -750,6 +772,13 @@ export default function DownloadList({
           </div>
         </div>
       ), document.body)}
+
+      <RefreshUrlModal
+        isOpen={!!refreshingItem}
+        onClose={() => setRefreshingItem(null)}
+        download={refreshingItem}
+        onRefreshUrl={handleRefreshUrlSubmit}
+      />
     </div>
     </>
   );
