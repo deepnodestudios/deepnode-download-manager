@@ -233,7 +233,7 @@ const onVideoSite = VIDEO_SITE_RE.test(location.hostname);
 
 // HLS/DASH manifestleri (m3u8/mpd) siteden bağımsız olarak yt-dlp ile indirilir
 function isManifestUrl(u) {
-  return /\.(m3u8|mpd)(\?|$)/i.test(u || '');
+  return /\.(m3u8|mpd|txt)(\?|$)|(\/hls\/|\/manifest\/|\/master\.txt)/i.test(u || '');
 }
 
 // inject.js (MAIN world) sayfanın fetch/XHR çağrılarından yakaladığı manifest
@@ -432,26 +432,8 @@ btn.addEventListener('click', (e) => {
     return;
   }
 
-  if (onVideoSite || targetPageUrl !== location.href) {
-    openQualityMenu(targetPageUrl, location.href);
-    return;
-  }
-
-  if (url && !url.startsWith('blob:')) {
-    openQualityMenu(url, location.href);
-    return;
-  }
-
-  dnSendMessage({ type: 'DN_GET_STREAMS' }, (resp) => {
-    const streams = (resp && resp.streams) || [];
-    const manifests = (resp && resp.manifests) || [];
-    const manifest = manifests[0] || streams.find(isManifestUrl) || streams[0];
-    if (manifest) {
-      openQualityMenu(manifest, location.href);
-      return;
-    }
-    toast(DN_I18N.t('toast_blob_fail'));
-  });
+  const target = (url && !url.startsWith('blob:')) ? url : (targetPageUrl || location.href);
+  openQualityMenu(target, location.href);
 });
 
 // ---- Toast ----
@@ -493,6 +475,42 @@ function dnPageTitleGuess() {
   return t.slice(0, 150);
 }
 
+function getSniffedQualities() {
+  const list = [];
+  const urls = [...new Set([...(dnMasters || []), ...(dnSniffed || [])])];
+  try {
+    const scripts = document.querySelectorAll('script');
+    for (const s of scripts) {
+      const txt = s.textContent || '';
+      if (txt.includes('setVideoUrl') || txt.includes('.mp4') || txt.includes('.m3u8')) {
+        const matches = txt.match(/https?:\/\/[^\s"'<>\\]+/gi) || [];
+        for (const m of matches) {
+          if (/\.(mp4|m3u8|webm)(\?|$)/i.test(m) && !urls.includes(m)) urls.push(m);
+        }
+      }
+    }
+    const sources = document.querySelectorAll('video source, video');
+    for (const s of sources) {
+      const src = s.src || s.getAttribute('src');
+      if (src && /^https?:/i.test(src) && !urls.includes(src)) urls.push(src);
+    }
+  } catch (e) {}
+
+  for (const u of urls) {
+    let h = 0;
+    const m = u.match(/(\d{3,4})p/i) || u.match(/[\-_](\d{3,4})[\-_.]/i);
+    if (m) h = parseInt(m[1], 10);
+    else if (/high/i.test(u)) h = 720;
+    else if (/low/i.test(u)) h = 360;
+
+    if (h > 0 && !list.some(item => item.height === h)) {
+      list.push({ height: h, url: u });
+    }
+  }
+  list.sort((a, b) => b.height - a.height);
+  return list;
+}
+
 function openQualityMenu(pageUrl, referer) {
   closeQualityMenu();
   const menu = document.createElement('div');
@@ -509,14 +527,16 @@ function openQualityMenu(pageUrl, referer) {
   document.documentElement.appendChild(menu);
   setTimeout(() => document.addEventListener('click', onDocClickForMenu, true), 0);
 
-  const pick = (quality) => {
-    dnSendMessage({ type: 'DN_DOWNLOAD_VIDEO', url: pageUrl, quality, referer: referer || undefined, title: dnPageTitleGuess() || undefined });
+  const pick = (quality, directUrl) => {
+    if (directUrl) {
+      dnSendMessage({ type: 'DN_DOWNLOAD', url: directUrl, referer: referer || location.href });
+    } else {
+      dnSendMessage({ type: 'DN_DOWNLOAD_VIDEO', url: pageUrl, quality, referer: referer || undefined, title: dnPageTitleGuess() || undefined });
+    }
     toast(DN_I18N.t('toast_video_started'));
     closeQualityMenu();
   };
 
-  // "Tümünü indir": her çözünürlükten bir tane (IDM gibi) — varsayılan Video klasörüne,
-  // ayrı ayrı onay pencereleri açmadan toplu eklenir.
   const pickAll = (heights) => {
     dnSendMessage({
       type: 'DN_DOWNLOAD_VIDEO_ALL',
@@ -533,42 +553,49 @@ function openQualityMenu(pageUrl, referer) {
     const body = menu.querySelector('.dn-qbody');
     if (!body) return;
     body.textContent = '';
-    // Kalite satırı kurucusu: data-q + etiket + opsiyonel boyut rozeti
-    const addRow = (q, label, sizeBytes, extraClass) => {
+
+    const addRow = (q, label, sizeBytes, extraClass, directUrl) => {
       const row = dnEl('div', 'dn-qitem' + (extraClass ? ' ' + extraClass : ''));
       row.dataset.q = q;
+      if (directUrl) row.dataset.url = directUrl;
       row.appendChild(dnEl('span', '', label));
       if (sizeBytes) row.appendChild(dnEl('span', 'dn-qsize', '~' + fmtBytes(sizeBytes)));
       body.appendChild(row);
     };
+
     const variants = (data && data.variants) || [];
     const qualities = (data && data.qualities) || [];
-    // "Tümünü indir" satırı: mevcut çözünürlükler (her birinden bir kalite).
+    const fallbackList = getSniffedQualities();
+
     const allHeights = (data && data.heights && data.heights.length)
       ? data.heights
       : [...new Set(qualities.map(q => q.height))];
-    // IDM gibi menünün EN ÜSTÜNDE dursun.
+
     if (!(data && data.error) && allHeights.length > 1) {
       addRow('__all__', DN_I18N.t('g_download_all'), 0, 'dn-qall');
     }
+
     addRow('best', DN_I18N.t('q_best'));
-    if (data && data.error) {
-      body.appendChild(dnEl('div', 'dn-qnote', DN_I18N.t('q_error')));
-    } else if (variants.length) {
-      // Aynı çözünürlüğün her format varyantı (ör. 1080p MP4·AV1 küçük, 1080p MP4·H.264 büyük):
-      // kapsayıcı + codec + boyut göster; seçilince tam o format_id iner.
+
+    if (variants.length) {
       variants.forEach(v => {
         const meta = [v.container, v.vcodec].filter(Boolean).join(' · ');
         addRow('fmt:' + v.formatId, `${v.height}p${qLabel(v.height)}${meta ? ' · ' + meta : ''}`, v.size);
       });
-    } else {
+    } else if (qualities.length) {
       qualities.forEach(q => {
         addRow(String(q.height), `${q.height}p${qLabel(q.height)}`, q.size);
       });
+    } else if (fallbackList.length) {
+      fallbackList.forEach(item => {
+        addRow(String(item.height), `${item.height}p${qLabel(item.height)}`, 0, '', item.url);
+      });
+    } else if (data && data.error) {
+      body.appendChild(dnEl('div', 'dn-qnote', DN_I18N.t('q_error')));
     }
+
     addRow('audio', DN_I18N.t('q_audio'), 0, 'dn-qaudio');
-    // yt-dlp, HLS manifestlerine dosya adından jenerik başlık verir (master/index/
-    // playlist...). Bunları menüde göstermek kafa karıştırır — yalnızca anlamlı başlıkları göster.
+
     const genericTitle = /^(master|index|playlist|chunklist|manifest|stream|video|hls)$/i;
     if (data && data.title && !genericTitle.test(String(data.title).trim())) {
       const t = document.createElement('div');
@@ -578,7 +605,7 @@ function openQualityMenu(pageUrl, referer) {
     }
     body.querySelectorAll('.dn-qitem').forEach(el => el.addEventListener('click', () => {
       if (el.dataset.q === '__all__') pickAll(allHeights);
-      else pick(el.dataset.q);
+      else pick(el.dataset.q, el.dataset.url);
     }));
   }, referer);
 }

@@ -103,7 +103,7 @@ export function isStreamManifestUrl(url) {
   try {
     const u = new URL(url);
     if (!/^https?:$/.test(u.protocol)) return false;
-    return /\.(m3u8|mpd)(\?|$)/i.test(u.pathname + u.search);
+    return /\.(m3u8|mpd|txt)(\?|$)|(\/hls\/|\/manifest\/|\/master\.txt)/i.test(u.pathname + u.search);
   } catch (e) {
     return false;
   }
