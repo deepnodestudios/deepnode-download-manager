@@ -442,13 +442,8 @@ btn.addEventListener('click', (e) => {
   }
 
   if (url && !url.startsWith('blob:')) {
-    // Doğrudan m3u8/mpd kaynağı: kalite menüsüyle yt-dlp'ye gönder (Referer = sayfa)
-    if (isManifestUrl(url)) {
-      openQualityMenu(url, location.href);
-      return;
-    }
-    dnSendMessage({ type: 'DN_DOWNLOAD', url, referer: location.href });
-    toast(DN_I18N.t('toast_added'));
+    // Doğrudan m3u8/mpd veya video MP4 kaynağı: kalite menüsüyle çözünürlük seçeneklerini sun
+    openQualityMenu(isManifestUrl(url) ? url : location.href, location.href);
     return;
   }
   // blob/streaming video -> önce bu çerçevede yakalanan manifest (inject.js), sonra
