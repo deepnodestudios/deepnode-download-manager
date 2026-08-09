@@ -698,16 +698,16 @@ export class VideoDownloader extends EventEmitter {
       // %100'de takılma düzeltmesi & CDN korumaları: yanıt vermeyen soketler,
       // CDN anti-bot engelleri ve parça zaman aşımları için dayanıklı ayarlar.
       '--socket-timeout', '30',
-      '--retries', '10',
-      '--fragment-retries', '15',
-      '--retry-sleep', '2',
+      '--retries', '20',
+      '--fragment-retries', 'infinite',
+      '--retry-sleep', '3',
       '--hls-use-mpegts',
       '--skip-unavailable-fragments',
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-      // Hız: DASH/HLS parçalarını IDM gibi PARALEL indir. Varsayılan (sıralı) indirmede
-      // her parça sırayla iniyor ve bant genişliği boşta kalıyordu; N parça aynı anda
-      // inince YouTube indirmeleri belirgin hızlanır. 4 güvenli/dengeli bir değer.
-      '--concurrent-fragments', '4',
+      // Hız & CDN Uyumluğu: HLS/DASH parçalarını 2 paralel kanalla indir. 4 paralel bağlantı
+      // hassas CDN sunucularında (srv13 vb.) IP bazlı oran limitini tetikleyip indirmeyi kesiyordu;
+      // 2 kanal yüksek hızı (~3MB/s) korurken CDN koruma duvarının altında kalır.
+      '--concurrent-fragments', '2',
       '--progress-template', 'download:OMNI|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s'
     ];
     args.push(...networkArgs(this.url)); // proxy / site girişi
