@@ -228,7 +228,7 @@ function mediaUrl(el) {
   return url;
 }
 
-const VIDEO_SITE_RE = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|twitter\.com|x\.com|reddit\.com|soundcloud\.com|bilibili\.com|ok\.ru|vk\.com)$/i;
+const VIDEO_SITE_RE = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|twitter\.com|x\.com|reddit\.com|soundcloud\.com|bilibili\.com|ok\.ru|vk\.com|pornhub\.com|xnxx\.com|xvideos\.com|eporner\.com|spankbang\.com|hqporner\.com|beeg\.com|youporn\.com|redtube\.com|tube8\.com|xhamster\.com|txxx\.com|drtuber\.com|rule34video\.com)$/i;
 const onVideoSite = VIDEO_SITE_RE.test(location.hostname);
 
 // HLS/DASH manifestleri (m3u8/mpd) siteden bağımsız olarak yt-dlp ile indirilir
@@ -317,6 +317,7 @@ function isVideoPageUrl(u) {
     if (/(^|\.)(twitter\.com|x\.com)$/i.test(h)) return /\/status\/\d+/.test(p);
     if (/(^|\.)(facebook\.com|fb\.watch)$/i.test(h)) return /watch|\/videos\//i.test(u);
     if (/(^|\.)reddit\.com$/i.test(h)) return /\/comments\//.test(p);
+    if (/(^|\.)(pornhub\.com|xnxx\.com|xvideos\.com|eporner\.com|spankbang\.com|hqporner\.com|beeg\.com|youporn\.com|redtube\.com|tube8\.com|xhamster\.com|txxx\.com|drtuber\.com|rule34video\.com)$/i.test(h)) return true;
     return false;
   } catch (e) { return false; }
 }
