@@ -1,12 +1,52 @@
-import React from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   DownloadCloud, PlayCircle, CheckCircle, PauseCircle,
   Video, Music, Archive, FileText, Cpu, Image as ImageIcon, Folder
 } from 'lucide-react';
 import { useT } from '../i18n';
 
-export default function Sidebar({ activeFilter, setActiveFilter, downloads }) {
+export default function Sidebar({ activeFilter, setActiveFilter, downloads, sidebarWidth, setSidebarWidth }) {
   const { t } = useT();
+  const sidebarRef = useRef(null);
+  const [isResizing, setIsResizing] = useState(false);
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isResizing) return;
+      let newWidth = e.clientX;
+      if (newWidth < 180) newWidth = 180;
+      if (newWidth > 400) newWidth = 400;
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isResizing) {
+        setIsResizing(false);
+        if (sidebarRef.current) {
+          localStorage.setItem('dn-sidebar-width', sidebarRef.current.style.width.replace('px', ''));
+        }
+      }
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    } else {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, setSidebarWidth]);
 
   const getCount = (filterType) => {
     if (filterType === 'all') return downloads.length;
@@ -36,7 +76,18 @@ export default function Sidebar({ activeFilter, setActiveFilter, downloads }) {
   ];
 
   return (
-    <aside className="sidebar">
+    <aside 
+      className="sidebar" 
+      ref={sidebarRef}
+      style={{ width: `${sidebarWidth}px`, position: 'relative' }}
+    >
+      <div 
+        className="sidebar-resizer"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          setIsResizing(true);
+        }}
+      />
       <div>
         <div className="nav-section-title">{t('side_status_filters')}</div>
         <ul className="nav-list">

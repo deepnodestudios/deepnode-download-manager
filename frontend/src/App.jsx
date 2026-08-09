@@ -17,6 +17,10 @@ export default function App() {
   const [downloads, setDownloads] = useState([]);
   const [settings, setSettings] = useState(null);
   const [activeFilter, setActiveFilter] = useState('all');
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('dn-sidebar-width');
+    return saved ? parseInt(saved, 10) : 224;
+  });
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -507,6 +511,7 @@ export default function App() {
     <I18nProvider languagePref={settings?.language}>
       <div className="app-layout">
         <Navbar
+          sidebarWidth={sidebarWidth}
           onOpenAddModal={handleOpenAddModal}
           onStartAll={handleStartAll}
           onPauseAll={handlePauseAll}
@@ -573,6 +578,8 @@ export default function App() {
 
         <div className="main-body">
           <Sidebar
+            sidebarWidth={sidebarWidth}
+            setSidebarWidth={setSidebarWidth}
             activeFilter={activeFilter}
             setActiveFilter={setActiveFilter}
             downloads={visibleDownloads}

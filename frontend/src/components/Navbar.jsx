@@ -6,6 +6,7 @@ import { useT } from '../i18n';
 import { openExternal } from '../native';
 
 export default function Navbar({
+  sidebarWidth,
   onOpenAddModal,
   onStartAll,
   onPauseAll,
@@ -56,7 +57,7 @@ export default function Navbar({
 
   return (
     <header className="top-navbar">
-      <div className="brand-section">
+      <div className="brand-section" style={{ flexBasis: `${sidebarWidth - 16}px`, width: `${sidebarWidth - 16}px` }}>
         <div
           className="brand-clickable"
           onClick={handleBrandClick}
