@@ -350,7 +350,23 @@ async function probeVideoInfo(url, referer, cacheKey) {
   const bestAudioFmt = audioOnly.slice().sort((a, b) => a._i - b._i).pop();
   const bestAudio = bestAudioFmt ? fsize(bestAudioFmt) : 0;
 
-  const videoFormats = formats.filter((f) => f.vcodec && f.vcodec !== 'none' && f.height);
+  formats.forEach((f) => {
+    if (!f.height) {
+      const m = (f.resolution || '').match(/x(\d+)/i) || 
+                (f.format_note || '').match(/(\d+)p/i) || 
+                (f.format_id || '').match(/(\d+)p/i) ||
+                (f.format_id || '').match(/^hls-(\d+)$/i);
+      if (m) {
+        f.height = parseInt(m[1], 10);
+      } else {
+        const str = ((f.format_id || '') + ' ' + (f.format_note || '')).toLowerCase();
+        if (str.includes('high') || str.includes('hd')) f.height = 720;
+        else if (str.includes('low') || str.includes('sd')) f.height = 360;
+      }
+    }
+  });
+
+  const videoFormats = formats.filter((f) => f.vcodec !== 'none' && f.height);
   const heightsSet = [...new Set(videoFormats.map((f) => f.height))].sort((a, b) => b - a);
 
   const qualities = heightsSet.map((h) => {
