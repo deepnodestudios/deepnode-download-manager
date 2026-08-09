@@ -675,7 +675,8 @@ export class VideoDownloader extends EventEmitter {
         !isGenericVideoTitle(this.filename, this.url)) {
       providedBase = sanitizeFilename(this.filename)
         .replace(/\.(mp4|mkv|webm|m4a|mp3|aac|opus)$/i, '')
-        .replace(/\s*\[\d+p\]\s*$/i, '')
+        .replace(/(\.fgroup_closedual-[^.\s]+)+/gi, '')
+        .replace(/(\s*\[\d+p\])+/gi, '')
         .trim();
       if (!providedBase) providedBase = null;
     }
@@ -695,13 +696,13 @@ export class VideoDownloader extends EventEmitter {
       '--continue',
       '--force-overwrites',
       '--no-mtime',
-      // %100'de takılma düzeltmesi & CDN korumaları: yanıt vermeyen soketler,
-      // CDN anti-bot engelleri ve parça zaman aşımları için dayanıklı ayarlar.
+      // %100'de takılma ve Ses/Görüntü Senkronizasyonu (Lip-Sync) düzeltmesi:
       '--socket-timeout', '30',
       '--retries', '20',
       '--fragment-retries', 'infinite',
       '--retry-sleep', '3',
-      '--hls-use-mpegts',
+      '--fixup', 'warn',
+      '--hls-split-discontinuity',
       '--skip-unavailable-fragments',
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       // Hız & CDN Uyumluğu: HLS/DASH parçalarını 2 paralel kanalla indir. 4 paralel bağlantı
