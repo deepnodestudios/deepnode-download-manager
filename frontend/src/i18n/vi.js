@@ -48,7 +48,7 @@ export default {
   bulk_selected: 'Đã chọn {n}',
   bulk_start: 'Bắt đầu',
   bulk_pause: 'Tạm dừng',
-  bulk_delete: 'Xóa',
+  bulk_delete: 'Xóa khỏi danh sách',
   bulk_clear: 'Bỏ chọn',
   tip_bulk_start: 'Bắt đầu mục đã chọn',
   tip_bulk_pause: 'Tạm dừng mục đã chọn',

@@ -517,16 +517,25 @@ export default function DownloadList({
     );
   }
 
+  const canPause = [...selectedIds].some(id => {
+    const item = downloads.find(d => d.id === id);
+    return item && item.status === 'downloading';
+  });
+  const canResume = [...selectedIds].some(id => {
+    const item = downloads.find(d => d.id === id);
+    return item && (item.status === 'paused' || item.status === 'queued' || item.status === 'error');
+  });
+
   return (
     <>
       {/* Bulk Action Toolbar — çoklu seçimde header altından kayarak inen kalıcı çubuk */}
       {selectedIds.size > 0 && (
         <div className="bulk-toolbar">
           <span className="bulk-count">{t('bulk_selected', { n: selectedIds.size })}</span>
-          <button className="btn btn-success" onClick={bulkResume} title={t('tip_bulk_start')}>
+          <button className="btn btn-success" onClick={bulkResume} disabled={!canResume} title={t('tip_bulk_start')}>
             <Play size={14} /> {t('bulk_start')}
           </button>
-          <button className="btn btn-warning" onClick={bulkPause} title={t('tip_bulk_pause')}>
+          <button className="btn btn-warning" onClick={bulkPause} disabled={!canPause} title={t('tip_bulk_pause')}>
             <Pause size={14} /> {t('bulk_pause')}
           </button>
           <button className="btn btn-danger" onClick={bulkDelete} title={t('tip_bulk_delete')}>
