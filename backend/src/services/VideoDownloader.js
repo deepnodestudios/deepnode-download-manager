@@ -695,12 +695,15 @@ export class VideoDownloader extends EventEmitter {
       '--continue',
       '--force-overwrites',
       '--no-mtime',
-      // %100'de takılma düzeltmesi: yanıt vermeyen soketler ve sonsuz parça
-      // yeniden denemeleri süreci asılı bırakıyordu — hepsi sınırlandı.
+      // %100'de takılma düzeltmesi & CDN korumaları: yanıt vermeyen soketler,
+      // CDN anti-bot engelleri ve parça zaman aşımları için dayanıklı ayarlar.
       '--socket-timeout', '30',
-      '--retries', '3',
-      '--fragment-retries', '3',
+      '--retries', '10',
+      '--fragment-retries', '15',
       '--retry-sleep', '2',
+      '--hls-use-mpegts',
+      '--skip-unavailable-fragments',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       // Hız: DASH/HLS parçalarını IDM gibi PARALEL indir. Varsayılan (sıralı) indirmede
       // her parça sırayla iniyor ve bant genişliği boşta kalıyordu; N parça aynı anda
       // inince YouTube indirmeleri belirgin hızlanır. 4 güvenli/dengeli bir değer.
