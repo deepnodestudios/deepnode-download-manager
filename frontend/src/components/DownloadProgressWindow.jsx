@@ -188,7 +188,7 @@ export default function DownloadProgressWindow({ download, settings }) {
               </button>
             </>
           )}
-          {download && !isDone && download.status !== 'error' && (
+          {download && !isDone && download.status !== 'error' && download.status !== 'canceled' && (
             isActive || download.status === 'queued' ? (
               <button className="btn btn-warning" onClick={() => act('pause')}>
                 <Pause size={15} /> {t('ctx_pause')}
@@ -199,7 +199,12 @@ export default function DownloadProgressWindow({ download, settings }) {
               </button>
             )
           )}
-          <button className="btn btn-secondary" onClick={handleClose}>{t('btn_close')}</button>
+          
+          {(!download || isDone || (download && (download.status === 'error' || download.status === 'canceled'))) ? (
+            <button className="btn btn-secondary" onClick={handleClose}>{t('btn_close')}</button>
+          ) : (
+            <button className="btn btn-secondary" onClick={() => actAndClose('cancel')}>{t('btn_cancel', 'İptal Et')}</button>
+          )}
         </div>
       </div>
     </div>

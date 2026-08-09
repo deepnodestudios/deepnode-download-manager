@@ -10,9 +10,11 @@ import RefreshUrlModal from './RefreshUrlModal';
 
 // Sabit sütun genişlikleri (px) — içerik değişse bile sütunlar yatay kaymaz.
 // Kullanıcı ayraçları sürükleyerek değiştirebilir; tercihler localStorage'da saklanır.
-const DEFAULT_COL_WIDTHS = { select: 36, name: 280, size: 110, progress: 160, speed: 105, eta: 85, status: 130, actions: 175 };
+const DEFAULT_COL_ORDER = ['select', 'name', 'size', 'progress', 'speed', 'eta', 'status', 'actions'];
+const DEFAULT_COL_WIDTHS = { select: 36, size: 90, progress: 75, speed: 85, eta: 75, status: 130, actions: 170 }; // 'name' is fluid by default
 const MIN_COL_WIDTH = 56;
-const COL_WIDTHS_KEY = 'dn-col-widths';
+const COL_WIDTHS_KEY = 'dn-col-widths-v2';
+const COL_ORDER_KEY = 'dn-col-order';
 
 export default function DownloadList({
   downloads,
@@ -59,15 +61,47 @@ export default function DownloadList({
     try {
       const saved = JSON.parse(localStorage.getItem(COL_WIDTHS_KEY));
       if (saved && typeof saved === 'object') return { ...DEFAULT_COL_WIDTHS, ...saved };
-    } catch (e) { /* bozuk kayıt yok sayılır */ }
+    } catch (e) { }
     return DEFAULT_COL_WIDTHS;
   });
-  const resizeState = useRef(null); // { key, startX, startW }
+  
+  const [colOrder, setColOrder] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(COL_ORDER_KEY));
+      if (Array.isArray(saved) && saved.length === DEFAULT_COL_ORDER.length) return saved;
+    } catch (e) { }
+    return DEFAULT_COL_ORDER;
+  });
+  const resizeState = useRef(null);
+
+  const handleDragStart = (e, colId) => {
+    if (colId === 'select' || colId === 'actions') return;
+    e.dataTransfer.setData('text/plain', colId);
+  };
+  const handleDrop = (e, targetColId) => {
+    e.preventDefault();
+    const sourceColId = e.dataTransfer.getData('text/plain');
+    if (!sourceColId || sourceColId === targetColId) return;
+    if (sourceColId === 'select' || targetColId === 'select' || sourceColId === 'actions' || targetColId === 'actions') return;
+
+    setColOrder(prev => {
+      const next = [...prev];
+      const fromIdx = next.indexOf(sourceColId);
+      const toIdx = next.indexOf(targetColId);
+      if (fromIdx > -1 && toIdx > -1) {
+        next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, sourceColId);
+        try { localStorage.setItem(COL_ORDER_KEY, JSON.stringify(next)); } catch (err) {}
+      }
+      return next;
+    });
+  };
+  const handleDragOver = (e) => { e.preventDefault(); }; // { key, startX, startW }
 
   const startColResize = useCallback((e, key) => {
     e.preventDefault();
     e.stopPropagation();
-    resizeState.current = { key, startX: e.clientX, startW: colWidths[key] };
+    resizeState.current = { key, startX: e.clientX, startW: colWidths[key] || e.target.closest('th').offsetWidth };
     const onMove = (ev) => {
       if (!resizeState.current) return;
       const { key: k, startX, startW } = resizeState.current;
@@ -89,7 +123,7 @@ export default function DownloadList({
     document.body.style.cursor = 'col-resize';
   }, [colWidths]);
 
-  const totalColWidth = Object.values(colWidths).reduce((a, b) => a + b, 0);
+  const totalColWidth = Object.values(colWidths).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0) + (colWidths.name || 200);
 
   // --- Selection helpers ---
   const toggleSelect = useCallback((id) => {
@@ -466,6 +500,8 @@ export default function DownloadList({
         return <span className="status-pill status-queued"><Clock size={12} /> {t('st_queued')}</span>;
       case 'error':
         return <span className="status-pill status-error"><AlertCircle size={12} /> {t('st_error')}</span>;
+      case 'canceled':
+        return <span className="status-pill status-error" style={{background: 'var(--bg-hover)', color: 'var(--text-muted)', border: '1px solid var(--border-color)'}}><XCircle size={12} /> {t('st_canceled')}</span>;
       default:
         return <span className="status-pill status-queued">{status}</span>;
     }
@@ -524,33 +560,40 @@ export default function DownloadList({
         style={{ tableLayout: 'fixed', width: `max(100%, ${totalColWidth}px)` }}
       >
         <colgroup>
-          <col style={{ width: colWidths.select }} />
-          <col style={{ width: colWidths.name }} />
-          <col style={{ width: colWidths.size }} />
-          <col style={{ width: colWidths.progress }} />
-          <col style={{ width: colWidths.speed }} />
-          <col style={{ width: colWidths.eta }} />
-          <col style={{ width: colWidths.status }} />
-          <col style={{ width: colWidths.actions }} />
+          {colOrder.map(colId => (
+            <col key={colId} style={{ width: colWidths[colId] }} />
+          ))}
         </colgroup>
         <thead>
           <tr>
-            <th style={{ textAlign: 'center' }}>
-              <button
-                className="select-all-btn"
-                title={t('tip_select_all')}
-                onClick={() => selectedIds.size === downloads.length ? clearSelection() : selectAll()}
-              >
-                {selectedIds.size === downloads.length ? <CheckSquare size={15} /> : <Square size={15} />}
-              </button>
-            </th>
-            <th>{t('th_filename')}<span className="col-resizer" onMouseDown={(e) => startColResize(e, 'name')} /></th>
-            <th>{t('th_size')}<span className="col-resizer" onMouseDown={(e) => startColResize(e, 'size')} /></th>
-            <th>{t('th_progress')}<span className="col-resizer" onMouseDown={(e) => startColResize(e, 'progress')} /></th>
-            <th>{t('th_speed')}<span className="col-resizer" onMouseDown={(e) => startColResize(e, 'speed')} /></th>
-            <th>{t('th_eta')}<span className="col-resizer" onMouseDown={(e) => startColResize(e, 'eta')} /></th>
-            <th>{t('th_status')}<span className="col-resizer" onMouseDown={(e) => startColResize(e, 'status')} /></th>
-            <th style={{ textAlign: 'right' }}>{t('th_actions')}<span className="col-resizer" onMouseDown={(e) => startColResize(e, 'actions')} /></th>
+            {colOrder.map(colId => {
+              if (colId === 'select') return (
+                <th key="select" style={{ textAlign: 'center' }}>
+                  <button
+                    className="select-all-btn"
+                    title={t('tip_select_all')}
+                    onClick={() => selectedIds.size === downloads.length ? clearSelection() : selectAll()}
+                  >
+                    {selectedIds.size === downloads.length ? <CheckSquare size={15} /> : <Square size={15} />}
+                  </button>
+                </th>
+              );
+              
+              const isDrag = colId !== 'actions';
+              return (
+                <th
+                  key={colId}
+                  style={{ textAlign: colId === 'name' ? 'left' : 'center', cursor: isDrag ? 'grab' : 'default' }}
+                  draggable={isDrag}
+                  onDragStart={isDrag ? (e) => handleDragStart(e, colId) : undefined}
+                  onDragOver={isDrag ? handleDragOver : undefined}
+                  onDrop={isDrag ? (e) => handleDrop(e, colId) : undefined}
+                >
+                  {t('th_' + (colId === 'name' ? 'filename' : colId))}
+                  {isDrag && <span className="col-resizer" onMouseDown={(e) => startColResize(e, colId)} />}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -574,121 +617,121 @@ export default function DownloadList({
                 style={{ cursor: 'pointer' }}
                 title={item.status === 'completed' ? t('tip_dblclick_open') : undefined}
               >
-                <td style={{ textAlign: 'center' }}>
-                  <span className="row-checkbox" onClick={(e) => { e.stopPropagation(); toggleSelect(item.id); setFocusedIndex(index); lastClickedIndex.current = index; }}>
-                    {isSelected ? <CheckSquare size={15} color="var(--primary-2)" /> : <Square size={15} color="var(--text-dark)" />}
-                  </span>
-                </td>
-                <td>
-                  <div className="filename-cell">
-                    <div className={`file-icon-box cat-${item.category || 'General'}`}>
-                      <Icon size={18} />
-                    </div>
-                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      <div className="filename-main">{item.filename}</div>
-                      <div className="filename-sub">
-                        {categoryLabel(item.category)} • {t('seg_parts', { n: item.segmentsCount || 8 })}
-                      </div>
-                    </div>
-                  </div>
-                </td>
-
-                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
-                  <div className="cell-strong">{formatBytes(item.downloadedBytes)}</div>
-                  <div style={{ color: 'var(--text-dark)', fontSize: '0.75rem' }}>{formatBytes(item.totalSize)}</div>
-                </td>
-
-                <td>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px', fontFamily: 'var(--font-mono)' }}>
-                    <span>{t('pct', { n: percent })}</span>
-                  </div>
-                  <div className="progress-bar-wrap">
-                    <div
-                      className="progress-bar-fill"
-                      style={{
-                        width: `${percent}%`,
-                        background: item.status === 'completed'
-                          ? 'var(--success)'
-                          : item.status === 'paused'
-                          ? 'var(--warning)'
-                          : 'linear-gradient(90deg, var(--primary), var(--teal))'
-                      }}
-                    ></div>
-                  </div>
-                </td>
-
-                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--link)', fontWeight: '600', whiteSpace: 'nowrap' }}>
-                  {item.status === 'downloading' ? `${formatBytes(item.speed)}/s` : '-'}
-                </td>
-
-                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                  {item.status === 'downloading' ? formatSeconds(item.eta) : '-'}
-                </td>
-
-                <td>
-                  {getStatusBadge(item.status)}
-                </td>
-
-                {/* Buton tıklamaları satır seçimini tetiklemesin (bulk toolbar açılmaz) */}
-                <td
-                  style={{ textAlign: 'right' }}
-                  onClick={(e) => e.stopPropagation()}
-                  onDoubleClick={(e) => e.stopPropagation()}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
-                    {item.status === 'completed' && (
-                      <button
-                        className="btn btn-success btn-icon"
-                        title={t('tip_open_file')}
-                        onClick={() => onOpenFile && onOpenFile(item.id)}
+                {colOrder.map(colId => {
+                  switch(colId) {
+                    case 'select': return (
+                      <td key="select" style={{ textAlign: 'center' }}>
+                        <span className="row-checkbox" onClick={(e) => { e.stopPropagation(); toggleSelect(item.id); setFocusedIndex(index); lastClickedIndex.current = index; }}>
+                          {isSelected ? <CheckSquare size={15} color="var(--primary-2)" /> : <Square size={15} color="var(--text-dark)" />}
+                        </span>
+                      </td>
+                    );
+                    case 'name': return (
+                      <td key="name">
+                        <div className="filename-cell">
+                          <div className={`file-icon-box cat-${item.category || 'General'}`}>
+                            <Icon size={18} />
+                          </div>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <div className="filename-main">{item.filename}</div>
+                            <div className="filename-sub">
+                              {categoryLabel(item.category)} • {t('seg_parts', { n: item.segmentsCount || 8 })}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    );
+                    case 'size': return (
+                      <td key="size" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                        <div className="cell-strong">{formatBytes(item.downloadedBytes)}</div>
+                        <div style={{ color: 'var(--text-dark)', fontSize: '0.75rem' }}>{formatBytes(item.totalSize)}</div>
+                      </td>
+                    );
+                    case 'progress': return (
+                      <td key="progress" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                        {item.preflight && item.status === 'downloading' ? `${t('st_scanning')} ` : ''}{t('pct', { n: percent })}
+                      </td>
+                    );
+                    case 'speed': return (
+                      <td key="speed" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--link)', fontWeight: '600', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                        {item.status === 'downloading' ? `${formatBytes(item.speed)}/s` : '-'}
+                      </td>
+                    );
+                    case 'eta': return (
+                      <td key="eta" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                        {item.status === 'downloading' ? formatSeconds(item.eta) : '-'}
+                      </td>
+                    );
+                    case 'status': return (
+                      <td key="status" style={{ textAlign: 'center' }}>
+                        {getStatusBadge(item.status)}
+                      </td>
+                    );
+                    case 'actions': return (
+                      <td
+                        key="actions"
+                        style={{ textAlign: 'center' }}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
                       >
-                        <ExternalLink size={14} />
-                      </button>
-                    )}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                          {item.status === 'completed' && (
+                            <button
+                              className="btn btn-success btn-icon"
+                              title={t('tip_open_file')}
+                              onClick={() => onOpenFile && onOpenFile(item.id)}
+                            >
+                              <ExternalLink size={14} />
+                            </button>
+                          )}
 
-                    <button
-                      className="btn btn-secondary btn-icon"
-                      title={t('tip_open_folder')}
-                      onClick={() => onRevealFolder && onRevealFolder(item.id)}
-                    >
-                      <FolderOpen size={14} color="var(--link)" />
-                    </button>
+                          <button
+                            className="btn btn-secondary btn-icon"
+                            title={t('tip_open_folder')}
+                            onClick={() => onRevealFolder && onRevealFolder(item.id)}
+                          >
+                            <FolderOpen size={14} color="var(--link)" />
+                          </button>
 
-                    <button
-                      className="btn btn-secondary btn-icon"
-                      title={t('tip_chunks')}
-                      onClick={() => onInspectChunks(item)}
-                    >
-                      <Layers size={14} color="var(--link)" />
-                    </button>
+                          <button
+                            className="btn btn-secondary btn-icon"
+                            title={t('tip_chunks')}
+                            onClick={() => onInspectChunks(item)}
+                          >
+                            <Layers size={14} color="var(--link)" />
+                          </button>
 
-                    {item.status === 'downloading' ? (
-                      <button
-                        className="btn btn-warning btn-icon"
-                        title={t('tip_pause')}
-                        onClick={() => onPause(item.id)}
-                      >
-                        <Pause size={14} />
-                      </button>
-                    ) : item.status !== 'completed' ? (
-                      <button
-                        className="btn btn-success btn-icon"
-                        title={t('tip_start')}
-                        onClick={() => onStart(item.id)}
-                      >
-                        <Play size={14} />
-                      </button>
-                    ) : null}
+                          {item.status === 'downloading' ? (
+                            <button
+                              className="btn btn-warning btn-icon"
+                              title={t('tip_pause')}
+                              onClick={() => onPause(item.id)}
+                            >
+                              <Pause size={14} />
+                            </button>
+                          ) : (item.status !== 'completed' && item.status !== 'canceled') ? (
+                            <button
+                              className="btn btn-success btn-icon"
+                              title={t('tip_start')}
+                              onClick={() => onStart(item.id)}
+                            >
+                              <Play size={14} />
+                            </button>
+                          ) : null}
 
-                    <button
-                      className="btn btn-danger btn-icon"
-                      title={t('tip_delete')}
-                      onClick={() => onDelete(item.id)}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </td>
+                          <button
+                            className="btn btn-danger btn-icon"
+                            title={t('tip_delete')}
+                            onClick={() => onDelete(item.id)}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    );
+                    default: return null;
+                  }
+                })}
               </tr>
             );
           })}

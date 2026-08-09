@@ -50,7 +50,9 @@
       "target": [
         "nsis"
       ],
-      "icon": "electron/icon.ico"
+      "icon": "electron/icon.ico",
+      "certificateFile": "deepnode_signing.pfx",
+      "certificatePassword": "DeepNodeSign2026!"
     },
     "nsis": {
       "oneClick": false,

@@ -41,6 +41,7 @@ export default {
   st_paused: 'Duraklatıldı',
   st_queued: 'Sırada',
   st_error: 'Hata',
+  st_canceled: 'İptal Edildi',
 
   // ── DownloadList ───────────────────────────────────────
   empty_title: 'Henüz İndirme Bulunmuyor',

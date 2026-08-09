@@ -672,11 +672,11 @@ body {
 }
 
 .dl-table td {
-  padding: 7px 12px;
+  padding: 5px 12px;
   border-bottom: 1px solid var(--border-color);
   vertical-align: middle;
   /* Sabit satır yüksekliği — hız/ETA metni değişse bile liste zıplamaz */
-  height: 56px;
+  height: 46px;
   /* Sabit sütun düzeninde taşan içerik komşu hücreye sızmaz */
   overflow: hidden;
   text-overflow: ellipsis;

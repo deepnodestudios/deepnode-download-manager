@@ -22,3 +22,8 @@ CODE_AUDIT.md
 # OS / editor
 Thumbs.db
 .DS_Store
+
+# Code signing
+*.pfx
+imza_sifresi.txt
+*.pass

@@ -639,6 +639,11 @@ app.post('/api/download/:id/pause', appOnly(getPort), (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/download/:id/cancel', appOnly(getPort), async (req, res) => {
+  const ok = await queueManager.cancelDownload(req.params.id);
+  res.json({ success: ok });
+});
+
 // 9. Delete download
 app.delete('/api/download/:id', appOnly(getPort), (req, res) => {
   const { id } = req.params;
