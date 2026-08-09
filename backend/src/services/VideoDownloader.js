@@ -103,7 +103,7 @@ export function isStreamManifestUrl(url) {
   try {
     const u = new URL(url);
     if (!/^https?:$/.test(u.protocol)) return false;
-    return /\.(m3u8|mpd|txt)(\?|$)|(\/hls\/|\/manifest\/|\/master\.txt)/i.test(u.pathname + u.search);
+    return /\.(m3u8|mpd)(\?|$)/i.test(u.pathname + u.search);
   } catch (e) {
     return false;
   }
@@ -322,15 +322,18 @@ async function probeVideoInfo(url, referer, cacheKey) {
 
   const bin = await ensureYtDlp();
 
-  const uaArgs = ['--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'];
-  const refArgs = referer ? ['--referer', referer, ...uaArgs] : uaArgs;
+  // Film/dizi sitelerinin CDN'leri Referer başlıksız manifest isteklerine 403 döner
+  const refArgs = referer ? ['--referer', referer] : [];
+  // Sniff edilmiş akış (referer var) oturum korumalı olabilir -> tarayıcı çerezleri
   const ckArgs = referer ? cookieBrowserArgs() : [];
 
-  const attempts = [
-    refArgs,
-    [...refArgs, ...ckArgs],
-    [...uaArgs, '--extractor-args', 'youtube:player_client=android']
-  ];
+  // Deneme SIRASI hız için kritik: `--cookies-from-browser chrome`, Chrome AÇIKKEN
+  // (Chrome 127+ App-Bound şifreleme) çerez DB'sini okumak çok yavaştır / askıda kalır.
+  // Bu yüzden önce ÇEREZSİZ (hızlı) deneriz; yalnızca o başarısız olursa (oturum korumalı
+  // CDN) çerezlerle tekrar deneriz. Çoğu film-sitesi HLS'i sadece Referer ile çalışır.
+  const attempts = referer
+    ? [refArgs, [...refArgs, ...ckArgs]]
+    : [[], ['--extractor-args', 'youtube:player_client=android']];
 
   let j, lastErr = null;
   for (const extra of attempts) {
@@ -343,16 +346,11 @@ async function probeVideoInfo(url, referer, cacheKey) {
   const formats = (j.formats || []).map((f, idx) => ({ ...f, _i: idx }));
   const fsize = (f) => f.filesize || f.filesize_approx || (f.tbr && duration ? Math.round((f.tbr * 1000 / 8) * duration) : 0);
 
-  const parseHeight = (f) => {
-    if (f.height) return f.height;
-    const str = `${f.format_note || ''} ${f.resolution || ''} ${f.format || ''} ${f.format_id || ''}`;
-    const m = str.match(/(\d{3,4})p?/i);
-    return m ? parseInt(m[1], 10) : 0;
-  };
+  const audioOnly = formats.filter((f) => f.acodec && f.acodec !== 'none' && (!f.vcodec || f.vcodec === 'none'));
+  const bestAudioFmt = audioOnly.slice().sort((a, b) => a._i - b._i).pop();
+  const bestAudio = bestAudioFmt ? fsize(bestAudioFmt) : 0;
 
-  const videoFormats = formats
-    .map((f) => ({ ...f, height: parseHeight(f) }))
-    .filter((f) => (f.vcodec !== 'none') && f.height > 0);
+  const videoFormats = formats.filter((f) => f.vcodec && f.vcodec !== 'none' && f.height);
   const heightsSet = [...new Set(videoFormats.map((f) => f.height))].sort((a, b) => b - a);
 
   const qualities = heightsSet.map((h) => {
