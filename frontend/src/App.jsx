@@ -219,6 +219,34 @@ export default function App() {
     return () => clearInterval(timer);
   }, [isStandaloneAdd]);
 
+  // Global klavye kısayolları (IDM tarzı): Insert/Ctrl+N ekle, Ctrl+L yakalayıcı,
+  // Ctrl+, ayarlar, F1 hakkında. Liste kısayolları (Del, Ctrl+A, Enter) DownloadList'te.
+  useEffect(() => {
+    if (isStandaloneAdd || standaloneProgressId) return;
+    const onKey = (e) => {
+      const tag = (e.target.tagName || '').toLowerCase();
+      const type = (e.target.type || '').toLowerCase();
+      const editable = tag === 'textarea' || tag === 'select' || e.target.isContentEditable ||
+        (tag === 'input' && !['checkbox', 'radio', 'button', 'range'].includes(type));
+      if (editable) return;
+      if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N'))) {
+        e.preventDefault();
+        handleOpenAddModal();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'L')) {
+        e.preventDefault();
+        setIsSnifferModalOpen(true);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        e.preventDefault();
+        setIsSettingsModalOpen(true);
+      } else if (e.key === 'F1') {
+        e.preventDefault();
+        setIsAboutModalOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isStandaloneAdd, standaloneProgressId]);
+
   // Apply theme: 'system' follows OS preference (and live-updates), else forced.
   useEffect(() => {
     const mode = settings?.theme || 'system';

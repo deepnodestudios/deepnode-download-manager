@@ -25,6 +25,17 @@ export default function AboutModal({ isOpen, onClose }) {
       .then(res => res.json())
       .then(data => setInfo(data || null))
       .catch(() => setInfo(null));
+    // Otomatik kontrol: "Güncellemeleri Kontrol Et" düğmesini bekleme
+    setUpdateState('checking');
+    fetch('/api/update/check')
+      .then(res => res.json())
+      .then(data => {
+        setUpdateData(data);
+        if (data.error) setUpdateState('error');
+        else if (data.updateAvailable) setUpdateState('available');
+        else setUpdateState('upToDate');
+      })
+      .catch(() => { setUpdateState('error'); });
   }, [isOpen]);
 
   // Listen to WebSocket for UPDATE_PROGRESS events

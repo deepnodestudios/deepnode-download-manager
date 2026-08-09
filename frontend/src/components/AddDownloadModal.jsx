@@ -215,8 +215,6 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
     return () => { clearTimeout(timer); controller.abort(); };
   }, [url]);
 
-  if (!isOpen) return null;
-
   const handleCreateDownload = async (autoStart = true) => {
     if (submittingRef.current) return; // çift tıklama koruması
     submittingRef.current = true;
@@ -314,6 +312,9 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
     ro.observe(boxRef.current);
     return () => ro.disconnect();
   }, [isStandalone]);
+
+  // TÜM hook'lardan SONRA erken çıkış — hook sırası render'lar arasında sabit kalmalı
+  if (!isOpen) return null;
 
   return (
     <div className={isStandalone ? "standalone-add-container" : "modal-overlay"} style={isStandalone ? { padding: '8px' } : {}}>

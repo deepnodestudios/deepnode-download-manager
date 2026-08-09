@@ -484,6 +484,32 @@ function createTray() {
   }
 }
 
+// ---- IDM-style update notification ----
+// Pencere tepside gizliyken bile kullanıcı güncellemeden haberdar olsun:
+// açılışta (15 sn sonra) ve 6 saatte bir backend'in /api/update/check ucunu sorgula;
+// yeni sürüm varsa OS bildirimi + tepsi balonu göster. Aynı sürüm için bir kez.
+let lastNotifiedUpdate = null;
+async function checkUpdateNotify() {
+  try {
+    const resp = await fetch(appUrl('/api/update/check'));
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data || data.error || !data.updateAvailable || !data.latest) return;
+    if (lastNotifiedUpdate === data.latest) return;
+    lastNotifiedUpdate = data.latest;
+    const title = et('notif_update_title');
+    const body = et('notif_update_body').split('{v}').join(data.latest);
+    if (Notification.isSupported()) {
+      const n = new Notification({ title, body });
+      n.on('click', () => {
+        if (mainWindow) { mainWindow.show(); mainWindow.focus(); } else { createWindow(); }
+      });
+      n.show();
+    }
+    if (tray) tray.displayBalloon({ title, content: body });
+  } catch (e) { /* çevrimdışı vb. — sessiz geç */ }
+}
+
 async function isClipboardWatchEnabled() {
   try {
     const res = await fetch(appUrl('/api/settings'));
@@ -623,6 +649,10 @@ if (!gotTheLock) {
     createWindow(showWindow);
     createTray();
     startClipboardWatcher();
+
+    // IDM-style update notification: startup (15s) + every 6 hours
+    setTimeout(checkUpdateNotify, 15000);
+    setInterval(checkUpdateNotify, 6 * 60 * 60 * 1000);
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

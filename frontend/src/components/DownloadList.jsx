@@ -150,9 +150,13 @@ export default function DownloadList({
   // --- Keyboard shortcuts ---
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Skip if typing in an input/textarea
+      // Skip if typing in an input/textarea — but checkbox/radio/button focus
+      // (row selection) must NOT swallow shortcuts like Delete
       const tag = e.target.tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      const type = (e.target.type || '').toLowerCase();
+      const editable = tag === 'textarea' || tag === 'select' || e.target.isContentEditable ||
+        (tag === 'input' && !['checkbox', 'radio', 'button', 'range'].includes(type));
+      if (editable) return;
       if (downloads.length === 0) return;
 
       switch (e.key) {

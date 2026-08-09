@@ -3,6 +3,7 @@ import {
   Plus, Play, Pause, Globe, FolderOpen, Settings, Info
 } from 'lucide-react';
 import { useT } from '../i18n';
+import { openExternal } from '../native';
 
 export default function Navbar({
   onOpenAddModal,
@@ -16,6 +17,10 @@ export default function Navbar({
   const { t } = useT();
   const rowRef = useRef(null);
   const subRef = useRef(null);
+
+  const handleBrandClick = () => {
+    openExternal('https://deepnodestudios.net/DDM/');
+  };
 
   // Tagline'ı üst satırla (DeepNode + ULTRA) birebir aynı noktada bitir:
   // gerçek metin genişliğini ölç, font boyutu + harf aralığıyla tam sığdır.
@@ -52,25 +57,31 @@ export default function Navbar({
   return (
     <header className="top-navbar">
       <div className="brand-section">
-        <div className="brand-icon">
-          <img src="/branding/deepnode-app-icon.png" alt="" />
-        </div>
-        <div className="brand-text">
-          <div className="brand-row" ref={rowRef}>
-            <span className="brand-title">DeepNode</span>
-            <span className="brand-badge">ULTRA</span>
+        <div
+          className="brand-clickable"
+          onClick={handleBrandClick}
+          title="https://deepnodestudios.net/DDM/"
+        >
+          <div className="brand-icon">
+            <img src="/branding/deepnode-app-icon.png" alt="" />
           </div>
-          <div className="brand-sub" ref={subRef}>{t('nav_tagline')}</div>
+          <div className="brand-text">
+            <div className="brand-row" ref={rowRef}>
+              <span className="brand-title">DeepNode</span>
+              <span className="brand-badge">ULTRA</span>
+            </div>
+            <div className="brand-sub" ref={subRef}>{t('nav_tagline')}</div>
+          </div>
         </div>
       </div>
 
       <div className="action-toolbar">
-        <button className="btn-add" onClick={onOpenAddModal} title={t('nav_add')}>
+        <button className="btn-add" onClick={onOpenAddModal} title={`${t('nav_add')} (Insert)`}>
           <span className="btn-add-plus"><Plus size={15} /></span>
           <span className="btn-label">{t('nav_add')}</span>
         </button>
 
-        <button className="btn-sniff" onClick={onOpenSnifferModal} title={t('nav_sniffer')}>
+        <button className="btn-sniff" onClick={onOpenSnifferModal} title={`${t('nav_sniffer')} (Ctrl+L)`}>
           <Globe size={16} /> <span className="btn-label">{t('nav_sniffer')}</span>
         </button>
 

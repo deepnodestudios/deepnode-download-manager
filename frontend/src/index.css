@@ -120,11 +120,26 @@ body {
 .brand-section {
   display: flex;
   align-items: center;
-  gap: 11px;
   min-width: 0;
   width: 260px;
   flex: 0 1 260px;
   overflow: hidden;
+}
+
+.brand-clickable {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  width: fit-content;
+  max-width: 100%;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.brand-clickable:hover {
+  opacity: 0.88;
+  filter: brightness(1.08);
 }
 
 .brand-icon {
