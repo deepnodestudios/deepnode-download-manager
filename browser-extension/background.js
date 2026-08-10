@@ -445,67 +445,68 @@ async function resolveItemFilename(item) {
 }
 
 // ---- Capture browser-initiated downloads ----
-chrome.downloads.onCreated.addListener(async (item) => {
-  if (!cfg.enabled || !cfg.captureDownloads) return;
-  const url = item.finalUrl || item.url || '';
-  // Capture ALL real browser downloads (http/https). blob:/data: cannot be
-  // re-fetched by URL, so leave those to the browser.
-  if (!captureEnabled) return; // capture disabled from app Settings
-  if (!/^https?:/i.test(url)) return;
-  // Geri besleme döngüsünü önle: kendi backend'imizden gelen indirmeyi yakalama.
-  // Eski `localhost:PORT` string kontrolü 127.0.0.1'i ve yedek portu (EADDRINUSE
-  // sonrası 5001+) kaçırıyordu — adresi gerçekten ayrıştırıp karşılaştır.
-  try {
-    const u = new URL(url);
-    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
-      const p = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
-      const appPorts = [cfg.port, resolvedPort, 5000, 5001, 5002, 5003].filter(Boolean);
-      if (appPorts.includes(p)) return;
-    }
-  } catch (e) { /* URL bozuksa yakalama akışı zaten aşağıda eler */ }
-
-  // Chrome, tarayıcı açılışında ve MV3 servis çalışanı her yeniden başladığında,
-  // hâlâ süren / duraklatılmış / yarıda kalmış ESKİ indirmeler için de onCreated
-  // tetikler. Bunları YENİ indirme sanıp uygulamaya gönderirsek, dün kapatılan bir
-  // indirme her Chrome açılışında yeniden yakalanır. Yalnızca gerçekten yeni başlayan
-  // indirmeleri yakala:
-  if (item.state && item.state !== 'in_progress') return; // interrupted / complete
-  if (item.paused) return; // duraklatılmış (yeniden gönderim)
-  try {
-    const started = item.startTime ? Date.parse(item.startTime) : 0;
-    if (started && Date.now() - started > 60000) return; // 60 sn'den eski = yeniden gönderim, yeni değil
-  } catch (e) { /* ignore */ }
-
-  if (await isBypassActive()) return; // user held the bypass key -> let the browser download it
-
-  // Site engelleme: indirme veya yönlendiren sayfa engelli sitedeyse yakalama
-  try {
-    const dlHost = new URL(url).hostname;
-    const refHost = item.referrer ? new URL(item.referrer).hostname : '';
-    if (dnIsSiteBlocked(dlHost, cfg.disabledSites) || dnIsSiteBlocked(refHost, cfg.disabledSites)) return;
-  } catch (e) { /* ignore */ }
-
-  const name = await resolveItemFilename(item);
-
-  // Send first; only cancel the browser download if the app really took it over.
-  // 'ignored' (excluded file type) and 'failed' (app not running) must leave the
-  // browser download untouched — otherwise the file is lost on both sides.
-  const result = await sendToApp(url, name, item.referrer);
-  if (result === 'accepted') {
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  (async () => {
     try {
-      // Küçük/hızlı dosya cancel'dan önce tamamlanmış olabilir: cancel başarısız
-      // olur, erase yalnız geçmiş kaydını siler ve dosya dupe olarak diskte
-      // kalırdı (biri tarayıcı UI'ında görünmez). Tamamlandıysa dosyayı da sil —
-      // tek kopya DDM'inki olsun.
-      try { await chrome.downloads.cancel(item.id); } catch (e) { /* bitmiş olabilir */ }
-      const [d] = await chrome.downloads.search({ id: item.id });
-      if (d && d.state === 'complete') {
-        try { await chrome.downloads.removeFile(item.id); } catch (e) { /* dosya zaten yok */ }
+      if (!cfg.enabled || !cfg.captureDownloads) return suggest();
+      const url = item.finalUrl || item.url || '';
+      // Capture ALL real browser downloads (http/https). blob:/data: cannot be
+      // re-fetched by URL, so leave those to the browser.
+      if (!captureEnabled) return suggest(); // capture disabled from app Settings
+      if (!/^https?:/i.test(url)) return suggest();
+      
+      // Geri besleme döngüsünü önle: kendi backend'imizden gelen indirmeyi yakalama.
+      try {
+        const u = new URL(url);
+        if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+          const p = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
+          const appPorts = [cfg.port, resolvedPort, 5000, 5001, 5002, 5003].filter(Boolean);
+          if (appPorts.includes(p)) return suggest();
+        }
+      } catch (e) { /* ignore */ }
+      
+      if (item.state && item.state !== 'in_progress') return suggest();
+      if (item.paused) return suggest();
+      try {
+        const started = item.startTime ? Date.parse(item.startTime) : 0;
+        if (started && Date.now() - started > 60000) return suggest();
+      } catch (e) { /* ignore */ }
+      
+      if (await isBypassActive()) return suggest();
+      
+      // Site engelleme: indirme veya yönlendiren sayfa engelli sitedeyse yakalama
+      try {
+        const dlHost = new URL(url).hostname;
+        const refHost = item.referrer ? new URL(item.referrer).hostname : '';
+        if (dnIsSiteBlocked(dlHost, cfg.disabledSites) || dnIsSiteBlocked(refHost, cfg.disabledSites)) return suggest();
+      } catch (e) { /* ignore */ }
+      
+      let name = item.filename ? item.filename.split(/[\\/]/).pop() : '';
+      if (!name) name = guessName(url);
+      if ((!name || !/\.[a-z0-9]{1,8}$/i.test(name)) && MIME_EXT[item.mime || '']) {
+        name = (name || 'download') + '.' + MIME_EXT[item.mime || ''];
       }
-      await chrome.downloads.erase({ id: item.id });
-    } catch (e) { /* ignore */ }
-    notify(DN_I18N.t('notif_captured'), name || url);
-  }
+      
+      const result = await sendToApp(url, name, item.referrer);
+      if (result === 'accepted') {
+        try {
+          try { await chrome.downloads.cancel(item.id); } catch (e) { }
+          const [d] = await chrome.downloads.search({ id: item.id });
+          if (d && d.state === 'complete') {
+            try { await chrome.downloads.removeFile(item.id); } catch (e) { }
+          }
+          await chrome.downloads.erase({ id: item.id });
+        } catch (e) { /* ignore */ }
+        notify(DN_I18N.t('notif_captured'), name || url);
+        suggest(); // Resolve Chrome's wait pipeline
+      } else {
+        suggest();
+      }
+    } catch (err) {
+      suggest();
+    }
+  })();
+  return true; // We will call suggest asynchronously
 });
 
 // ---- Sniff media stream URLs (for blob/HLS fallback) ----
