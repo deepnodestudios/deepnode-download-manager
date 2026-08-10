@@ -394,6 +394,15 @@ body {
 }
 .btn:active { transform: scale(0.97); }
 
+.btn:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  filter: grayscale(80%) !important;
+  transform: none !important;
+  box-shadow: none !important;
+  pointer-events: none !important;
+}
+
 .btn-primary {
   background: linear-gradient(135deg, var(--primary), var(--primary-2));
   color: #ffffff;
