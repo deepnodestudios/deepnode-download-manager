@@ -8,7 +8,7 @@
     "start": "electron .",
     "build:frontend": "cd frontend && npm run build",
     "build:xpi": "node scripts/build-xpi.mjs",
-    "build:exe": "npm run build:frontend && npm run build:xpi && electron-builder",
+    "build:exe": "npm run build:frontend && npm run build:xpi && node scripts/build-signed.mjs",
     "test": "node backend/test/smoke.mjs && node electron/test/main-loads.mjs"
   },
   "dependencies": {
@@ -50,9 +50,7 @@
       "target": [
         "nsis"
       ],
-      "icon": "electron/icon.ico",
-      "certificateFile": "deepnode_signing.pfx",
-      "certificatePassword": "DeepNodeSign2026!"
+      "icon": "electron/icon.ico"
     },
     "nsis": {
       "oneClick": false,
