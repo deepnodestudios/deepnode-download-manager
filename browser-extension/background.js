@@ -99,7 +99,7 @@ chrome.tabs.onRemoved.addListener((tabId) => clearTab(tabId));
 // "Bypass" key: while this modifier is held during a click, the
 // download is NOT captured (browser downloads it normally). Configured in the
 // app Settings; synced from /api/settings. 'None' disables the feature.
-let bypassKey = 'Alt';
+let bypassKey = 'Shift';
 let captureEnabled = true;
 let heldMods = { Alt: false, Control: false, Shift: false };
 let lastBypassClickAt = 0; // last mousedown made while the bypass key was held

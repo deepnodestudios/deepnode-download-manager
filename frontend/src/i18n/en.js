@@ -311,7 +311,7 @@ export default {
   ext_capture_enable: 'Enable automatic download capture',
   ext_capture_note: 'When off, the app won\'t capture browser/clipboard downloads (files download normally in the browser). You can turn it back on anytime.',
   lbl_bypass_key: 'Capture Bypass Key (won\'t capture while held)',
-  opt_alt_default: 'Alt (default)',
+  opt_default: 'default',
   opt_off: 'Off',
   bypass_note: 'Hold this key while clicking a link and the app won\'t capture it; the browser downloads it normally.',
   ext_what_title: 'What is Browser Integration?',

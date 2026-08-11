@@ -312,7 +312,7 @@ export default {
   ext_capture_enable: 'Otomatik indirme yakalamayı etkinleştir',
   ext_capture_note: 'Kapatırsan uygulama tarayıcı/pano indirmelerini yakalamaz (indirmeler normal tarayıcıdan iner). İstediğinde tekrar aç.',
   lbl_bypass_key: 'Yakalamayı Atla Tuşu (basılıyken yakalanmaz)',
-  opt_alt_default: 'Alt (varsayılan)',
+  opt_default: 'varsayılan',
   opt_off: 'Kapalı',
   bypass_note: 'Bir bağlantıya tıklarken bu tuşu basılı tutarsan uygulama o linki yakalamaz, tarayıcı normal indirir.',
   ext_what_title: 'Tarayıcı Entegrasyonu Nedir?',

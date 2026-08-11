@@ -18,7 +18,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
   const [theme, setTheme] = useState(settings?.theme || 'system');
   const [language, setLanguage] = useState(settings?.language || 'auto');
   const [captureEnabled, setCaptureEnabled] = useState(settings?.captureEnabled ?? true);
-  const [captureBypassKey, setCaptureBypassKey] = useState(settings?.captureBypassKey || 'Alt');
+  const [captureBypassKey, setCaptureBypassKey] = useState(settings?.captureBypassKey || 'Shift');
 
   // Başlangıç / davranış
   const [launchOnStartup, setLaunchOnStartup] = useState(settings?.launchOnStartup ?? false);
@@ -72,7 +72,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
     setTheme(settings.theme || 'system');
     setLanguage(settings.language || 'auto');
     setCaptureEnabled(settings.captureEnabled ?? true);
-    setCaptureBypassKey(settings.captureBypassKey || 'Alt');
+    setCaptureBypassKey(settings.captureBypassKey || 'Shift');
     setLaunchOnStartup(settings.launchOnStartup ?? false);
     setStartMinimized(settings.startMinimized ?? false);
     setMinimizeToTrayOnClose(settings.minimizeToTrayOnClose ?? true);
@@ -671,9 +671,8 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                   <div style={{ marginTop: '12px' }}>
                     <label className="form-label">{t('lbl_bypass_key')}</label>
                     <select className="form-select" value={captureBypassKey} onChange={(e) => setCaptureBypassKey(e.target.value)}>
-                      <option value="Alt">{t('opt_alt_default')}</option>
+                      <option value="Shift">Shift ({t('opt_default') || 'default'})</option>
                       <option value="Control">Ctrl</option>
-                      <option value="Shift">Shift</option>
                       <option value="None">{t('opt_off')}</option>
                     </select>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-dark)', marginTop: '4px' }}>

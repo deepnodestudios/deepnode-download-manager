@@ -137,7 +137,7 @@ class StorageService {
       autoUpdateYtDlp: true,
       theme: 'system', // 'system' | 'light' | 'dark'
       language: 'auto', // UI dili: 'auto' (Windows dili) | 'tr' | 'en'
-      captureBypassKey: 'Alt', // hold this key while clicking a link to NOT capture it ('None' disables)
+      captureBypassKey: 'Shift', // hold this key while clicking a link to NOT capture it ('None' disables)
       captureEnabled: true, // master switch for automatic browser/clipboard capture
       enableFileFiltering: true,
       capturedExtensions: 'ZIP RAR 7Z TAR GZ ISO EXE MSI APK PDF DOCX XLSX PPTX MP4 MKV AVI MOV WEBM MP3 FLAC WAV',
@@ -151,6 +151,9 @@ class StorageService {
         const merged = { ...defaultSettings, ...JSON.parse(data) };
         if (!merged.downloadDir || merged.downloadDir === OLD_DEFAULT_DOWNLOAD_DIR) {
           merged.downloadDir = DEFAULT_DOWNLOAD_DIR;
+        }
+        if (merged.captureBypassKey === 'Alt') {
+          merged.captureBypassKey = 'Shift';
         }
         return merged;
       }
