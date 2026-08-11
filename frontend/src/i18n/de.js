@@ -1,5 +1,6 @@
 // German UI strings — DeepNode Download Manager
 export default {
+  tip_drag_file: "Zum Extrahieren ziehen",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Mehrkanal-Download-Manager',
   nav_add: 'Download hinzufügen',

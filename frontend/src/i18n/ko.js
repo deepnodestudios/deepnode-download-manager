@@ -1,5 +1,6 @@
 // Korean UI strings — DeepNode Download Manager
 export default {
+  tip_drag_file: "드래그하여 추출",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: '멀티채널 다운로드 관리자',
   nav_add: '다운로드 추가',

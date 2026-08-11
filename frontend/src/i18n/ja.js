@@ -1,5 +1,6 @@
 // Japanese UI strings — DeepNode Download Manager
 export default {
+  tip_drag_file: "ドラッグして抽出",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'マルチチャネル ダウンロードマネージャー',
   nav_add: 'ダウンロードを追加',

@@ -1,5 +1,6 @@
 // Indonesian UI strings — DeepNode Download Manager
 export default {
+  tip_drag_file: "Tarik untuk mengekstrak",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Pengelola Unduhan Multi-Saluran',
   nav_add: 'Tambah Unduhan',

@@ -1,5 +1,6 @@
 // Hindi UI strings — DeepNode Download Manager
 export default {
+  tip_drag_file: "निकालने के लिए खींचें",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'मल्टी-चैनल डाउनलोड मैनेजर',
   nav_add: 'डाउनलोड जोड़ें',

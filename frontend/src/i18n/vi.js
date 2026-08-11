@@ -1,5 +1,6 @@
 // Vietnamese UI strings — DeepNode Download Manager
 export default {
+  tip_drag_file: "Kéo để trích xuất",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Trình quản lý tải xuống đa kênh',
   nav_add: 'Thêm tải xuống',

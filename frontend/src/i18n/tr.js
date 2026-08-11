@@ -1,5 +1,6 @@
 // Türkçe arayüz metinleri — DeepNode Download Manager
 export default {
+  tip_drag_file: "Dosyayı klasöre sürükle",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Çok Kanallı İndirme Yöneticisi',
   nav_add: 'İndirme Ekle',

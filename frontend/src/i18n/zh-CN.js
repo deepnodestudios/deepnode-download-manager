@@ -1,5 +1,6 @@
 // Simplified Chinese UI strings — DeepNode Download Manager
 export default {
+  tip_drag_file: "拖动以提取",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: '多通道下载管理器',
   nav_add: '添加下载',

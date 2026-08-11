@@ -1,5 +1,6 @@
 // Spanish UI strings — DeepNode Download Manager
 export default {
+  tip_drag_file: "Arrastrar para extraer",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Gestor de Descargas Multicanal',
   nav_add: 'Añadir descarga',

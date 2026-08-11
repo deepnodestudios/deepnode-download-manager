@@ -1,5 +1,6 @@
 // Brazilian Portuguese UI strings — DeepNode Download Manager
 export default {
+  tip_drag_file: "Arraste para extrair",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Gerenciador de Downloads Multicanal',
   nav_add: 'Adicionar download',

@@ -1,5 +1,6 @@
 // Arabic UI strings — DeepNode Download Manager (RTL)
 export default {
+  tip_drag_file: "اسحب للاستخراج",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'مدير تنزيلات متعدد القنوات',
   nav_add: 'إضافة تنزيل',

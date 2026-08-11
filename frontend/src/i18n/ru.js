@@ -1,5 +1,6 @@
 // Russian UI strings — DeepNode Download Manager
 export default {
+  tip_drag_file: "Перетащите для извлечения",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Многоканальный менеджер загрузок',
   nav_add: 'Добавить загрузку',
