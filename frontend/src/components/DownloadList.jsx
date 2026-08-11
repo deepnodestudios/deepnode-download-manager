@@ -627,6 +627,13 @@ export default function DownloadList({
                 onDoubleClick={() => { if (item.status === 'completed') onOpenFile && onOpenFile(item.id); }}
                 style={{ cursor: 'pointer' }}
                 title={item.status === 'completed' ? t('tip_dblclick_open') : undefined}
+                draggable={item.status === 'completed'}
+                onDragStart={(e) => {
+                  if (item.status === 'completed' && window.ddmNative && window.ddmNative.startDrag && item.savePath) {
+                    e.preventDefault();
+                    window.ddmNative.startDrag(item.savePath);
+                  }
+                }}
               >
                 {colOrder.map(colId => {
                   switch(colId) {

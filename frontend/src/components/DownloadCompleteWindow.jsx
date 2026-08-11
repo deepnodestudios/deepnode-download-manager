@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Minus, FolderOpen, FileText, Loader, CheckCircle2 } from 'lucide-react';
+import { X, Minus, FolderOpen, FileText, Loader, CheckCircle2, GripHorizontal } from 'lucide-react';
 import { useT } from '../i18n';
 import { closeWindow, minimizeWindow, resizeWindow } from '../native';
 
@@ -127,18 +127,47 @@ export default function DownloadCompleteWindow({ download }) {
           )}
         </div>
 
-        <div className="modal-footer">
-          {download && (
-            <>
-              <button className="btn btn-success" onClick={() => act('open')}>
-                <FileText size={15} /> {t('ctx_open')}
-              </button>
-              <button className="btn btn-secondary" onClick={() => act('reveal')}>
-                <FolderOpen size={15} /> {t('ctx_open_folder')}
-              </button>
-            </>
+        <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {download && (
+              <>
+                <button className="btn btn-success" onClick={() => act('open')}>
+                  <FileText size={15} /> {t('ctx_open')}
+                </button>
+                <button className="btn btn-secondary" onClick={() => act('reveal')}>
+                  <FolderOpen size={15} /> {t('ctx_open_folder')}
+                </button>
+              </>
+            )}
+            <button className="btn btn-secondary" onClick={closeWindow}>{t('btn_close')}</button>
+          </div>
+          
+          {download && download.savePath && (
+            <div
+              draggable
+              onDragStart={(e) => {
+                if (window.ddmNative && window.ddmNative.startDrag) {
+                  e.preventDefault();
+                  window.ddmNative.startDrag(download.savePath);
+                }
+              }}
+              title={t('tip_drag_file') || 'Sürükleyip bırak'}
+              style={{
+                cursor: 'grab',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '32px',
+                height: '32px',
+                background: 'var(--bg-hover)',
+                borderRadius: '4px',
+                border: '1px solid var(--border-color)',
+                marginLeft: 'auto'
+              }}
+            >
+              <GripHorizontal size={18} color="var(--text-muted)" />
+            </div>
           )}
-          <button className="btn btn-secondary" onClick={closeWindow}>{t('btn_close')}</button>
         </div>
       </div>
     </div>

@@ -31,5 +31,6 @@ contextBridge.exposeInMainWorld('ddmNative', {
   openExternal: (url) => ipcRenderer.send('open-external', url),
 
   // Bu köprünün var olduğunu anlamak için (tarayıcıda çalışırken undefined)
+  startDrag: (filePath) => ipcRenderer.send('start-drag', filePath),
   isElectron: true
 });

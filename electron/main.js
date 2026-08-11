@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, clipboard, Notification, ipcMain, dialog, shell, screen } from 'electron';
+import { app, BrowserWindow, Tray, Menu, clipboard, Notification, ipcMain, dialog, shell, screen, nativeImage } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -677,3 +677,19 @@ if (!gotTheLock) {
     }
   });
 }
+
+ipcMain.on('start-drag', (e, filePath) => {
+  try {
+    const iconPath = path.join(__dirname, 'icon.png');
+    let dragIcon = nativeImage.createFromPath(iconPath);
+    if (!dragIcon.isEmpty()) {
+      dragIcon = dragIcon.resize({ width: 32, height: 32 });
+    }
+    e.sender.startDrag({
+      file: filePath,
+      icon: dragIcon
+    });
+  } catch (err) {
+    console.error('Drag failed:', err);
+  }
+});
