@@ -1,5 +1,9 @@
 // English (default) UI strings — DeepNode Download Manager
 export default {
+
+  opt_alt_default: 'Alt（默认）',
+
+  st_canceled: 'İptal Edildi',
   tip_drag_file: "Drag to extract",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Multi-Channel Download Manager',

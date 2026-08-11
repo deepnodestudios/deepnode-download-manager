@@ -1,5 +1,19 @@
 // Hindi UI strings — DeepNode Download Manager
 export default {
+
+  st_canceled: 'İptal Edildi',
+
+  opt_default: 'default',
+
+  refresh_modal_btn: 'Update Address and Resume',
+
+  refresh_modal_label: 'New Download Address (URL)',
+
+  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
+
+  refresh_modal_title: 'Refresh Download Address',
+
+  ctx_refresh_url: 'Refresh Download Address',
   tip_drag_file: "निकालने के लिए खींचें",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'मल्टी-चैनल डाउनलोड मैनेजर',
