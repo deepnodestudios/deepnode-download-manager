@@ -1,19 +1,12 @@
 // Brazilian Portuguese UI strings — DeepNode Download Manager
 export default {
-
-  st_canceled: 'İptal Edildi',
-
-  opt_default: 'default',
-
-  refresh_modal_btn: 'Update Address and Resume',
-
-  refresh_modal_label: 'New Download Address (URL)',
-
-  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
-
-  refresh_modal_title: 'Refresh Download Address',
-
-  ctx_refresh_url: 'Refresh Download Address',
+  st_canceled: 'Cancelado',
+  opt_default: 'padrão',
+  refresh_modal_btn: 'Atualizar URL',
+  refresh_modal_label: 'Novo URL',
+  refresh_modal_desc: 'O URL deste download expirou. Insira o novo URL para retomar o download.',
+  refresh_modal_title: 'Atualizar URL de download',
+  ctx_refresh_url: 'Atualizar URL',
   tip_drag_file: "Arraste para extrair",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Gerenciador de Downloads Multicanal',
@@ -69,8 +62,7 @@ export default {
   tip_bulk_pause: 'Pausar selecionados',
   tip_bulk_delete: 'Excluir selecionados',
   tip_bulk_clear: 'Limpar seleção',
-  tip_select_all: 'Selecionar / desmarcar tudo',
-  th_date: 'Date Added',
+  tip_select_all: 'Selecionar / desmarcar tudo',  th_date: 'Data de Adição',
   th_filename: 'Nome do arquivo',
   th_size: 'Tamanho / Baixado',
   th_progress: 'Progresso',
@@ -320,8 +312,7 @@ export default {
   scheduler_note: 'Exemplo: iniciar às 02:00, pausar às 08:00 — os downloads rodam enquanto você dorme.',
   ext_capture_enable: 'Ativar captura automática de downloads',
   ext_capture_note: 'Quando desativado, o aplicativo não captura downloads do navegador/área de transferência (os arquivos baixam normalmente no navegador). Você pode reativar quando quiser.',
-  lbl_bypass_key: 'Tecla para ignorar a captura (não captura enquanto pressionada)',
-  opt_alt_default: 'Alt (padrão)',
+  lbl_bypass_key: 'Tecla para ignorar a captura (não captura enquanto pressionada)',  opt_alt_default: 'Alt (padrão)',
   opt_off: 'Desativada',
   bypass_note: 'Segure esta tecla ao clicar em um link e o aplicativo não o capturará; o navegador baixará normalmente.',
   ext_what_title: 'O que é a integração com o navegador?',

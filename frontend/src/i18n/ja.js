@@ -1,19 +1,12 @@
 // Japanese UI strings — DeepNode Download Manager
 export default {
-
-  st_canceled: 'İptal Edildi',
-
-  opt_default: 'default',
-
-  refresh_modal_btn: 'Update Address and Resume',
-
-  refresh_modal_label: 'New Download Address (URL)',
-
-  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
-
-  refresh_modal_title: 'Refresh Download Address',
-
-  ctx_refresh_url: 'Refresh Download Address',
+  st_canceled: 'キャンセルされました',
+  opt_default: '既定',
+  refresh_modal_btn: 'URLを更新',
+  refresh_modal_label: '新しいURL',
+  refresh_modal_desc: 'このダウンロードのURLは有効期限が切れています。ダウンロードを再開するには、新しいURLを入力してください。',
+  refresh_modal_title: 'ダウンロードURLを更新',
+  ctx_refresh_url: 'URLを更新',
   tip_drag_file: "ドラッグして抽出",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'マルチチャネル ダウンロードマネージャー',
@@ -69,8 +62,7 @@ export default {
   tip_bulk_pause: '選択項目を一時停止',
   tip_bulk_delete: '選択項目を削除',
   tip_bulk_clear: '選択を解除',
-  tip_select_all: 'すべて選択 / 解除',
-  th_date: 'Date Added',
+  tip_select_all: 'すべて選択 / 解除',  th_date: '追加日',
   th_filename: 'ファイル名',
   th_size: 'サイズ / ダウンロード済み',
   th_progress: '進行状況',
@@ -320,8 +312,7 @@ export default {
   scheduler_note: '例：02:00 に開始、08:00 に一時停止 — 就寝中にダウンロードが実行されます。',
   ext_capture_enable: '自動ダウンロードキャプチャを有効化',
   ext_capture_note: 'オフの場合、アプリはブラウザー/クリップボードのダウンロードをキャプチャしません（ファイルはブラウザーで通常どおりダウンロードされます）。いつでも再度オンにできます。',
-  lbl_bypass_key: 'キャプチャ回避キー（押している間はキャプチャしない）',
-  opt_alt_default: 'Alt（既定）',
+  lbl_bypass_key: 'キャプチャ回避キー（押している間はキャプチャしない）',  opt_alt_default: 'Alt（既定）',
   opt_off: 'オフ',
   bypass_note: 'このキーを押しながらリンクをクリックすると、アプリはキャプチャせず、ブラウザーが通常どおりダウンロードします。',
   ext_what_title: 'ブラウザー統合とは？',

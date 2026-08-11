@@ -1,19 +1,12 @@
 // Russian UI strings — DeepNode Download Manager
 export default {
-
-  st_canceled: 'İptal Edildi',
-
-  opt_default: 'default',
-
-  refresh_modal_btn: 'Update Address and Resume',
-
-  refresh_modal_label: 'New Download Address (URL)',
-
-  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
-
-  refresh_modal_title: 'Refresh Download Address',
-
-  ctx_refresh_url: 'Refresh Download Address',
+  st_canceled: 'Отменено',
+  opt_default: 'по умолчанию',
+  refresh_modal_btn: 'Обновить URL',
+  refresh_modal_label: 'Новый URL',
+  refresh_modal_desc: 'Срок действия URL-адреса для этого скачивания истек. Пожалуйста, введите новый URL-адрес, чтобы возобновить скачивание.',
+  refresh_modal_title: 'Обновить URL скачивания',
+  ctx_refresh_url: 'Обновить URL',
   tip_drag_file: "Перетащите для извлечения",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Многоканальный менеджер загрузок',
@@ -69,8 +62,7 @@ export default {
   tip_bulk_pause: 'Приостановить выбранные',
   tip_bulk_delete: 'Удалить выбранные',
   tip_bulk_clear: 'Снять выделение',
-  tip_select_all: 'Выбрать / снять всё',
-  th_date: 'Date Added',
+  tip_select_all: 'Выбрать / снять всё',  th_date: 'Дата добавления',
   th_filename: 'Имя файла',
   th_size: 'Размер / Загружено',
   th_progress: 'Прогресс',
@@ -320,8 +312,7 @@ export default {
   scheduler_note: 'Пример: старт в 02:00, пауза в 08:00 — загрузки идут, пока вы спите.',
   ext_capture_enable: 'Включить автоматический перехват загрузок',
   ext_capture_note: 'Если выключено, приложение не перехватывает загрузки из браузера/буфера обмена (файлы скачиваются в браузере как обычно). Можно включить снова в любой момент.',
-  lbl_bypass_key: 'Клавиша обхода перехвата (пока удерживается — не перехватывает)',
-  opt_alt_default: 'Alt (по умолчанию)',
+  lbl_bypass_key: 'Клавиша обхода перехвата (пока удерживается — не перехватывает)',  opt_alt_default: 'Alt (по умолчанию)',
   opt_off: 'Выкл.',
   bypass_note: 'Удерживайте эту клавишу при клике по ссылке — приложение её не перехватит; браузер скачает файл как обычно.',
   ext_what_title: 'Что такое интеграция с браузером?',

@@ -1,19 +1,12 @@
 // French UI strings — DeepNode Download Manager
 export default {
-
-  st_canceled: 'İptal Edildi',
-
-  opt_default: 'default',
-
-  refresh_modal_btn: 'Update Address and Resume',
-
-  refresh_modal_label: 'New Download Address (URL)',
-
-  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
-
-  refresh_modal_title: 'Refresh Download Address',
-
-  ctx_refresh_url: 'Refresh Download Address',
+  st_canceled: 'Annulé',
+  opt_default: 'par défaut',
+  refresh_modal_btn: 'Mettre à jour l\'URL',
+  refresh_modal_label: 'Nouvelle URL',
+  refresh_modal_desc: 'L\'URL de ce téléchargement a expiré. Veuillez entrer la nouvelle URL pour reprendre le téléchargement.',
+  refresh_modal_title: 'Actualiser l\'URL de téléchargement',
+  ctx_refresh_url: 'Actualiser l\'URL',
   tip_drag_file: "Faites glisser pour extraire",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Gestionnaire de téléchargements multicanaux',
@@ -69,8 +62,7 @@ export default {
   tip_bulk_pause: 'Mettre la sélection en pause',
   tip_bulk_delete: 'Supprimer la sélection',
   tip_bulk_clear: 'Effacer la sélection',
-  tip_select_all: 'Tout sélectionner / désélectionner',
-  th_date: 'Date Added',
+  tip_select_all: 'Tout sélectionner / désélectionner',  th_date: 'Date d\'ajout',
   th_filename: 'Nom du fichier',
   th_size: 'Taille / Téléchargé',
   th_progress: 'Progression',
@@ -320,8 +312,7 @@ export default {
   scheduler_note: 'Exemple : démarrer à 02:00, mettre en pause à 08:00 — les téléchargements s’exécutent pendant votre sommeil.',
   ext_capture_enable: 'Activer la capture automatique des téléchargements',
   ext_capture_note: 'Si désactivé, l’application ne capture pas les téléchargements du navigateur/presse-papiers (les fichiers se téléchargent normalement dans le navigateur). Réactivable à tout moment.',
-  lbl_bypass_key: 'Touche de contournement de capture (pas de capture tant qu’elle est maintenue)',
-  opt_alt_default: 'Alt (par défaut)',
+  lbl_bypass_key: 'Touche de contournement de capture (pas de capture tant qu’elle est maintenue)',  opt_alt_default: 'Alt (par défaut)',
   opt_off: 'Désactivée',
   bypass_note: 'Maintenez cette touche en cliquant sur un lien : l’application ne le capturera pas ; le navigateur le téléchargera normalement.',
   ext_what_title: 'Qu’est-ce que l’intégration au navigateur ?',

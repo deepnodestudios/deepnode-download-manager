@@ -1,19 +1,12 @@
 // Spanish UI strings — DeepNode Download Manager
 export default {
-
-  st_canceled: 'İptal Edildi',
-
-  opt_default: 'default',
-
-  refresh_modal_btn: 'Update Address and Resume',
-
-  refresh_modal_label: 'New Download Address (URL)',
-
-  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
-
-  refresh_modal_title: 'Refresh Download Address',
-
-  ctx_refresh_url: 'Refresh Download Address',
+  st_canceled: 'Cancelado',
+  opt_default: 'predeterminado',
+  refresh_modal_btn: 'Actualizar URL',
+  refresh_modal_label: 'Nueva URL',
+  refresh_modal_desc: 'La URL de esta descarga ha expirado. Por favor, introduzca la nueva URL para reanudar la descarga.',
+  refresh_modal_title: 'Actualizar URL de descarga',
+  ctx_refresh_url: 'Actualizar URL',
   tip_drag_file: "Arrastrar para extraer",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Gestor de Descargas Multicanal',
@@ -69,8 +62,7 @@ export default {
   tip_bulk_pause: 'Pausar seleccionadas',
   tip_bulk_delete: 'Eliminar seleccionadas',
   tip_bulk_clear: 'Limpiar selección',
-  tip_select_all: 'Seleccionar / deseleccionar todo',
-  th_date: 'Date Added',
+  tip_select_all: 'Seleccionar / deseleccionar todo',  th_date: 'Fecha añadida',
   th_filename: 'Nombre del archivo',
   th_size: 'Tamaño / Descargado',
   th_progress: 'Progreso',
@@ -320,8 +312,7 @@ export default {
   scheduler_note: 'Ejemplo: iniciar a las 02:00, pausar a las 08:00 — las descargas se ejecutan mientras duermes.',
   ext_capture_enable: 'Activar captura automática de descargas',
   ext_capture_note: 'Si está desactivado, la aplicación no capturará descargas del navegador/portapapeles (los archivos se descargan normalmente en el navegador). Puedes reactivarlo cuando quieras.',
-  lbl_bypass_key: 'Tecla para omitir la captura (no captura mientras se mantiene pulsada)',
-  opt_alt_default: 'Alt (predeterminada)',
+  lbl_bypass_key: 'Tecla para omitir la captura (no captura mientras se mantiene pulsada)',  opt_alt_default: 'Alt (predeterminado)',
   opt_off: 'Desactivada',
   bypass_note: 'Mantén esta tecla pulsada al hacer clic en un enlace y la aplicación no lo capturará; el navegador lo descargará normalmente.',
   ext_what_title: '¿Qué es la integración con el navegador?',

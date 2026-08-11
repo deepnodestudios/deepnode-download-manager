@@ -1,19 +1,12 @@
 // Korean UI strings — DeepNode Download Manager
 export default {
-
-  st_canceled: 'İptal Edildi',
-
-  opt_default: 'default',
-
-  refresh_modal_btn: 'Update Address and Resume',
-
-  refresh_modal_label: 'New Download Address (URL)',
-
-  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
-
-  refresh_modal_title: 'Refresh Download Address',
-
-  ctx_refresh_url: 'Refresh Download Address',
+  st_canceled: '취소됨',
+  opt_default: '기본',
+  refresh_modal_btn: 'URL 업데이트',
+  refresh_modal_label: '새 URL',
+  refresh_modal_desc: '이 다운로드의 URL이 만료되었습니다. 다운로드를 다시 시작하려면 새 URL을 입력하세요.',
+  refresh_modal_title: '다운로드 URL 새로 고침',
+  ctx_refresh_url: 'URL 새로 고침',
   tip_drag_file: "드래그하여 추출",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: '멀티채널 다운로드 관리자',
@@ -69,8 +62,7 @@ export default {
   tip_bulk_pause: '선택 항목 일시정지',
   tip_bulk_delete: '선택 항목 삭제',
   tip_bulk_clear: '선택 해제',
-  tip_select_all: '전체 선택 / 해제',
-  th_date: 'Date Added',
+  tip_select_all: '전체 선택 / 해제',  th_date: '추가된 날짜',
   th_filename: '파일 이름',
   th_size: '크기 / 다운로드됨',
   th_progress: '진행률',
@@ -320,8 +312,7 @@ export default {
   scheduler_note: '예: 02:00에 시작, 08:00에 일시정지 — 잠자는 동안 다운로드가 실행됩니다.',
   ext_capture_enable: '자동 다운로드 캡처 사용',
   ext_capture_note: '끄면 앱이 브라우저/클립보드 다운로드를 캡처하지 않습니다 (파일은 브라우저에서 정상적으로 다운로드됨). 언제든지 다시 켤 수 있습니다.',
-  lbl_bypass_key: '캡처 우회 키 (누르고 있는 동안 캡처 안 함)',
-  opt_alt_default: 'Alt (기본)',
+  lbl_bypass_key: '캡처 우회 키 (누르고 있는 동안 캡처 안 함)',  opt_alt_default: 'Alt (기본)',
   opt_off: '끔',
   bypass_note: '링크를 클릭할 때 이 키를 누르고 있으면 앱이 캡처하지 않으며, 브라우저에서 정상적으로 다운로드됩니다.',
   ext_what_title: '브라우저 통합이란?',

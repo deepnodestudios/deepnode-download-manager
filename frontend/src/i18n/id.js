@@ -1,19 +1,12 @@
 // Indonesian UI strings — DeepNode Download Manager
 export default {
-
-  st_canceled: 'İptal Edildi',
-
-  opt_default: 'default',
-
-  refresh_modal_btn: 'Update Address and Resume',
-
-  refresh_modal_label: 'New Download Address (URL)',
-
-  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
-
-  refresh_modal_title: 'Refresh Download Address',
-
-  ctx_refresh_url: 'Refresh Download Address',
+  st_canceled: 'Dibatalkan',
+  opt_default: 'bawaan',
+  refresh_modal_btn: 'Perbarui URL',
+  refresh_modal_label: 'URL Baru',
+  refresh_modal_desc: 'URL untuk unduhan ini telah kedaluwarsa. Silakan masukkan URL baru untuk melanjutkan unduhan.',
+  refresh_modal_title: 'Segarkan URL Unduhan',
+  ctx_refresh_url: 'Segarkan URL',
   tip_drag_file: "Tarik untuk mengekstrak",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Pengelola Unduhan Multi-Saluran',
@@ -69,8 +62,7 @@ export default {
   tip_bulk_pause: 'Jeda yang dipilih',
   tip_bulk_delete: 'Hapus yang dipilih',
   tip_bulk_clear: 'Bersihkan pilihan',
-  tip_select_all: 'Pilih / Batalkan Semua',
-  th_date: 'Date Added',
+  tip_select_all: 'Pilih / Batalkan Semua',  th_date: 'Tanggal Ditambahkan',
   th_filename: 'Nama Berkas',
   th_size: 'Ukuran / Terunduh',
   th_progress: 'Kemajuan',
@@ -320,8 +312,7 @@ export default {
   scheduler_note: 'Contoh: mulai pukul 02.00, jeda pukul 08.00 — unduhan berjalan saat Anda tidur.',
   ext_capture_enable: 'Aktifkan penangkapan unduhan otomatis',
   ext_capture_note: 'Jika dimatikan, aplikasi tidak menangkap unduhan browser/papan klip (berkas diunduh normal di browser). Dapat diaktifkan kembali kapan saja.',
-  lbl_bypass_key: 'Tombol Lewati Penangkapan (tidak menangkap saat ditahan)',
-  opt_alt_default: 'Alt (bawaan)',
+  lbl_bypass_key: 'Tombol Lewati Penangkapan (tidak menangkap saat ditahan)',  opt_alt_default: 'Alt (bawaan)',
   opt_off: 'Mati',
   bypass_note: 'Tahan tombol ini saat mengeklik tautan dan aplikasi tidak akan menangkapnya; browser mengunduhnya secara normal.',
   ext_what_title: 'Apa itu Integrasi Browser?',

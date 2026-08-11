@@ -1,19 +1,12 @@
 // Arabic UI strings — DeepNode Download Manager (RTL)
 export default {
-
-  st_canceled: 'İptal Edildi',
-
-  opt_default: 'default',
-
-  refresh_modal_btn: 'Update Address and Resume',
-
-  refresh_modal_label: 'New Download Address (URL)',
-
-  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
-
-  refresh_modal_title: 'Refresh Download Address',
-
-  ctx_refresh_url: 'Refresh Download Address',
+  st_canceled: 'تم الإلغاء',
+  opt_default: 'افتراضي',
+  refresh_modal_btn: 'تحديث الرابط',
+  refresh_modal_label: 'الرابط الجديد',
+  refresh_modal_desc: 'لقد انتهت صلاحية رابط هذا التنزيل. يرجى إدخال الرابط الجديد لاستئناف التنزيل.',
+  refresh_modal_title: 'تحديث رابط التنزيل',
+  ctx_refresh_url: 'تحديث الرابط',
   tip_drag_file: "اسحب للاستخراج",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'مدير تنزيلات متعدد القنوات',
@@ -69,8 +62,7 @@ export default {
   tip_bulk_pause: 'إيقاف المحدد مؤقتًا',
   tip_bulk_delete: 'حذف المحدد',
   tip_bulk_clear: 'مسح التحديد',
-  tip_select_all: 'تحديد / إلغاء تحديد الكل',
-  th_date: 'Date Added',
+  tip_select_all: 'تحديد / إلغاء تحديد الكل',  th_date: 'تاريخ الإضافة',
   th_filename: 'اسم الملف',
   th_size: 'الحجم / تم تنزيله',
   th_progress: 'التقدم',
@@ -320,8 +312,7 @@ export default {
   scheduler_note: 'مثال: البدء عند 02:00 والإيقاف المؤقت عند 08:00 — تعمل التنزيلات أثناء نومك.',
   ext_capture_enable: 'تفعيل الالتقاط التلقائي للتنزيلات',
   ext_capture_note: 'عند الإيقاف، لن يلتقط التطبيق تنزيلات المتصفح/الحافظة (تُنزل الملفات في المتصفح كالمعتاد). يمكنك إعادة تفعيله في أي وقت.',
-  lbl_bypass_key: 'مفتاح تجاوز الالتقاط (لا يلتقط أثناء الضغط عليه)',
-  opt_alt_default: 'Alt (افتراضي)',
+  lbl_bypass_key: 'مفتاح تجاوز الالتقاط (لا يلتقط أثناء الضغط عليه)',  opt_alt_default: 'Alt (افتراضي)',
   opt_off: 'إيقاف',
   bypass_note: 'اضغط باستمرار على هذا المفتاح أثناء النقر على رابط ولن يلتقطه التطبيق؛ سينزله المتصفح كالمعتاد.',
   ext_what_title: 'ما هو تكامل المتصفح؟',

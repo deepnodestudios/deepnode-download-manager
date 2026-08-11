@@ -1,19 +1,12 @@
 // Simplified Chinese UI strings — DeepNode Download Manager
 export default {
-
-  st_canceled: 'İptal Edildi',
-
-  opt_default: 'default',
-
-  refresh_modal_btn: 'Update Address and Resume',
-
-  refresh_modal_label: 'New Download Address (URL)',
-
-  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
-
-  refresh_modal_title: 'Refresh Download Address',
-
-  ctx_refresh_url: 'Refresh Download Address',
+  st_canceled: '已取消',
+  opt_default: '默认',
+  refresh_modal_btn: '更新网址',
+  refresh_modal_label: '新网址',
+  refresh_modal_desc: '此下载的网址已过期。请输入新网址以恢复下载。',
+  refresh_modal_title: '刷新下载网址',
+  ctx_refresh_url: '刷新网址',
   tip_drag_file: "拖动以提取",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: '多通道下载管理器',
@@ -69,8 +62,7 @@ export default {
   tip_bulk_pause: '暂停所选项',
   tip_bulk_delete: '删除所选项',
   tip_bulk_clear: '清除选择',
-  tip_select_all: '全选 / 取消全选',
-  th_date: 'Date Added',
+  tip_select_all: '全选 / 取消全选',  th_date: '添加日期',
   th_filename: '文件名',
   th_size: '大小 / 已下载',
   th_progress: '进度',
@@ -320,8 +312,7 @@ export default {
   scheduler_note: '示例：02:00 开始，08:00 暂停 — 在您睡觉时进行下载。',
   ext_capture_enable: '启用自动下载捕获',
   ext_capture_note: '关闭后，应用不会捕获浏览器/剪贴板的下载（文件将在浏览器中正常下载）。可随时重新开启。',
-  lbl_bypass_key: '捕获旁路按键（按住时不捕获）',
-  opt_alt_default: 'Alt（默认）',
+  lbl_bypass_key: '捕获旁路按键（按住时不捕获）',  opt_alt_default: 'Alt（默认）',
   opt_off: '关闭',
   bypass_note: '点击链接时按住此键，应用将不会捕获它；浏览器会正常下载。',
   ext_what_title: '什么是浏览器集成？',

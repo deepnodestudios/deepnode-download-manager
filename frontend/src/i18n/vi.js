@@ -1,19 +1,12 @@
 // Vietnamese UI strings — DeepNode Download Manager
 export default {
-
-  st_canceled: 'İptal Edildi',
-
-  opt_default: 'default',
-
-  refresh_modal_btn: 'Update Address and Resume',
-
-  refresh_modal_label: 'New Download Address (URL)',
-
-  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
-
-  refresh_modal_title: 'Refresh Download Address',
-
-  ctx_refresh_url: 'Refresh Download Address',
+  st_canceled: 'Đã hủy',
+  opt_default: 'mặc định',
+  refresh_modal_btn: 'Cập nhật URL',
+  refresh_modal_label: 'URL mới',
+  refresh_modal_desc: 'URL cho bản tải xuống này đã hết hạn. Vui lòng nhập URL mới để tiếp tục tải xuống.',
+  refresh_modal_title: 'Làm mới URL tải xuống',
+  ctx_refresh_url: 'Làm mới URL',
   tip_drag_file: "Kéo để trích xuất",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Trình quản lý tải xuống đa kênh',
@@ -69,8 +62,7 @@ export default {
   tip_bulk_pause: 'Tạm dừng mục đã chọn',
   tip_bulk_delete: 'Xóa mục đã chọn',
   tip_bulk_clear: 'Bỏ chọn tất cả',
-  tip_select_all: 'Chọn / Bỏ chọn tất cả',
-  th_date: 'Date Added',
+  tip_select_all: 'Chọn / Bỏ chọn tất cả',  th_date: 'Ngày thêm',
   th_filename: 'Tên tệp',
   th_size: 'Kích thước / Đã tải',
   th_progress: 'Tiến trình',
@@ -320,8 +312,7 @@ export default {
   scheduler_note: 'Ví dụ: bắt đầu lúc 02:00, tạm dừng lúc 08:00 — tải xuống chạy trong khi bạn ngủ.',
   ext_capture_enable: 'Bật tự động bắt tải xuống',
   ext_capture_note: 'Khi tắt, ứng dụng không bắt tải xuống từ trình duyệt/bộ nhớ tạm (tệp tải bình thường trong trình duyệt). Có thể bật lại bất cứ lúc nào.',
-  lbl_bypass_key: 'Phím bỏ qua bắt (không bắt khi giữ phím)',
-  opt_alt_default: 'Alt (mặc định)',
+  lbl_bypass_key: 'Phím bỏ qua bắt (không bắt khi giữ phím)',  opt_alt_default: 'Alt (mặc định)',
   opt_off: 'Tắt',
   bypass_note: 'Giữ phím này khi nhấp vào liên kết và ứng dụng sẽ không bắt nó; trình duyệt tải xuống bình thường.',
   ext_what_title: 'Tích hợp trình duyệt là gì?',

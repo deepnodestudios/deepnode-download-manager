@@ -1,19 +1,12 @@
 // German UI strings — DeepNode Download Manager
 export default {
-
-  st_canceled: 'İptal Edildi',
-
-  opt_default: 'default',
-
-  refresh_modal_btn: 'Update Address and Resume',
-
-  refresh_modal_label: 'New Download Address (URL)',
-
-  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
-
-  refresh_modal_title: 'Refresh Download Address',
-
-  ctx_refresh_url: 'Refresh Download Address',
+  st_canceled: 'Abgebrochen',
+  opt_default: 'Standard',
+  refresh_modal_btn: 'URL aktualisieren',
+  refresh_modal_label: 'Neue URL',
+  refresh_modal_desc: 'Die URL für diesen Download ist abgelaufen. Bitte geben Sie die neue URL ein, um den Download fortzusetzen.',
+  refresh_modal_title: 'Download-URL aktualisieren',
+  ctx_refresh_url: 'URL aktualisieren',
   tip_drag_file: "Zum Extrahieren ziehen",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'Mehrkanal-Download-Manager',
@@ -69,8 +62,7 @@ export default {
   tip_bulk_pause: 'Ausgewählte pausieren',
   tip_bulk_delete: 'Ausgewählte löschen',
   tip_bulk_clear: 'Auswahl aufheben',
-  tip_select_all: 'Alle aus-/abwählen',
-  th_date: 'Date Added',
+  tip_select_all: 'Alle aus-/abwählen',  th_date: 'Hinzugefügt am',
   th_filename: 'Dateiname',
   th_size: 'Größe / Geladen',
   th_progress: 'Fortschritt',
@@ -320,8 +312,7 @@ export default {
   scheduler_note: 'Beispiel: Start um 02:00, Pause um 08:00 — Downloads laufen, während du schläfst.',
   ext_capture_enable: 'Automatische Download-Erfassung aktivieren',
   ext_capture_note: 'Wenn deaktiviert, erfasst die App keine Browser-/Zwischenablage-Downloads (Dateien werden normal im Browser heruntergeladen). Jederzeit wieder aktivierbar.',
-  lbl_bypass_key: 'Erfassungs-Umgehungstaste (erfasst nicht, solange gedrückt)',
-  opt_alt_default: 'Alt (Standard)',
+  lbl_bypass_key: 'Erfassungs-Umgehungstaste (erfasst nicht, solange gedrückt)',  opt_alt_default: 'Alt (Standard)',
   opt_off: 'Aus',
   bypass_note: 'Halte diese Taste beim Klicken auf einen Link gedrückt, und die App erfasst ihn nicht; der Browser lädt ihn normal herunter.',
   ext_what_title: 'Was ist die Browser-Integration?',

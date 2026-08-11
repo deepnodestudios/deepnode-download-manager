@@ -1,19 +1,12 @@
 // Hindi UI strings — DeepNode Download Manager
 export default {
-
-  st_canceled: 'İptal Edildi',
-
-  opt_default: 'default',
-
-  refresh_modal_btn: 'Update Address and Resume',
-
-  refresh_modal_label: 'New Download Address (URL)',
-
-  refresh_modal_desc: 'Update the expired download link with a new URL. Your downloaded data will be preserved.',
-
-  refresh_modal_title: 'Refresh Download Address',
-
-  ctx_refresh_url: 'Refresh Download Address',
+  st_canceled: 'रद्द किया गया',
+  opt_default: 'डिफ़ॉल्ट',
+  refresh_modal_btn: 'URL अपडेट करें',
+  refresh_modal_label: 'नया URL',
+  refresh_modal_desc: 'इस डाउनलोड के लिए URL समाप्त हो गया है। डाउनलोड फिर से शुरू करने के लिए कृपया नया URL दर्ज करें।',
+  refresh_modal_title: 'डाउनलोड URL रीफ़्रेश करें',
+  ctx_refresh_url: 'URL रीफ़्रेश करें',
   tip_drag_file: "निकालने के लिए खींचें",
   // ── Navbar ─────────────────────────────────────────────
   nav_tagline: 'मल्टी-चैनल डाउनलोड मैनेजर',
@@ -69,8 +62,7 @@ export default {
   tip_bulk_pause: 'चयनित रोकें',
   tip_bulk_delete: 'चयनित हटाएँ',
   tip_bulk_clear: 'चयन साफ़ करें',
-  tip_select_all: 'सभी चुनें / चयन हटाएँ',
-  th_date: 'Date Added',
+  tip_select_all: 'सभी चुनें / चयन हटाएँ',  th_date: 'जोड़ने की तिथि',
   th_filename: 'फ़ाइल नाम',
   th_size: 'आकार / डाउनलोड हुआ',
   th_progress: 'प्रगति',
@@ -320,8 +312,7 @@ export default {
   scheduler_note: 'उदाहरण: 02:00 पर शुरू, 08:00 पर रोकें — आपके सोते समय डाउनलोड चलते हैं।',
   ext_capture_enable: 'स्वचालित डाउनलोड कैप्चर सक्षम करें',
   ext_capture_note: 'बंद होने पर, ऐप ब्राउज़र/क्लिपबोर्ड डाउनलोड कैप्चर नहीं करेगा (फ़ाइलें ब्राउज़र में सामान्य रूप से डाउनलोड होंगी)। इसे कभी भी वापस चालू कर सकते हैं।',
-  lbl_bypass_key: 'कैप्चर बायपास कुंजी (दबाए रखने पर कैप्चर नहीं होगा)',
-  opt_alt_default: 'Alt (डिफ़ॉल्ट)',
+  lbl_bypass_key: 'कैप्चर बायपास कुंजी (दबाए रखने पर कैप्चर नहीं होगा)',  opt_alt_default: 'Alt (डिफ़ॉल्ट)',
   opt_off: 'बंद',
   bypass_note: 'लिंक पर क्लिक करते समय यह कुंजी दबाए रखें और ऐप उसे कैप्चर नहीं करेगा; ब्राउज़र उसे सामान्य रूप से डाउनलोड करेगा।',
   ext_what_title: 'ब्राउज़र एकीकरण क्या है?',
