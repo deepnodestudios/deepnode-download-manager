@@ -138,6 +138,50 @@ window.addEventListener('blur', () => {
   try { dnSendMessage({ type: 'DN_MODS', mods: { Alt: false, Control: false, Shift: false } }); } catch (err) {}
 });
 
+// --- Bypass Tuşu Maskeleme ---
+// Kullanıcı Alt tuşuna basılı tutarak DDM'yi atlamak istediğinde, Alt+Tık
+// kombinasyonu tarayıcının yerleşik davranışlarını tetikler (href indirmesi gibi)
+// veya sitenin JS tabanlı tıklama olaylarını (event.altKey) bozar.
+// Bunu önlemek için Alt tuşuna basılarak yapılan tıklamaları yakalayıp,
+// sanki Alt tuşuna basılmamış gibi (maskeleyerek) siteye normal bir tıklama gönderiyoruz.
+let bypassKeySettings = 'Alt';
+if (dnCtxValid()) {
+  chrome.storage.local.get({ bypassKey: 'Alt' }, (v) => { bypassKeySettings = v.bypassKey; });
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.bypassKey) bypassKeySettings = changes.bypassKey.newValue;
+});
+
+function maskBypassClick(e) {
+  if (!e.isTrusted || e.type !== 'click' || e.button !== 0) return;
+  if (!bypassKeySettings || bypassKeySettings === 'None') return;
+  
+  // Sadece Alt tuşunu maskeliyoruz (Ctrl veya Shift tarayıcı sekme davranışlarını bozmamak için)
+  if (bypassKeySettings === 'Alt' && e.altKey) {
+    // Tıklanabilir bir eleman mı kontrol et
+    const path = e.composedPath ? e.composedPath() : [];
+    const isClickable = path.some(el => el.tagName === 'A' || el.tagName === 'BUTTON' || el.role === 'button');
+    if (!isClickable) return;
+
+    // Orijinal Alt+Tık olayını iptal et (Tarayıcının yerleşik indirme tepkisini ve sitenin JS'ini durdur)
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    // Siteye, Alt tuşunun olmadığı sahte (ama birebir aynı) bir tıklama olayı gönder
+    const fake = new MouseEvent('click', {
+      bubbles: e.bubbles, cancelable: e.cancelable, view: e.view, detail: e.detail,
+      screenX: e.screenX, screenY: e.screenY, clientX: e.clientX, clientY: e.clientY,
+      ctrlKey: e.ctrlKey, altKey: false, shiftKey: e.shiftKey, metaKey: e.metaKey,
+      button: e.button, buttons: e.buttons
+    });
+    e.target.dispatchEvent(fake);
+  }
+}
+window.addEventListener('click', maskBypassClick, true);
+// -----------------------------
+
+
 // Hover prefetch debounce: feed'de fare gezdirirken üzerinden geçilen HER video
 // için anında format sorgusu gitmesin (backend'de her biri bir yt-dlp süreci).
 // Yalnızca aynı videoda ~400ms kalınırsa ısıtma yapılır; cache zaten mükerrer

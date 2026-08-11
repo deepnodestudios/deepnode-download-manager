@@ -1,0 +1,11 @@
+<!DOCTYPE html><html><body><a href='javascript:void(0)' onclick='console.log(\
+Clicked!
+Alt:\, event.altKey)'>Test Link</a><script>
+window.addEventListener('click', (e) => {
+  if (e.isTrusted && e.altKey) {
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    const fake = new MouseEvent('click', { bubbles: true, altKey: false });
+    e.target.dispatchEvent(fake);
+  }
+}, true);
+</script></body></html>
