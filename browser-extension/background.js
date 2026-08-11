@@ -499,13 +499,16 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
       
       const result = await sendToApp(url, name, item.referrer);
       if (result === 'accepted') {
+        const ignoreErr = () => { let _ = chrome.runtime.lastError; };
         try {
-          try { await chrome.downloads.cancel(item.id); } catch (e) { }
-          const [d] = await chrome.downloads.search({ id: item.id });
-          if (d && d.state === 'complete') {
-            try { await chrome.downloads.removeFile(item.id); } catch (e) { }
-          }
-          await chrome.downloads.erase({ id: item.id });
+          chrome.downloads.cancel(item.id, ignoreErr);
+          chrome.downloads.search({ id: item.id }, (res) => {
+            let _ = chrome.runtime.lastError;
+            if (res && res[0] && res[0].state === 'complete') {
+              try { chrome.downloads.removeFile(item.id, ignoreErr); } catch (e) {}
+            }
+            try { chrome.downloads.erase({ id: item.id }, ignoreErr); } catch (e) {}
+          });
         } catch (e) { }
         notify(DN_I18N.t('notif_captured'), name || url);
         suggest();
