@@ -56,6 +56,7 @@ export default {
   tip_bulk_delete: 'حذف المحدد',
   tip_bulk_clear: 'مسح التحديد',
   tip_select_all: 'تحديد / إلغاء تحديد الكل',
+  th_date: 'Date Added',
   th_filename: 'اسم الملف',
   th_size: 'الحجم / تم تنزيله',
   th_progress: 'التقدم',

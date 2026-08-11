@@ -56,6 +56,7 @@ export default {
   tip_bulk_delete: 'Удалить выбранные',
   tip_bulk_clear: 'Снять выделение',
   tip_select_all: 'Выбрать / снять всё',
+  th_date: 'Date Added',
   th_filename: 'Имя файла',
   th_size: 'Размер / Загружено',
   th_progress: 'Прогресс',

@@ -56,6 +56,7 @@ export default {
   tip_bulk_delete: 'चयनित हटाएँ',
   tip_bulk_clear: 'चयन साफ़ करें',
   tip_select_all: 'सभी चुनें / चयन हटाएँ',
+  th_date: 'Date Added',
   th_filename: 'फ़ाइल नाम',
   th_size: 'आकार / डाउनलोड हुआ',
   th_progress: 'प्रगति',

@@ -56,6 +56,7 @@ export default {
   tip_bulk_delete: '選択項目を削除',
   tip_bulk_clear: '選択を解除',
   tip_select_all: 'すべて選択 / 解除',
+  th_date: 'Date Added',
   th_filename: 'ファイル名',
   th_size: 'サイズ / ダウンロード済み',
   th_progress: '進行状況',

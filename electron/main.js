@@ -678,18 +678,26 @@ if (!gotTheLock) {
   });
 }
 
-ipcMain.on('start-drag', (e, filePath) => {
+ipcMain.on('start-drag', (e, filePaths) => {
   try {
     const iconPath = path.join(__dirname, 'icon.png');
     let dragIcon = nativeImage.createFromPath(iconPath);
     if (!dragIcon.isEmpty()) {
       dragIcon = dragIcon.resize({ width: 32, height: 32 });
     }
-    e.sender.startDrag({
-      file: filePath,
-      icon: dragIcon
-    });
+    
+    if (Array.isArray(filePaths)) {
+      e.sender.startDrag({
+        files: filePaths,
+        icon: dragIcon
+      });
+    } else {
+      e.sender.startDrag({
+        file: filePaths,
+        icon: dragIcon
+      });
+    }
   } catch (err) {
-    console.error('Drag failed:', err);
+    console.error('start-drag hatası:', err);
   }
 });

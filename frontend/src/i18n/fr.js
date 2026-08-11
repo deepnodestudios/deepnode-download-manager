@@ -56,6 +56,7 @@ export default {
   tip_bulk_delete: 'Supprimer la sélection',
   tip_bulk_clear: 'Effacer la sélection',
   tip_select_all: 'Tout sélectionner / désélectionner',
+  th_date: 'Date Added',
   th_filename: 'Nom du fichier',
   th_size: 'Taille / Téléchargé',
   th_progress: 'Progression',

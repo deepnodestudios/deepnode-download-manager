@@ -56,6 +56,7 @@ export default {
   tip_bulk_delete: 'Hapus yang dipilih',
   tip_bulk_clear: 'Bersihkan pilihan',
   tip_select_all: 'Pilih / Batalkan Semua',
+  th_date: 'Date Added',
   th_filename: 'Nama Berkas',
   th_size: 'Ukuran / Terunduh',
   th_progress: 'Kemajuan',

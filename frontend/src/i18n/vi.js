@@ -56,6 +56,7 @@ export default {
   tip_bulk_delete: 'Xóa mục đã chọn',
   tip_bulk_clear: 'Bỏ chọn tất cả',
   tip_select_all: 'Chọn / Bỏ chọn tất cả',
+  th_date: 'Date Added',
   th_filename: 'Tên tệp',
   th_size: 'Kích thước / Đã tải',
   th_progress: 'Tiến trình',

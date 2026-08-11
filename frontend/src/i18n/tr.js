@@ -57,6 +57,7 @@ export default {
   tip_bulk_delete: 'Seçilenleri Sil',
   tip_bulk_clear: 'Seçimi Temizle',
   tip_select_all: 'Tümünü Seç / Bırak',
+  th_date: 'Eklenme Tarihi',
   th_filename: 'Dosya Adı',
   th_size: 'Boyut / İndirilen',
   th_progress: 'İlerleme',

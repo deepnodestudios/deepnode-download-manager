@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Play, Pause, Trash2, Layers, Video, Music, Archive, FileText, Cpu, Image as ImageIcon, Folder, FolderOpen, ExternalLink, AlertCircle, CheckCircle2, Clock,
-  RotateCcw, Link2, Edit3, Info, XCircle, CheckSquare, Square, DownloadCloud, RefreshCw
+  RotateCcw, Link2, Edit3, Info, XCircle, CheckSquare, Square, DownloadCloud, RefreshCw, ChevronUp, ChevronDown, ArrowUpDown
 } from 'lucide-react';
 import { useT } from '../i18n';
 import { isElectron, popupDownloadMenu } from '../native';
@@ -10,8 +10,8 @@ import RefreshUrlModal from './RefreshUrlModal';
 
 // Sabit sütun genişlikleri (px) — içerik değişse bile sütunlar yatay kaymaz.
 // Kullanıcı ayraçları sürükleyerek değiştirebilir; tercihler localStorage'da saklanır.
-const DEFAULT_COL_ORDER = ['select', 'name', 'size', 'progress', 'speed', 'eta', 'status', 'actions'];
-const DEFAULT_COL_WIDTHS = { select: 36, size: 90, progress: 75, speed: 85, eta: 75, status: 130, actions: 170 }; // 'name' is fluid by default
+const DEFAULT_COL_ORDER = ['select', 'name', 'size', 'progress', 'speed', 'eta', 'status', 'date', 'actions'];
+const DEFAULT_COL_WIDTHS = { select: 36, size: 90, progress: 75, speed: 85, eta: 75, status: 130, date: 130, actions: 170 }; // 'name' is fluid by default
 const MIN_COL_WIDTH = 56;
 const COL_WIDTHS_KEY = 'dn-col-widths-v2';
 const COL_ORDER_KEY = 'dn-col-order';
@@ -37,6 +37,46 @@ export default function DownloadList({
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [dragBox, setDragBox] = useState(null); // { x1, y1, x2, y2 } in container coords
   const [refreshingItem, setRefreshingItem] = useState(null);
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' });
+
+  const sortedDownloads = useMemo(() => {
+    if (!sortConfig.key) return downloads;
+    return [...downloads].sort((a, b) => {
+      let aVal = a[sortConfig.key];
+      let bVal = b[sortConfig.key];
+      
+      if (sortConfig.key === 'name') {
+        aVal = (a.filename || '').toLowerCase();
+        bVal = (b.filename || '').toLowerCase();
+      } else if (sortConfig.key === 'size') {
+        aVal = a.totalSize || 0;
+        bVal = b.totalSize || 0;
+      } else if (sortConfig.key === 'progress') {
+        aVal = a.totalSize > 0 ? a.downloadedBytes / a.totalSize : 0;
+        bVal = b.totalSize > 0 ? b.downloadedBytes / b.totalSize : 0;
+      } else if (sortConfig.key === 'date') {
+        aVal = parseInt(a.id.split('_')[1]) || 0;
+        bVal = parseInt(b.id.split('_')[1]) || 0;
+      } else if (sortConfig.key === 'speed' || sortConfig.key === 'eta' || sortConfig.key === 'status') {
+        aVal = a[sortConfig.key] || 0;
+        bVal = b[sortConfig.key] || 0;
+      }
+
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [downloads, sortConfig]);
+
+  const handleSort = (key) => {
+    if (key === 'select' || key === 'actions') return;
+    setSortConfig(prev => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      return { key, direction: 'desc' };
+    });
+  };
 
   const handleRefreshUrlSubmit = async (id, newUrl) => {
     try {
@@ -147,7 +187,7 @@ export default function DownloadList({
   }, [downloads]);
 
   const selectAll = useCallback(() => {
-    setSelectedIds(new Set(downloads.map(d => d.id)));
+    setSelectedIds(new Set(sortedDownloads.map(d => d.id)));
   }, [downloads]);
 
   const clearSelection = useCallback(() => {
@@ -589,18 +629,38 @@ export default function DownloadList({
                 </th>
               );
               
-              const isDrag = colId !== 'actions';
+              const isDrag = colId !== 'actions' && colId !== 'select';
               return (
                 <th
                   key={colId}
-                  style={{ textAlign: colId === 'name' ? 'left' : 'center', cursor: isDrag ? 'grab' : 'default' }}
+                  style={{ textAlign: colId === 'name' ? 'left' : 'center', cursor: 'pointer' }}
+                  onClick={() => handleSort(colId)}
                   draggable={isDrag}
                   onDragStart={isDrag ? (e) => handleDragStart(e, colId) : undefined}
                   onDragOver={isDrag ? handleDragOver : undefined}
                   onDrop={isDrag ? (e) => handleDrop(e, colId) : undefined}
                 >
-                  {t('th_' + (colId === 'name' ? 'filename' : colId))}
-                  {isDrag && <span className="col-resizer" onMouseDown={(e) => startColResize(e, colId)} />}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: colId === 'name' ? 'flex-start' : 'center', gap: '4px' }}>
+                    {t('th_' + (colId === 'name' ? 'filename' : colId))}
+                    {sortConfig.key === colId ? (
+                      sortConfig.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                    ) : (
+                      isDrag && <ArrowUpDown size={12} style={{ opacity: 0.15 }} />
+                    )}
+                  </div>
+                  {isDrag && (
+                    <span
+                      className="col-resizer"
+                      onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        if (DEFAULT_COL_WIDTHS[colId]) {
+                          setColWidths(prev => ({ ...prev, [colId]: DEFAULT_COL_WIDTHS[colId] }));
+                        }
+                      }}
+                      onMouseDown={(e) => startColResize(e, colId)}
+                    />
+                  )}
                 </th>
               );
             })}
@@ -608,7 +668,7 @@ export default function DownloadList({
           </tr>
         </thead>
         <tbody>
-          {downloads.map((item, index) => {
+          {sortedDownloads.map((item, index) => {
             const Icon = getCategoryIcon(item.category);
             const percent = item.status === 'completed'
               ? 100
@@ -625,11 +685,11 @@ export default function DownloadList({
                 onClick={(e) => handleRowClick(e, index, item)}
                 onContextMenu={(e) => { if (!isSelected) { handleRowClick(e, index, item); } showMenu(e, item); }}
                 onDoubleClick={() => { if (item.status === 'completed') onOpenFile && onOpenFile(item.id); }}
-                style={{ cursor: 'pointer' }}
+                style={{ cursor: 'pointer', userSelect: 'none' }}
                 title={item.status === 'completed' ? t('tip_dblclick_open') : undefined}
-                draggable={item.status === 'completed'}
+                draggable={item.status === 'completed' && selectedIds.size <= 1}
                 onDragStart={(e) => {
-                  if (item.status === 'completed' && window.ddmNative && window.ddmNative.startDrag && item.savePath) {
+                  if (item.status === 'completed' && window.ddmNative && window.ddmNative.startDrag && item.savePath && selectedIds.size <= 1) {
                     e.preventDefault();
                     window.ddmNative.startDrag(item.savePath);
                   }
@@ -683,6 +743,11 @@ export default function DownloadList({
                     case 'status': return (
                       <td key="status" style={{ textAlign: 'center' }}>
                         {getStatusBadge(item.status)}
+                      </td>
+                    );
+                    case 'date': return (
+                      <td key="date" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                        {new Date(parseInt(item.id.split('_')[1])).toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit' })}
                       </td>
                     );
                     case 'actions': return (

@@ -56,6 +56,7 @@ export default {
   tip_bulk_delete: '删除所选项',
   tip_bulk_clear: '清除选择',
   tip_select_all: '全选 / 取消全选',
+  th_date: 'Date Added',
   th_filename: '文件名',
   th_size: '大小 / 已下载',
   th_progress: '进度',
