@@ -172,6 +172,14 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
     }
   };
 
+  const handleFirefoxInstall = async () => {
+    try {
+      await window.ddmNative.openExternal('https://addons.mozilla.org/tr/firefox/addon/deepnode-dlm/', 'firefox');
+    } catch (err) {
+      alert(t('alert_ext_folder', { msg: err.message }));
+    }
+  };
+
   const handleResetDefaults = () => {
     setCapturedExtensions(DEFAULT_CAPTURED);
     setIgnoredExtensions(DEFAULT_IGNORED);

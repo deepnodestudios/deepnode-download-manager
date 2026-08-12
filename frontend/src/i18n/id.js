@@ -1,5 +1,7 @@
 // Indonesian UI strings — DeepNode Download Manager
 export default {
+  btn_install_amo: 'Instal dari Mozilla Add-ons',
+  ff_store_install: 'Anda dapat menginstal ekstensi Firefox langsung dari toko Add-on Mozilla:',
   st_canceled: 'Dibatalkan',
   opt_default: 'bawaan',
   refresh_modal_btn: 'Perbarui URL',

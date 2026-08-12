@@ -1,5 +1,7 @@
 // English (default) UI strings — DeepNode Download Manager
 export default {
+  btn_install_amo: 'Install from Mozilla Add-ons',
+  ff_store_install: 'You can install the Firefox extension directly from the Mozilla Add-ons store:',
   opt_alt_default: 'Alt (default)',
   st_canceled: 'Canceled',
   tip_drag_file: "Drag to extract",

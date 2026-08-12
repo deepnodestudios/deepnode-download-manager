@@ -28,7 +28,7 @@ contextBridge.exposeInMainWorld('ddmNative', {
   bringToFront: () => ipcRenderer.send('bring-to-front'),
 
   // Harici bağlantıyı SİSTEM tarayıcısında aç (Electron penceresinde değil)
-  openExternal: (url) => ipcRenderer.send('open-external', url),
+  openExternal: (url, browser) => ipcRenderer.send('open-external', url, browser),
 
   // Bu köprünün var olduğunu anlamak için (tarayıcıda çalışırken undefined)
   startDrag: (filePath) => ipcRenderer.send('start-drag', filePath),

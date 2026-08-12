@@ -1,5 +1,7 @@
 // French UI strings — DeepNode Download Manager
 export default {
+  btn_install_amo: 'Installer depuis Mozilla Add-ons',
+  ff_store_install: 'Vous pouvez installer l\'extension Firefox directement depuis le magasin de modules complémentaires de Mozilla :',
   st_canceled: 'Annulé',
   opt_default: 'par défaut',
   refresh_modal_btn: 'Mettre à jour l\'URL',

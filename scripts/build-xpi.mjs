@@ -67,3 +67,17 @@ for (const rel of files) {
   }
 }
 archive.finalize();
+
+// Create Chrome .zip
+const chromeOutFile = path.join(outDir, 'deepnode-extension-chrome.zip');
+const chromeOutput = fs.createWriteStream(chromeOutFile);
+const chromeArchive = archiver('zip', { zlib: { level: 9 } });
+chromeOutput.on('close', () => {
+  console.log(`build-xpi: ${path.basename(chromeOutFile)} (${files.length} dosya, ${chromeArchive.pointer()} bayt)`);
+});
+chromeArchive.on('error', (err) => { throw err; });
+chromeArchive.pipe(chromeOutput);
+for (const rel of files) {
+  chromeArchive.file(path.join(srcDir, rel), { name: rel });
+}
+chromeArchive.finalize();

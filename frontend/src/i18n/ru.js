@@ -1,5 +1,7 @@
 // Russian UI strings — DeepNode Download Manager
 export default {
+  btn_install_amo: 'Установить из Mozilla Add-ons',
+  ff_store_install: 'Вы можете установить расширение Firefox прямо из магазина дополнений Mozilla:',
   st_canceled: 'Отменено',
   opt_default: 'по умолчанию',
   refresh_modal_btn: 'Обновить URL',

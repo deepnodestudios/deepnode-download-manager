@@ -35,7 +35,7 @@ files.forEach(file => {
     if (regex.test(content)) {
         content = content.replace(regex, `  ${key}: '${val}',`);
     } else {
-        content = content.replace(/(export default \\{|const [a-zA-Z]+ = \\{)/, `$1\n  ${key}: '${val}',`);
+        content = content.replace(/(export default \{|const [a-zA-Z]+ = \{)/, `$1\n  ${key}: '${val}',`);
     }
   });
 

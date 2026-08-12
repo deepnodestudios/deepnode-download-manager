@@ -1,5 +1,7 @@
 // Japanese UI strings — DeepNode Download Manager
 export default {
+  btn_install_amo: 'Mozilla アドオンからインストール',
+  ff_store_install: 'Mozilla アドオンストアから直接 Firefox 拡張機能をインストールできます:',
   st_canceled: 'キャンセルされました',
   opt_default: '既定',
   refresh_modal_btn: 'URLを更新',

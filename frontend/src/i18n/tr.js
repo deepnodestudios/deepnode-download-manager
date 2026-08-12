@@ -1,5 +1,7 @@
 // Türkçe arayüz metinleri — DeepNode Download Manager
 export default {
+  btn_install_amo: 'Mozilla Add-ons\'tan Kur',
+  ff_store_install: 'Firefox eklentisini doğrudan Mozilla Add-ons mağazasından kurabilirsiniz:',
   opt_alt_default: 'Alt (varsayılan)',
   tip_drag_file: "Dosyayı klasöre sürükle",
   // ── Navbar ─────────────────────────────────────────────

@@ -1,5 +1,7 @@
 // Hindi UI strings — DeepNode Download Manager
 export default {
+  btn_install_amo: 'मोज़िला ऐड-ऑन से इंस्टॉल करें',
+  ff_store_install: 'आप मोज़िला ऐड-ऑन स्टोर से सीधे फ़ायरफ़ॉक्स एक्सटेंशन इंस्टॉल कर सकते हैं:',
   st_canceled: 'रद्द किया गया',
   opt_default: 'डिफ़ॉल्ट',
   refresh_modal_btn: 'URL अपडेट करें',

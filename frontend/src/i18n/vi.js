@@ -1,5 +1,7 @@
 // Vietnamese UI strings — DeepNode Download Manager
 export default {
+  btn_install_amo: 'Cài đặt từ Mozilla Add-ons',
+  ff_store_install: 'Bạn có thể cài đặt tiện ích mở rộng Firefox trực tiếp từ cửa hàng Tiện ích bổ sung Mozilla:',
   st_canceled: 'Đã hủy',
   opt_default: 'mặc định',
   refresh_modal_btn: 'Cập nhật URL',

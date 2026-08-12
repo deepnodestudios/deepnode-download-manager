@@ -1,5 +1,7 @@
 // Simplified Chinese UI strings — DeepNode Download Manager
 export default {
+  btn_install_amo: '从 Mozilla Add-ons 安装',
+  ff_store_install: '您可以直接从 Mozilla 附加组件商店安装 Firefox 扩展：',
   st_canceled: '已取消',
   opt_default: '默认',
   refresh_modal_btn: '更新网址',

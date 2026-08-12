@@ -38,9 +38,29 @@ ipcMain.on('bring-to-front', () => {
 // Harici bağlantıyı SİSTEM tarayıcısında aç. Renderer artık `shell`e doğrudan
 // erişemediği için (contextIsolation) bu köprü gerekli; ayrıca yalnız http(s)
 // şemalarına izin verilir — `file:` / özel şemalarla yerel program çalıştırılamaz.
-ipcMain.on('open-external', (e, url) => {
+ipcMain.on('open-external', (e, url, browser) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
-    shell.openExternal(url).catch((err) => console.error('openExternal başarısız:', err.message));
+    if (browser === 'firefox' && process.platform === 'win32') {
+      import('child_process').then(({ exec, spawn }) => {
+        exec('reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\firefox.exe" /v "Path"', (err, stdout) => {
+          let firefoxPath = 'firefox';
+          if (!err) {
+            const match = stdout.match(/REG_SZ\s+(.+)/);
+            if (match && match[1]) {
+              const fs = require('fs');
+              const path = require('path');
+              const p = path.join(match[1].trim(), 'firefox.exe');
+              if (fs.existsSync(p)) firefoxPath = p;
+            }
+          }
+          const child = spawn(firefoxPath, [url], { detached: true, stdio: 'ignore' });
+          child.on('error', () => shell.openExternal(url).catch(console.error));
+          child.unref();
+        });
+      });
+    } else {
+      shell.openExternal(url).catch((err) => console.error('openExternal başarısız:', err.message));
+    }
   }
 });
 

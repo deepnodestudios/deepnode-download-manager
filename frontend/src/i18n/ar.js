@@ -1,5 +1,7 @@
 // Arabic UI strings — DeepNode Download Manager (RTL)
 export default {
+  btn_install_amo: 'تثبيت من Mozilla Add-ons',
+  ff_store_install: 'يمكنك تثبيت إضافة Firefox مباشرة من متجر Mozilla Add-ons:',
   st_canceled: 'تم الإلغاء',
   opt_default: 'افتراضي',
   refresh_modal_btn: 'تحديث الرابط',

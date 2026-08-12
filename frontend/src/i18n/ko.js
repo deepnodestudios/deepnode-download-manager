@@ -1,5 +1,7 @@
 // Korean UI strings — DeepNode Download Manager
 export default {
+  btn_install_amo: 'Mozilla Add-ons에서 설치',
+  ff_store_install: 'Mozilla Add-ons 스토어에서 직접 Firefox 확장 프로그램을 설치할 수 있습니다:',
   st_canceled: '취소됨',
   opt_default: '기본',
   refresh_modal_btn: 'URL 업데이트',
