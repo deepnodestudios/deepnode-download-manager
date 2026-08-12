@@ -708,14 +708,15 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label" style={{ color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <CheckCircle2 size={15} /> Firefox (140+)
+                  <label className="form-label" style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <CheckCircle2 size={15} /> Firefox
                   </label>
-                  <ol style={{ margin: '4px 0 0 18px', padding: 0, fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
-                    <li>{t('ff_step1')}</li>
-                    <li>{t('ff_step2')}</li>
-                    <li>{t('ff_step3')}</li>
-                  </ol>
+                  <div style={{ margin: '4px 0 0 18px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    {t('ff_store_install')}<br/>
+                    <button type="button" className="btn btn-primary" style={{ marginTop: '10px' }} onClick={() => window.ddmNative.openExternal('https://addons.mozilla.org/addon/deepnode-download-manager/')}>
+                      {t('btn_install_amo')}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="info-strip info-strip-warn">
