@@ -77,8 +77,14 @@ export const ipcMain = {
 export const dialog = { showOpenDialog: async () => ({ canceled: true }), showErrorBox: noop };
 export const shell = { openExternal: async () => {}, openPath: async () => {}, showItemInFolder: noop, beep: noop };
 export const screen = { getDisplayMatching: () => ({ workAreaSize: { height: 1080 } }) };
+export const nativeImage = {
+  createFromPath: () => ({
+    isEmpty: () => false,
+    resize: () => ({})
+  })
+};
 
-export default { app, BrowserWindow, Tray, Menu, clipboard, Notification, ipcMain, dialog, shell, screen };
+export default { app, BrowserWindow, Tray, Menu, clipboard, Notification, ipcMain, dialog, shell, screen, nativeImage };
 export const __stub = { FakeBrowserWindow, handlers };
 `;
 

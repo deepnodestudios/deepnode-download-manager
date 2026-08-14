@@ -226,7 +226,7 @@ async function run() {
     check('eklentiye şifre alanları gönderilmez',
       extSettings.json && extSettings.json.proxyPass === undefined && extSettings.json.siteLogins === undefined);
     check('eklenti capture ayarlarını görebilir',
-      extSettings.json && extSettings.json.captureBypassKey === 'Alt' && extSettings.json.captureEnabled === true);
+      extSettings.json && extSettings.json.captureBypassKey === 'Shift' && extSettings.json.captureEnabled === true);
     check('eklenti indirme listesine erişemez',
       (await call('/api/downloads', { origin: EXT_ORIGIN })).status === 403);
     check('uygulama penceresi tam erişimli',

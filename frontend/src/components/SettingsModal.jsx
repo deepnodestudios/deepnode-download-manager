@@ -174,7 +174,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
 
   const handleFirefoxInstall = async () => {
     try {
-      await window.ddmNative.openExternal('https://addons.mozilla.org/tr/firefox/addon/deepnode-dlm/', 'firefox');
+      await window.ddmNative.openExternal('https://addons.mozilla.org/addon/deepnode-download-manager/', 'firefox');
     } catch (err) {
       alert(t('alert_ext_folder', { msg: err.message }));
     }
@@ -721,7 +721,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                   </label>
                   <div style={{ margin: '4px 0 0 18px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                     {t('ff_store_install')}<br/>
-                    <button type="button" className="btn btn-primary" style={{ marginTop: '10px' }} onClick={() => window.ddmNative.openExternal('https://addons.mozilla.org/addon/deepnode-download-manager/')}>
+                    <button type="button" className="btn btn-primary" style={{ marginTop: '10px' }} onClick={handleFirefoxInstall}>
                       {t('btn_install_amo')}
                     </button>
                   </div>

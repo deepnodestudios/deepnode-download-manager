@@ -445,83 +445,100 @@ async function resolveItemFilename(item) {
 }
 
 // ---- Capture browser-initiated downloads ----
-chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-  if (!cfg.enabled || !cfg.captureDownloads) return;
-  if (!captureEnabled) return;
+async function handleDownloadItem(item, suggest) {
+  if (!cfg.enabled || !cfg.captureDownloads) { if (suggest) suggest(); return; }
+  if (!captureEnabled) { if (suggest) suggest(); return; }
   const url = item.finalUrl || item.url || '';
-  if (!/^https?:/i.test(url)) return;
+  if (!/^https?:/i.test(url)) { if (suggest) suggest(); return; }
 
   try {
     const u = new URL(url);
     if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
       const p = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
       const appPorts = [cfg.port, resolvedPort, 5000, 5001, 5002, 5003].filter(Boolean);
-      if (appPorts.includes(p)) return;
+      if (appPorts.includes(p)) { if (suggest) suggest(); return; }
     }
   } catch (e) { }
 
-  if (item.state && item.state !== 'in_progress') return;
-  if (item.paused) return;
+  if (item.state && item.state !== 'in_progress') { if (suggest) suggest(); return; }
+  if (item.paused) { if (suggest) suggest(); return; }
   try {
     const started = item.startTime ? Date.parse(item.startTime) : 0;
-    if (started && Date.now() - started > 60000) return;
+    if (started && Date.now() - started > 60000) { if (suggest) suggest(); return; }
   } catch (e) { }
 
   if (isBypassHeld()) {
     lastBypassClickAt = 0;
     try { chrome.storage.session.remove('bypassClickAt'); } catch(e){}
+    if (suggest) suggest();
     return;
   }
 
   try {
     const dlHost = new URL(url).hostname;
     const refHost = item.referrer ? new URL(item.referrer).hostname : '';
-    if (dnIsSiteBlocked(dlHost, cfg.disabledSites) || dnIsSiteBlocked(refHost, cfg.disabledSites)) return;
+    if (dnIsSiteBlocked(dlHost, cfg.disabledSites) || dnIsSiteBlocked(refHost, cfg.disabledSites)) {
+      if (suggest) suggest();
+      return;
+    }
   } catch (e) { }
 
-  (async () => {
-    try {
-      let ts = lastBypassClickAt;
-      if (!ts) {
-        try { ts = (await chrome.storage.session.get('bypassClickAt')).bypassClickAt || 0; } catch (e) { ts = 0; }
-      }
-      if (ts && Date.now() - ts < BYPASS_GRACE_MS) {
-        lastBypassClickAt = 0;
-        try { chrome.storage.session.remove('bypassClickAt'); } catch (e) { }
-        return suggest();
-      }
-
-      let name = item.filename ? item.filename.split(/[\\/]/).pop() : '';
-      if (!name) name = guessName(url);
-      if ((!name || !/\.[a-z0-9]{1,8}$/i.test(name)) && MIME_EXT[item.mime || '']) {
-        name = (name || 'download') + '.' + MIME_EXT[item.mime || ''];
-      }
-      
-      const result = await sendToApp(url, name, item.referrer);
-      if (result === 'accepted') {
-        try {
-          if (item.state !== 'interrupted' && item.state !== 'complete') {
-            chrome.downloads.cancel(item.id).catch(() => {});
-          }
-          chrome.downloads.search({ id: item.id }, (res) => {
-            let _ = chrome.runtime.lastError;
-            if (res && res[0] && res[0].state === 'complete') {
-              try { chrome.downloads.removeFile(item.id).catch(() => {}); } catch (e) {}
-            }
-            try { chrome.downloads.erase({ id: item.id }).catch(() => {}); } catch (e) {}
-          });
-        } catch (e) { }
-        notify(DN_I18N.t('notif_captured'), name || url);
-        suggest();
-      } else {
-        suggest();
-      }
-    } catch (err) {
-      suggest();
+  try {
+    let ts = lastBypassClickAt;
+    if (!ts) {
+      try { ts = (await chrome.storage.session.get('bypassClickAt')).bypassClickAt || 0; } catch (e) { ts = 0; }
     }
-  })();
-  return true;
-});
+    if (ts && Date.now() - ts < BYPASS_GRACE_MS) {
+      lastBypassClickAt = 0;
+      try { chrome.storage.session.remove('bypassClickAt'); } catch (e) { }
+      if (suggest) suggest();
+      return;
+    }
+
+    let name = item.filename ? item.filename.split(/[\\/]/).pop() : '';
+    if (!name) name = guessName(url);
+    if ((!name || !/\.[a-z0-9]{1,8}$/i.test(name)) && MIME_EXT[item.mime || '']) {
+      name = (name || 'download') + '.' + MIME_EXT[item.mime || ''];
+    }
+    
+    const result = await sendToApp(url, name, item.referrer);
+    if (result === 'accepted') {
+      try {
+        if (item.state !== 'interrupted' && item.state !== 'complete') {
+          chrome.downloads.cancel(item.id).catch(() => {});
+        }
+        chrome.downloads.search({ id: item.id }, (res) => {
+          let _ = chrome.runtime.lastError;
+          if (res && res[0] && res[0].state === 'complete') {
+            try { chrome.downloads.removeFile(item.id).catch(() => {}); } catch (e) {}
+          }
+          try { chrome.downloads.erase({ id: item.id }).catch(() => {}); } catch (e) {}
+        });
+      } catch (e) { }
+      notify(DN_I18N.t('notif_captured'), name || url);
+      if (suggest) suggest();
+    } else {
+      if (suggest) suggest();
+    }
+  } catch (err) {
+    if (suggest) suggest();
+  }
+}
+
+// Chrome: onDeterminingFilename (suggest desteği ile dosya oluşturulmadan yakalar)
+// Firefox: onDeterminingFilename yoktur, onCreated kullanılır
+if (typeof chrome !== 'undefined' && chrome.downloads) {
+  if (chrome.downloads.onDeterminingFilename) {
+    chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+      handleDownloadItem(item, suggest);
+      return true;
+    });
+  } else if (chrome.downloads.onCreated) {
+    chrome.downloads.onCreated.addListener((item) => {
+      handleDownloadItem(item, null);
+    });
+  }
+}
 
 // ---- Sniff media stream URLs (for blob/HLS fallback) ----
 chrome.webRequest.onCompleted.addListener((d) => {

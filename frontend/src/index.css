@@ -830,7 +830,7 @@ body {
   gap: 9px;
   font-weight: 600;
   color: var(--text-main);
-  max-width: 280px;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

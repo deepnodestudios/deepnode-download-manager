@@ -547,6 +547,110 @@ export default function DownloadList({
     }
   };
 
+  const autoFitColumn = useCallback((colId) => {
+    if (colId === 'select') return;
+    let requiredWidth = MIN_COL_WIDTH;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    if (ctx) {
+      // 1. Başlık genişliğini ölç
+      ctx.font = '700 11px Inter, system-ui, -apple-system, sans-serif';
+      const headerTitle = t('th_' + (colId === 'name' ? 'filename' : colId));
+      const headerW = ctx.measureText(headerTitle || '').width + 50;
+      requiredWidth = Math.max(requiredWidth, headerW);
+
+      // 2. Listedeki satırların içerik genişliğini ölç
+      if (colId === 'name') {
+        ctx.font = '600 13px Inter, system-ui, -apple-system, sans-serif';
+        let maxTextW = 0;
+        for (const item of downloads) {
+          const name = item.filename || '';
+          const w = ctx.measureText(name).width;
+          if (w > maxTextW) maxTextW = w;
+        }
+        // İkon (28px) + Boşluk (9px) + Hücre dolgusu (24px) + Kenar payı (24px)
+        const contentW = maxTextW + 28 + 9 + 24 + 24;
+        requiredWidth = Math.max(requiredWidth, contentW);
+      } else if (colId === 'size') {
+        ctx.font = '600 13px "JetBrains Mono", ui-monospace, monospace, sans-serif';
+        let maxRowW = 0;
+        for (const item of downloads) {
+          const s1 = formatBytes(item.downloadedBytes);
+          const s2 = formatBytes(item.totalSize);
+          const w = Math.max(ctx.measureText(s1).width, ctx.measureText(s2).width);
+          if (w > maxRowW) maxRowW = w;
+        }
+        requiredWidth = Math.max(requiredWidth, maxRowW + 36);
+      } else if (colId === 'progress') {
+        ctx.font = '600 13px "JetBrains Mono", ui-monospace, monospace, sans-serif';
+        let maxRowW = 0;
+        for (const item of downloads) {
+          const percent = item.status === 'completed' ? 100 : (item.totalSize > 0 ? Math.min(100, Math.round((item.downloadedBytes / item.totalSize) * 100)) : 0);
+          const str = (item.preflight && item.status === 'downloading' ? `${t('st_scanning')} ` : '') + t('pct', { n: percent });
+          const w = ctx.measureText(str).width;
+          if (w > maxRowW) maxRowW = w;
+        }
+        requiredWidth = Math.max(requiredWidth, maxRowW + 36);
+      } else if (colId === 'speed') {
+        ctx.font = '600 13px "JetBrains Mono", ui-monospace, monospace, sans-serif';
+        let maxRowW = 0;
+        for (const item of downloads) {
+          const s = item.status === 'downloading' ? `${formatBytes(item.speed)}/s` : '-';
+          const w = ctx.measureText(s).width;
+          if (w > maxRowW) maxRowW = w;
+        }
+        requiredWidth = Math.max(requiredWidth, maxRowW + 36);
+      } else if (colId === 'eta') {
+        ctx.font = '600 13px "JetBrains Mono", ui-monospace, monospace, sans-serif';
+        let maxRowW = 0;
+        for (const item of downloads) {
+          const s = item.status === 'downloading' ? formatSeconds(item.eta) : '-';
+          const w = ctx.measureText(s).width;
+          if (w > maxRowW) maxRowW = w;
+        }
+        requiredWidth = Math.max(requiredWidth, maxRowW + 36);
+      } else if (colId === 'status') {
+        ctx.font = '600 12px Inter, system-ui, sans-serif';
+        let maxRowW = 0;
+        for (const item of downloads) {
+          let label = item.status;
+          if (item.status === 'downloading') label = t('st_downloading');
+          else if (item.status === 'merging') label = t('st_merging');
+          else if (item.status === 'completed') label = t('st_completed');
+          else if (item.status === 'paused') label = t('st_paused');
+          else if (item.status === 'queued') label = t('st_queued');
+          else if (item.status === 'error') label = t('st_error');
+          else if (item.status === 'canceled') label = t('st_canceled');
+          const w = ctx.measureText(label || '').width + 32;
+          if (w > maxRowW) maxRowW = w;
+        }
+        requiredWidth = Math.max(requiredWidth, maxRowW + 36);
+      } else if (colId === 'date') {
+        ctx.font = '13px "JetBrains Mono", ui-monospace, monospace, sans-serif';
+        let maxRowW = 0;
+        for (const item of downloads) {
+          const dateStr = new Date(parseInt(item.id.split('_')[1])).toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit' });
+          const w = ctx.measureText(dateStr).width;
+          if (w > maxRowW) maxRowW = w;
+        }
+        requiredWidth = Math.max(requiredWidth, maxRowW + 36);
+      } else if (colId === 'actions') {
+        requiredWidth = Math.max(requiredWidth, 180);
+      }
+    } else if (DEFAULT_COL_WIDTHS[colId]) {
+      requiredWidth = DEFAULT_COL_WIDTHS[colId];
+    }
+
+    const finalW = Math.min(Math.max(MIN_COL_WIDTH, Math.ceil(requiredWidth)), 1400);
+
+    setColWidths(prev => {
+      const next = { ...prev, [colId]: finalW };
+      try { localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(next)); } catch (err) { }
+      return next;
+    });
+  }, [downloads, t]);
+
   if (downloads.length === 0) {
     return (
       <div className="table-container empty-state">
@@ -654,9 +758,7 @@ export default function DownloadList({
                       onClick={(e) => e.stopPropagation()}
                       onDoubleClick={(e) => {
                         e.stopPropagation();
-                        if (DEFAULT_COL_WIDTHS[colId]) {
-                          setColWidths(prev => ({ ...prev, [colId]: DEFAULT_COL_WIDTHS[colId] }));
-                        }
+                        autoFitColumn(colId);
                       }}
                       onMouseDown={(e) => startColResize(e, colId)}
                     />

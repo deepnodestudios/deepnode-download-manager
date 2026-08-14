@@ -1,0 +1,12 @@
+{
+  "addons": {
+    "deepnode-dlm@deepnodestudios.com": {
+      "updates": [
+        {
+          "version": "1.4.8",
+          "update_link": "https://github.com/deepnodestudios/deepnode-download-manager/releases/download/v1.4.8/deepnode-extension-firefox.xpi"
+        }
+      ]
+    }
+  }
+}
