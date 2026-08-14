@@ -41,23 +41,19 @@ ipcMain.on('bring-to-front', () => {
 ipcMain.on('open-external', (e, url, browser) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
     if (browser === 'firefox' && process.platform === 'win32') {
-      import('child_process').then(({ exec, spawn }) => {
-        exec('reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\firefox.exe" /v "Path"', (err, stdout) => {
-          let firefoxPath = 'firefox';
-          if (!err) {
-            const match = stdout.match(/REG_SZ\s+(.+)/);
-            if (match && match[1]) {
-              const fs = require('fs');
-              const path = require('path');
-              const p = path.join(match[1].trim(), 'firefox.exe');
-              if (fs.existsSync(p)) firefoxPath = p;
-            }
-          }
-          const child = spawn(firefoxPath, [url], { detached: true, stdio: 'ignore' });
-          child.on('error', () => shell.openExternal(url).catch(console.error));
-          child.unref();
-        });
-      });
+      const candidates = [
+        path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'Mozilla Firefox', 'firefox.exe'),
+        path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Mozilla Firefox', 'firefox.exe'),
+        path.join(process.env['LOCALAPPDATA'] || '', 'Mozilla Firefox', 'firefox.exe')
+      ];
+      const firefoxExe = candidates.find((p) => p && fs.existsSync(p)) || 'firefox';
+      try {
+        const child = spawn(firefoxExe, [url], { detached: true, stdio: 'ignore' });
+        child.on('error', () => shell.openExternal(url).catch(console.error));
+        child.unref();
+      } catch (err) {
+        shell.openExternal(url).catch(console.error);
+      }
     } else {
       shell.openExternal(url).catch((err) => console.error('openExternal başarısız:', err.message));
     }
