@@ -46,11 +46,13 @@ const archive = archiver('zip', { zlib: { level: 9 } });
 
 // Firefox paketi için manifest dönüşümü: background.service_worker Chrome içindir,
 // Firefox yok sayıp AMO linter'ında uyarı üretir — xpi'ye girmeden çıkarılır.
-// Kaynak manifest.json'a DOKUNULMAZ (Chrome "load unpacked" aynı klasörü kullanır).
 const manifest = JSON.parse(fs.readFileSync(path.join(srcDir, 'manifest.json'), 'utf8'));
 if (manifest.background) {
   delete manifest.background.service_worker;
   manifest.background.scripts = ['strings.js', 'background.js'];
+}
+if (manifest.browser_specific_settings && manifest.browser_specific_settings.gecko) {
+  delete manifest.browser_specific_settings.gecko.update_url;
 }
 
 output.on('close', () => {

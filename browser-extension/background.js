@@ -528,8 +528,9 @@ async function handleDownloadItem(item, suggest) {
 // Chrome: onDeterminingFilename (suggest desteği ile dosya oluşturulmadan yakalar)
 // Firefox: onDeterminingFilename yoktur, onCreated kullanılır
 if (typeof chrome !== 'undefined' && chrome.downloads) {
-  if (chrome.downloads.onDeterminingFilename) {
-    chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  const onDet = chrome.downloads['onDeterminingFilename'];
+  if (onDet && typeof onDet.addListener === 'function') {
+    onDet.addListener((item, suggest) => {
       handleDownloadItem(item, suggest);
       return true;
     });
