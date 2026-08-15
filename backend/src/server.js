@@ -248,38 +248,40 @@ if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
 }
 
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
-
 // WebSocket real-time broadcasting
 const clients = new Set();
 
-wss.on('connection', (ws) => {
-  clients.add(ws);
-  ws.isAlive = true;
-  ws.on('pong', () => { ws.isAlive = true; });
+function attachWebSocket(httpServer) {
+  const wss = new WebSocketServer({ server: httpServer });
+  wss.on('connection', (ws) => {
+    clients.add(ws);
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
 
-  // İşlenmeyen 'error' olayı süreci düşürebilirdi
-  ws.on('error', (err) => {
-    console.error('WebSocket client error:', err.message);
-    clients.delete(ws);
+    // İşlenmeyen 'error' olayı süreci düşürebilirdi
+    ws.on('error', (err) => {
+      console.error('WebSocket client error:', err.message);
+      clients.delete(ws);
+    });
+
+    // Send initial state upon connection
+    ws.send(JSON.stringify({
+      type: 'INIT_STATE',
+      payload: {
+        downloads: queueManager.getAllDownloads(),
+        settings: storageService.settings
+      }
+    }));
+
+    ws.on('close', () => {
+      clients.delete(ws);
+    });
   });
+  wss.on('error', (err) => console.error('WebSocket server error:', err.message));
+}
 
-  // Send initial state upon connection
-  ws.send(JSON.stringify({
-    type: 'INIT_STATE',
-    payload: {
-      downloads: queueManager.getAllDownloads(),
-      settings: storageService.settings
-    }
-  }));
-
-  ws.on('close', () => {
-    clients.delete(ws);
-  });
-});
-
-wss.on('error', (err) => console.error('WebSocket server error:', err.message));
+const server = http.createServer(app);
+attachWebSocket(server);
 
 // Kalp atışı: uyku/ağ kopması sonrası ölü bağlantılar `clients` kümesinde
 // birikip her yayında boşa serileştirmeye yol açıyordu.
@@ -984,16 +986,35 @@ function onServerReady() {
 const MAX_PORT_ATTEMPTS = 10;
 let portAttempt = 0;
 
-// GÜVENLİK: yalnız geri döngü arayüzü. Eskiden 0.0.0.0'a bağlanıyordu ve API
-// yerel ağdaki her cihazdan erişilebilirdi.
-const LISTEN_HOST = '127.0.0.1';
+// GÜVENLİK: yalnız geri döngü. Eskiden 0.0.0.0'a bağlanıyordu ve API LAN'dan
+// açılıyordu. Chrome `localhost` → 127.0.0.1 tercih eder; Firefox sıkça ::1
+// dener — yalnız IPv4 dinlenirse eklenti "bağlı / kopuk" arasında asılı kalır.
+const LISTEN_HOST4 = '127.0.0.1';
+const LISTEN_HOST6 = '::1';
+
+function bindIPv6Loopback(port) {
+  const server6 = http.createServer(app);
+  attachWebSocket(server6);
+  server6.on('error', (err) => {
+    if (err.code === 'EADDRINUSE' || err.code === 'EADDRNOTAVAIL' || err.code === 'EAFNOSUPPORT' || err.code === 'EINVAL') {
+      console.warn(`IPv6 [::1]:${port} dinlenemedi (${err.code}) — IPv4 loopback yeterli.`);
+      return;
+    }
+    console.error('IPv6 loopback hatası:', err.message);
+  });
+  try {
+    server6.listen({ port, host: LISTEN_HOST6, ipv6Only: true });
+  } catch (err) {
+    console.warn('IPv6 loopback başlatılamadı:', err.message);
+  }
+}
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE' && portAttempt < MAX_PORT_ATTEMPTS) {
     portAttempt++;
     activePort = DEFAULT_PORT + portAttempt;
     console.warn(`Port ${activePort - 1} kullanımda — ${activePort} deneniyor...`);
-    setTimeout(() => server.listen(activePort, LISTEN_HOST), 150);
+    setTimeout(() => server.listen(activePort, LISTEN_HOST4), 150);
     return;
   }
   console.error('Backend sunucusu başlatılamadı:', err.message);
@@ -1010,8 +1031,9 @@ function persistActivePort(port) {
   }
 }
 
-server.listen(activePort, LISTEN_HOST, () => {
+server.listen(activePort, LISTEN_HOST4, () => {
   activePort = server.address().port;
   persistActivePort(activePort);
+  bindIPv6Loopback(activePort);
   onServerReady();
 });

@@ -23,9 +23,13 @@
 
 const EXTENSION_ORIGIN_RE = /^(chrome|moz|edge|safari-web)-extension:\/\/[a-z0-9@._+-]+\/?$/i;
 
-// Uygulamanın kendi arayüzü (ana pencere + ekleme/ilerleme pencereleri)
+// Uygulamanın kendi arayüzü (ana pencere + ekleme/ilerleme pencereleri).
+// Firefox `localhost`'u bazen IPv6 `[::1]` olarak çözdüğü için üç loopback
+// biçimi de kabul edilir — LAN adresi değil, yalnız geri döngü.
 function isAppOrigin(origin, port) {
-  return origin === `http://localhost:${port}` || origin === `http://127.0.0.1:${port}`;
+  return origin === `http://localhost:${port}`
+    || origin === `http://127.0.0.1:${port}`
+    || origin === `http://[::1]:${port}`;
 }
 
 export function isExtensionOrigin(origin) {

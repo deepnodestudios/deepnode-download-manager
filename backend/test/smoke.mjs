@@ -229,6 +229,9 @@ async function run() {
       extSettings.json && extSettings.json.captureBypassKey === 'Shift' && extSettings.json.captureEnabled === true);
     check('eklenti indirme listesine erişemez',
       (await call('/api/downloads', { origin: EXT_ORIGIN })).status === 403);
+    const mozOrigin = 'moz-extension://5481c110-d959-4c3a-9b6c-3d4e5f6a7b8c';
+    check('Firefox eklenti origin\'i ayarları okuyabilir',
+      (await call('/api/settings', { origin: mozOrigin })).status === 200);
     check('uygulama penceresi tam erişimli',
       (await call('/api/downloads', { origin: APP_ORIGIN })).status === 200);
 

@@ -127,35 +127,65 @@ async function isBypassActive() {
   }
   return false;
 }
-// Uygulamanın dinlediği port. Varsayılan 5000; doluysa uygulama sıradakine
-// düşer (bkz. backend/src/server.js), bu yüzden bağlanamazsak kısa bir tarama
-// yapılır ve bulunan port ayarlara yazılır.
+// Uygulama 127.0.0.1 dinler. Chrome `localhost`'u IPv4'e çevirir; Firefox sıkça
+// ::1 dener ve (IPv6 dinlenmiyorsa) istek zaman aşımına uğrar — popup "kontrol
+// ediliyor"da asılı kalır. 127.0.0.1 önce, kısa zaman aşımı, sonra localhost.
+const APP_HOSTS = ['127.0.0.1', 'localhost'];
 let resolvedPort = null;
-async function findAppPort() {
-  const candidates = [cfg.port, 5000, 5001, 5002, 5003].filter((p, i, a) => p && a.indexOf(p) === i);
-  for (const port of candidates) {
-    try {
-      const r = await fetch(`http://localhost:${port}/api/settings`, { cache: 'no-store' });
-      if (r.ok) return port;
-    } catch (e) { /* bu portta uygulama yok */ }
+let resolvedHost = '127.0.0.1';
+
+function fetchWithTimeout(url, opts = {}, ms = 1500) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { cache: 'no-store', ...opts, signal: ctrl.signal })
+    .finally(() => clearTimeout(timer));
+}
+
+function rememberApp(host, port) {
+  resolvedHost = host;
+  resolvedPort = port;
+  if (cfg.port !== port) {
+    cfg.port = port;
+    try { chrome.storage.local.set({ port }); } catch (e) { /* ignore */ }
   }
-  return null;
+}
+
+async function probeApp() {
+  const ports = [resolvedPort, cfg.port, 5000, 5001, 5002, 5003].filter((p, i, a) => p && a.indexOf(p) === i);
+  const hosts = [resolvedHost, ...APP_HOSTS].filter((h, i, a) => h && a.indexOf(h) === i);
+  for (const port of ports) {
+    for (const host of hosts) {
+      try {
+        const r = await fetchWithTimeout(`http://${host}:${port}/api/settings`, {}, 800);
+        if (r.ok) { rememberApp(host, port); return true; }
+      } catch (e) { /* bu host:port'ta uygulama yok */ }
+    }
+  }
+  return false;
+}
+
+async function fetchApp(path, opts = {}, timeoutMs = 2500) {
+  const attempt = () => {
+    const host = resolvedHost || '127.0.0.1';
+    const port = resolvedPort || cfg.port || 5000;
+    return fetchWithTimeout(`http://${host}:${port}${path}`, opts, timeoutMs);
+  };
+  try {
+    if (!resolvedPort && !(await probeApp())) throw new Error('app unreachable');
+    return await attempt();
+  } catch (e) {
+    resolvedPort = null;
+    if (!(await probeApp())) throw e;
+    return attempt();
+  }
 }
 
 async function refreshRemoteSettings() {
   try {
-    if (!resolvedPort) {
-      resolvedPort = await findAppPort();
-      if (!resolvedPort) return; // uygulama çalışmıyor
-      if (resolvedPort !== cfg.port) {
-        cfg.port = resolvedPort;
-        chrome.storage.local.set({ port: resolvedPort });
-      }
-    }
     // Report our version so the app can warn when the loaded extension is stale
     // (Chrome doesn't auto-reload unpacked extensions after an app update).
     const ver = chrome.runtime.getManifest().version;
-    const r = await fetch(`http://localhost:${resolvedPort}/api/settings?extVersion=${encodeURIComponent(ver)}`);
+    const r = await fetchApp(`/api/settings?extVersion=${encodeURIComponent(ver)}`, {}, 1500);
     if (!r.ok) { resolvedPort = null; return; }
     const s = await r.json();
     if (s && typeof s.captureBypassKey === 'string') bypassKey = s.captureBypassKey;
@@ -179,8 +209,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 refreshRemoteSettings();
 
-function endpoint(path) { return `http://localhost:${cfg.port}${path}`; }
-
 function guessName(url) {
   try {
     const u = new URL(url);
@@ -202,11 +230,11 @@ function notify(title, message) {
 
 async function postJson(path, body) {
   try {
-    const res = await fetch(endpoint(path), {
+    const res = await fetchApp(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
-    });
+    }, 8000);
     if (!res.ok) return null;
     try { return await res.json(); } catch (e) { return {}; }
   } catch (e) {
@@ -260,11 +288,11 @@ async function sendVideoBatchToApp(url, qualities, referer, filename) {
 
 async function getVideoFormats(url, referer) {
   try {
-    const res = await fetch(endpoint('/api/video/formats'), {
+    const res = await fetchApp('/api/video/formats', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, referer: referer || undefined })
-    });
+    }, 30000);
     if (!res.ok) return { error: true };
     return await res.json();
   } catch (e) {
@@ -570,6 +598,12 @@ chrome.webNavigation && chrome.webNavigation.onCommitted && chrome.webNavigation
 });
 
 // ---- Messaging ----
+// Popup açıkken port tutmak Firefox event page'in ping sırasında uyumasını engeller.
+chrome.runtime.onConnect.addListener((port) => {
+  if (!port || port.name !== 'dn-popup') return;
+  port.onDisconnect.addListener(() => { /* popup kapandı */ });
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
   if (msg.type === 'DN_MODS') {
@@ -616,9 +650,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === 'DN_PING') {
-    fetch(endpoint('/api/settings'))
-      .then((r) => sendResponse({ ok: r.ok }))
-      .catch(() => sendResponse({ ok: false }));
+    fetchApp('/api/settings', {}, 1500)
+      .then((r) => { try { sendResponse({ ok: !!r.ok, port: resolvedPort || cfg.port, host: resolvedHost }); } catch (e) { /* popup kapandı */ } })
+      .catch(() => { try { sendResponse({ ok: false }); } catch (e) { /* popup kapandı */ } });
     return true;
   }
 });

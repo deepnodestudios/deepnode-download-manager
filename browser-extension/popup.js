@@ -77,6 +77,9 @@ chrome.storage.local.get(DEFAULTS, (v) => {
   ping();
 });
 
+// Firefox event page popup açıkken uyumasın (sendMessage ırkı)
+try { chrome.runtime.connect({ name: 'dn-popup' }); } catch (e) { /* ignore */ }
+
 // Uygulamada dil değişirse popup da anında uyum sağlar
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
@@ -114,18 +117,69 @@ Object.values(els).forEach((el) => el.addEventListener('change', () => { save();
 function ping() {
   const dot = document.getElementById('dot');
   const txt = document.getElementById('statusText');
-  dot.className = 'dot';
-  txt.textContent = t('pop_checking');
-  chrome.runtime.sendMessage({ type: 'DN_PING' }, (resp) => {
-    if (!chrome.runtime.lastError && resp && resp.ok) {
+  const port = parseInt(els.port.value, 10) || 5000;
+  let finished = false;
+  const done = (ok, shownPort) => {
+    if (finished) return;
+    finished = true;
+    if (ok) {
       dot.className = 'dot ok';
-      txt.textContent = t('pop_connected', { port: parseInt(els.port.value, 10) || 5000 });
+      txt.textContent = t('pop_connected', { port: shownPort || port });
     } else {
       dot.className = 'dot bad';
       txt.textContent = t('pop_disconnected');
     }
+  };
+
+  dot.className = 'dot';
+  txt.textContent = t('pop_checking');
+
+  // Firefox MV3 event page uykudayken ilk sendMessage "Receiving end does not
+  // exist" döner; Chrome service worker'ı kendiliğinden uyanır. Bir kez daha
+  // dene, olmazsa 127.0.0.1 üzerinden doğrudan bağlan (localhost → ::1 tuzağı).
+  pingViaBackground().then((r) => {
+    if (r && r.ok) { done(true, r.port || port); return; }
+    pingDirect(port).then((ok) => done(ok, port));
   });
   checkExtUpdate();
+}
+
+function pingViaBackground() {
+  const once = () => new Promise((resolve) => {
+    let settled = false;
+    const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+    const timer = setTimeout(() => finish(null), 2000);
+    try {
+      chrome.runtime.sendMessage({ type: 'DN_PING' }, (resp) => {
+        clearTimeout(timer);
+        if (chrome.runtime.lastError) finish(null);
+        else finish(resp && resp.ok ? resp : null);
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      finish(null);
+    }
+  });
+  return once().then((r) => {
+    if (r) return r;
+    return new Promise((res) => setTimeout(res, 120)).then(once);
+  });
+}
+
+async function pingDirect(port) {
+  for (const host of ['127.0.0.1', 'localhost']) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 1200);
+      const r = await fetch('http://' + host + ':' + port + '/api/settings', {
+        cache: 'no-store',
+        signal: ctrl.signal
+      });
+      clearTimeout(timer);
+      if (r.ok) return true;
+    } catch (e) { /* diğer host */ }
+  }
+  return false;
 }
 
 // Sem-ver karşılaştırma: a>b ise 1, a<b ise -1, eşitse 0
@@ -150,8 +204,19 @@ function checkExtUpdate() {
   const btn = document.getElementById('reloadExt');
   let own = '';
   try { own = chrome.runtime.getManifest().version; } catch (e) { /* ignore */ }
-  fetch('http://localhost:' + port + '/api/extension/status')
-    .then((r) => (r.ok ? r.json() : null))
+
+  const tryHost = (host) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 1500);
+    return fetch('http://' + host + ':' + port + '/api/extension/status', {
+      cache: 'no-store',
+      signal: ctrl.signal
+    }).finally(() => clearTimeout(timer));
+  };
+
+  tryHost('127.0.0.1')
+    .catch(() => tryHost('localhost'))
+    .then((r) => (r && r.ok ? r.json() : null))
     .then((d) => {
       const expected = d && d.expected ? String(d.expected) : '';
       if (expected && own && dnVerCmp(expected, own) > 0) {
