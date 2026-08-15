@@ -50,7 +50,17 @@
   // #EXT-X-STREAM-INF (varyant/kalite listesi) bulunur. Master'ı tercih edersek yt-dlp
   // TÜM kaliteleri görür; yoksa yalnızca o an oynayan tek kalite gelir.
   function looksMaster(txt) {
-    return typeof txt === 'string' && txt.indexOf('#EXT-X-STREAM-INF') !== -1;
+    if (typeof txt !== 'string' || !txt) return false;
+    if (/#EXT-X-STREAM-INF/i.test(txt)) return true;
+    if (/<MPD[\s>]/i.test(txt) && /<Representation[\s>]/i.test(txt)) return true;
+    return false;
+  }
+  function urlLooksLikeMaster(u) {
+    try {
+      var p = new URL(u, location.href).pathname.toLowerCase();
+      if (/chunklist|media[_-]|index-sd|playlist_64|playlist_240/.test(p)) return false;
+      return /master|index\.m3u8|playlist\.m3u8|manifest\.m3u8|\.mpd$/.test(p);
+    } catch (e) { return false; }
   }
   function isM3u8Url(u) {
     try { return !!(u && URL_RE.test(new URL(u, location.href).href)); } catch (e) { return false; }
@@ -74,8 +84,8 @@
             if (!isM3u8) return;
             // clone ile orijinali TÜKETMEDEN gövdeyi oku (m3u8 küçük metindir)
             if (res.clone) {
-              res.clone().text().then(function (txt) { post(u, looksMaster(txt)); }, function () { post(u); });
-            } else { post(u); }
+              res.clone().text().then(function (txt) { post(u, looksMaster(txt)); }, function () { post(u, urlLooksLikeMaster(u)); });
+            } else { post(u, urlLooksLikeMaster(u)); }
           } catch (e) { /* ignore */ }
         }, function () {});
       } catch (e) { /* ignore */ }
@@ -101,7 +111,7 @@
             if (!isM3u8) return;
             var txt = '';
             try { txt = this.responseText || ''; } catch (e) { /* non-text responseType */ }
-            post(this.__dnUrl, looksMaster(txt));
+            post(this.__dnUrl, looksMaster(txt) || (!txt && urlLooksLikeMaster(this.__dnUrl)));
           } catch (e) { /* ignore */ }
         });
       }

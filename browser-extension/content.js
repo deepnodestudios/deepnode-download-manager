@@ -16,15 +16,31 @@ function dnCtxValid() {
 // geçer; bağlam geçersiz/hata varsa callback null alır (lastError burada tüketilir).
 function dnSendMessage(msg, cb) {
   if (!dnCtxValid()) { if (cb) cb(null); return; }
-  try {
-    if (cb) {
+  const send = (attempt) => {
+    try {
+      // Her zaman callback ver: aksi halde SW uykudayken Chrome
+      // "Unchecked runtime.lastError: Receiving end does not exist" yazar.
       chrome.runtime.sendMessage(msg, (resp) => {
-        cb(chrome.runtime.lastError ? null : (resp || null));
+        const err = chrome.runtime.lastError;
+        if (err && attempt < 1 && /Receiving end does not exist/i.test(String(err.message || ''))) {
+          setTimeout(() => send(attempt + 1), 150);
+          return;
+        }
+        if (cb) cb(err ? null : (resp || null));
       });
-    } else {
-      chrome.runtime.sendMessage(msg);
+    } catch (e) { if (cb) cb(null); }
+  };
+  send(0);
+}
+
+function dnKeepAlive(name) {
+  try {
+    const port = chrome.runtime.connect({ name });
+    if (port && port.onDisconnect) {
+      port.onDisconnect.addListener(() => { void chrome.runtime.lastError; });
     }
-  } catch (e) { if (cb) cb(null); }
+    return port;
+  } catch (e) { return null; }
 }
 
 // ---- Dil: uygulama ayarı ('auto'|'tr'|'en') → yoksa tarayıcı dili ----
@@ -283,10 +299,21 @@ function pageKey(u) {
     return url.origin + url.pathname;
   } catch (e) { return u; }
 }
+function isThinQualityList(data) {
+  if (!data || data.error) return false;
+  const hs = (data.heights && data.heights.length)
+    ? data.heights
+    : ((data.qualities || []).map((q) => q.height));
+  const nums = (hs || []).map(Number).filter((n) => n > 0);
+  if (!nums.length) return false;
+  return Math.max(...nums) <= 360 && nums.length <= 1;
+}
+
 function fetchFormats(url, cb, referer) {
   const key = pageKey(url);
   const c = formatsCache.get(key);
-  if (c && c.data && !c.data.error) { if (cb) cb(c.data); return; }
+  const thin = c && c.data && isThinQualityList(c.data);
+  if (c && c.data && !c.data.error && !(thin && !c.thinRetried)) { if (cb) cb(c.data); return; }
   if (c && c.pending) { if (cb) c.waiters.push(cb); return; }
   // Failure cooldown: don't hammer the app while it's closed (hover prefetch
   // would otherwise retry every mousemove); retry is allowed after 5s.
@@ -294,7 +321,9 @@ function fetchFormats(url, cb, referer) {
     if (Date.now() - (c.failedAt || 0) < 5000) { if (cb) cb(c.data); return; }
     formatsCache.delete(key);
   }
-  const entry = { pending: true, data: null, failedAt: 0, waiters: cb ? [cb] : [] };
+  const retryThin = !!(thin && !c.thinRetried);
+  if (thin) formatsCache.delete(key);
+  const entry = { pending: true, data: null, failedAt: 0, waiters: cb ? [cb] : [], thinRetried: retryThin };
   // Sonsuz kaydırmalı SPA oturumlarında (YouTube) video başına bir girdi
   // birikiyordu — en eskisini atarak sınırla (Map ekleme sırasını korur).
   if (formatsCache.size >= 200) {
@@ -302,7 +331,9 @@ function fetchFormats(url, cb, referer) {
     if (oldest !== undefined) formatsCache.delete(oldest);
   }
   formatsCache.set(key, entry);
+  let keepAlive = dnKeepAlive('dn-formats');
   dnSendMessage({ type: 'DN_GET_FORMATS', url, referer: referer || undefined }, (resp) => {
+    try { if (keepAlive) keepAlive.disconnect(); } catch (e) { /* ignore */ }
     const data = resp || { error: true };
     entry.pending = false;
     entry.data = data;
@@ -438,6 +469,17 @@ btn.addEventListener('click', (e) => {
   if (!current) return;
   const url = mediaUrl(current);
   const targetPageUrl = getVideoContextUrl(current);
+  const isYouTubePage = /(^|\.)(youtube\.com|youtu\.be)$/i.test(location.hostname);
+
+  // HLS master (tüm kaliteler) varsa onu kullan. Video sitelerinde eskiden
+  // doğrudan sayfa URL'si gidiyordu; oynatıcı o an 360p media playlist
+  // çektiyse menüde yalnız 360p kalıyordu. YouTube extractor'ı sayfa URL'si
+  // ile daha iyi çalışır.
+  if (!isYouTubePage && dnMasters[0] &&
+      (current.tagName === 'VIDEO' || current.tagName === 'AUDIO' || !url || url.startsWith('blob:'))) {
+    openQualityMenu(dnMasters[0], location.href);
+    return;
+  }
 
   // Known streaming site (YouTube, Twitter etc.): show a quality menu, then download chosen quality
   if (onVideoSite && (current.tagName === 'VIDEO' || !url || url.startsWith('blob:'))) {

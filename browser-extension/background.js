@@ -292,7 +292,7 @@ async function getVideoFormats(url, referer) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, referer: referer || undefined })
-    }, 30000);
+    }, 90000);
     if (!res.ok) return { error: true };
     return await res.json();
   } catch (e) {
@@ -600,8 +600,8 @@ chrome.webNavigation && chrome.webNavigation.onCommitted && chrome.webNavigation
 // ---- Messaging ----
 // Popup açıkken port tutmak Firefox event page'in ping sırasında uyumasını engeller.
 chrome.runtime.onConnect.addListener((port) => {
-  if (!port || port.name !== 'dn-popup') return;
-  port.onDisconnect.addListener(() => { /* popup kapandı */ });
+  if (!port || (port.name !== 'dn-popup' && port.name !== 'dn-formats')) return;
+  port.onDisconnect.addListener(() => { /* popup/format sorgusu bitti */ });
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

@@ -1,6 +1,6 @@
 {
   "name": "deepnode-download-manager",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "DeepNode Download Manager - Desktop Download Manager",
   "main": "electron/main.js",
   "type": "module",
@@ -9,7 +9,7 @@
     "build:frontend": "cd frontend && npm run build",
     "build:xpi": "node scripts/build-xpi.mjs",
     "build:exe": "npm run build:frontend && npm run build:xpi && node scripts/build-signed.mjs",
-    "test": "node backend/test/smoke.mjs && node electron/test/main-loads.mjs"
+    "test": "node backend/test/video-formats.mjs && node backend/test/smoke.mjs && node electron/test/main-loads.mjs"
   },
   "dependencies": {
     "axios": "^1.7.9",

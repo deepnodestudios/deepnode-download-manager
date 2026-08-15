@@ -109,6 +109,62 @@ export function isStreamManifestUrl(url) {
   }
 }
 
+export function isYouTubeUrl(url) {
+  try {
+    return /(^|\.)(youtube\.com|youtu\.be)$/i.test(new URL(url).hostname);
+  } catch (e) {
+    return false;
+  }
+}
+
+// web istemcisi PO token olmadan çoğu zaman yalnız format 18 (360p) döner.
+// tv/ios/android_vr JS runtime gerektirmeden yüksek kalite verir.
+export function youtubeExtractorArgs(clients = 'tv,ios,android_vr') {
+  return ['--extractor-args', 'youtube:player_client=' + clients];
+}
+
+function stripYoutubeExtractorArgs(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--extractor-args' && typeof args[i + 1] === 'string' && /^youtube:/i.test(args[i + 1])) {
+      i++;
+      continue;
+    }
+    out.push(args[i]);
+  }
+  return out;
+}
+
+function inferFormatHeight(f) {
+  if (f && f.height) return Number(f.height) || 0;
+  const m = ((f && f.resolution) || '').match(/x(\d+)/i) ||
+            ((f && f.format_note) || '').match(/(\d+)p/i) ||
+            ((f && f.format_id) || '').match(/(\d+)p/i) ||
+            ((f && f.format_id) || '').match(/^hls-(\d+)$/i);
+  if (m) return parseInt(m[1], 10);
+  const str = ((((f && f.format_id) || '') + ' ' + ((f && f.format_note) || ''))).toLowerCase();
+  if (str.includes('high') || str.includes('hd')) return 720;
+  if (str.includes('low') || str.includes('sd')) return 360;
+  return 0;
+}
+
+function maxHeightOfJson(j) {
+  let m = 0;
+  for (const f of (j && j.formats) || []) {
+    const h = inferFormatHeight(f);
+    if (h > m) m = h;
+  }
+  return m;
+}
+
+function isVideoFormat(f) {
+  const h = Number(f.height) || 0;
+  if (h <= 0) return false;
+  const vNone = !f.vcodec || f.vcodec === 'none';
+  const audioOnly = f.acodec && f.acodec !== 'none' && vNone && !f.width;
+  return !audioOnly;
+}
+
 let ytDlpReady = null;
 const MIN_BIN_SIZE = 1000000;
 
@@ -294,10 +350,16 @@ function releaseInfoSlot() {
 }
 const inflightInfo = new Map();
 
+function cacheFresh(cached) {
+  if (!cached) return false;
+  const ttl = cached.ttl || INFO_TTL;
+  return (Date.now() - cached.ts) < ttl;
+}
+
 export function getVideoInfo(url, referer = null) {
-  const cacheKey = url + '|' + (referer || '');
+  const cacheKey = url + '|' + (referer || '') + '|q2';
   const cached = infoCache.get(cacheKey);
-  if (cached && (Date.now() - cached.ts) < INFO_TTL) return Promise.resolve(cached.info);
+  if (cacheFresh(cached)) return Promise.resolve(cached.info);
 
   const running = inflightInfo.get(cacheKey);
   if (running) return running;
@@ -318,7 +380,7 @@ export function getVideoInfo(url, referer = null) {
 async function probeVideoInfo(url, referer, cacheKey) {
   // Semafor beklerken başka bir sorgu cache'i doldurmuş olabilir
   const cached = infoCache.get(cacheKey);
-  if (cached && (Date.now() - cached.ts) < INFO_TTL) return cached.info;
+  if (cacheFresh(cached)) return cached.info;
 
   const bin = await ensureYtDlp();
 
@@ -331,17 +393,53 @@ async function probeVideoInfo(url, referer, cacheKey) {
   // (Chrome 127+ App-Bound şifreleme) çerez DB'sini okumak çok yavaştır / askıda kalır.
   // Bu yüzden önce ÇEREZSİZ (hızlı) deneriz; yalnızca o başarısız olursa (oturum korumalı
   // CDN) çerezlerle tekrar deneriz. Çoğu film-sitesi HLS'i sadece Referer ile çalışır.
-  const attempts = referer
-    ? [refArgs, [...refArgs, ...ckArgs]]
-    : [[], ['--extractor-args', 'youtube:player_client=android']];
-
-  let j, lastErr = null;
-  for (const extra of attempts) {
-    try { j = await runYtDlpJson(bin, url, extra, 30000); lastErr = null; break; }
-    catch (e) { lastErr = e; }
+  //
+  // YouTube: web istemcisi ilk denemede "başarılı" 360p döner ve diğer istemciler
+  // hiç denenmezdi. Önce tv/ios/android_vr; 720p yoksa yedek istemci; en zengin
+  // sonucu tut.
+  const yt = isYouTubeUrl(url);
+  const attempts = [];
+  if (yt) {
+    attempts.push([...refArgs, ...youtubeExtractorArgs('tv,ios,android_vr')]);
+    attempts.push([...refArgs, ...youtubeExtractorArgs('android,tv_simply')]);
+    attempts.push(refArgs.length ? refArgs : []);
+    if (ckArgs.length) attempts.push([...refArgs, ...ckArgs]);
+  } else if (referer) {
+    attempts.push(refArgs);
+    attempts.push([...refArgs, ...ckArgs]);
+  } else {
+    attempts.push([]);
   }
-  if (lastErr) throw lastErr;
 
+  let best = null;
+  let bestH = -1;
+  let lastErr = null;
+  for (const extra of attempts) {
+    try {
+      const cand = await runYtDlpJson(bin, url, extra, 30000);
+      const h = maxHeightOfJson(cand);
+      if (!best || h > bestH) {
+        best = cand;
+        bestH = h;
+      }
+      if (h >= 720) break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (!best) throw lastErr || new Error('Could not fetch video formats');
+
+  const info = summarizeVideoInfo(best);
+  // Tek 360p çoğu zaman eksik listedir (HLS media playlist / YouTube web).
+  // Önbelleğe alma — sonraki tıklama master veya daha iyi istemciyle yeniden sorar.
+  const maxH = Math.max(0, ...(info.heights || []));
+  if (maxH > 360) {
+    infoCache.set(cacheKey, { info, ts: Date.now() });
+  }
+  return info;
+}
+
+export function summarizeVideoInfo(j) {
   const duration = j.duration || 0;
   const formats = (j.formats || []).map((f, idx) => ({ ...f, _i: idx }));
   const fsize = (f) => f.filesize || f.filesize_approx || (f.tbr && duration ? Math.round((f.tbr * 1000 / 8) * duration) : 0);
@@ -351,22 +449,11 @@ async function probeVideoInfo(url, referer, cacheKey) {
   const bestAudio = bestAudioFmt ? fsize(bestAudioFmt) : 0;
 
   formats.forEach((f) => {
-    if (!f.height) {
-      const m = (f.resolution || '').match(/x(\d+)/i) || 
-                (f.format_note || '').match(/(\d+)p/i) || 
-                (f.format_id || '').match(/(\d+)p/i) ||
-                (f.format_id || '').match(/^hls-(\d+)$/i);
-      if (m) {
-        f.height = parseInt(m[1], 10);
-      } else {
-        const str = ((f.format_id || '') + ' ' + (f.format_note || '')).toLowerCase();
-        if (str.includes('high') || str.includes('hd')) f.height = 720;
-        else if (str.includes('low') || str.includes('sd')) f.height = 360;
-      }
-    }
+    const h = inferFormatHeight(f);
+    if (h) f.height = h;
   });
 
-  const videoFormats = formats.filter((f) => f.vcodec !== 'none' && f.height);
+  const videoFormats = formats.filter(isVideoFormat);
   const heightsSet = [...new Set(videoFormats.map((f) => f.height))].sort((a, b) => b - a);
 
   const qualities = heightsSet.map((h) => {
@@ -386,6 +473,7 @@ async function probeVideoInfo(url, referer, cacheKey) {
   // format_id'yi seçerse indirme tam onu (+ en iyi ses) getirir.
   const codecName = (v) => {
     const c = (v || '').toLowerCase();
+    if (!c || c === 'none') return '';
     if (c.startsWith('avc1') || c.startsWith('h264')) return 'H.264';
     if (c.startsWith('av01') || c.startsWith('av1')) return 'AV1';
     if (c.startsWith('vp9') || c.startsWith('vp09')) return 'VP9';
@@ -426,7 +514,7 @@ async function probeVideoInfo(url, referer, cacheKey) {
   // Yükseklik azalan, sonra boyut azalan sırada düzenle (menüde derli toplu görünsün).
   variants.sort((a, b) => b.height - a.height || (b.size || 0) - (a.size || 0));
 
-  const info = {
+  return {
     title: j.title || null,
     thumbnail: j.thumbnail || null,
     duration,
@@ -435,8 +523,6 @@ async function probeVideoInfo(url, referer, cacheKey) {
     variants,
     audioSize: bestAudio
   };
-  infoCache.set(cacheKey, { info, ts: Date.now() });
-  return info;
 }
 
 const infoCache = new Map();
@@ -446,7 +532,8 @@ const INFO_TTL = 10 * 60 * 1000;
 setInterval(() => {
   const now = Date.now();
   for (const [k, v] of infoCache) {
-    if ((now - v.ts) >= INFO_TTL) infoCache.delete(k);
+    const ttl = v.ttl || INFO_TTL;
+    if ((now - v.ts) >= ttl) infoCache.delete(k);
   }
 }, INFO_TTL).unref();
 
@@ -729,6 +816,7 @@ export class VideoDownloader extends EventEmitter {
     ];
     args.push(...networkArgs(this.url)); // proxy / site girişi
     if (this.referer) args.push('--referer', this.referer);
+    if (this._isYouTube()) args.push(...youtubeExtractorArgs());
     // NOT: `--merge-output-format mp4` ZORLAMIYORUZ. mp4'e zorlamak, akışlar
     // vp9/opus (webm) olduğunda eski bundled ffmpeg'de "Postprocessing: Stream
     // copy" hatası verip indirmeyi 3 parça (video+ses+0KB temp) hâlinde bırakıyordu.
@@ -850,7 +938,7 @@ export class VideoDownloader extends EventEmitter {
           this._stalled = false;
           this.errorMsg = null;
           console.log(`[VideoDownloader] ${wasStalled ? 'stalled' : 'exit ' + code} -> retrying with android player client`);
-          this._launch(bin, ['--extractor-args', 'youtube:player_client=android', ...this._baseArgs]);
+          this._launch(bin, [...youtubeExtractorArgs('android,ios,tv'), ...stripYoutubeExtractorArgs(this._baseArgs)]);
           return;
         }
         this.status = 'error';
@@ -863,12 +951,7 @@ export class VideoDownloader extends EventEmitter {
   }
 
   _isYouTube() {
-    try {
-      const host = new URL(this.url).hostname;
-      return /(^|\.)(youtube\.com|youtu\.be)$/i.test(host);
-    } catch (e) {
-      return false;
-    }
+    return isYouTubeUrl(this.url);
   }
 
   cleanup() {

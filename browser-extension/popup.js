@@ -78,7 +78,10 @@ chrome.storage.local.get(DEFAULTS, (v) => {
 });
 
 // Firefox event page popup açıkken uyumasın (sendMessage ırkı)
-try { chrome.runtime.connect({ name: 'dn-popup' }); } catch (e) { /* ignore */ }
+try {
+  const p = chrome.runtime.connect({ name: 'dn-popup' });
+  if (p && p.onDisconnect) p.onDisconnect.addListener(() => { void chrome.runtime.lastError; });
+} catch (e) { /* ignore */ }
 
 // Uygulamada dil değişirse popup da anında uyum sağlar
 chrome.storage.onChanged.addListener((changes, area) => {

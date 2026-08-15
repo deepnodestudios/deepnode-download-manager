@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extName__",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "__MSG_extDesc__",
   "default_locale": "en",
   "permissions": [
@@ -19,11 +19,7 @@
     "http://127.0.0.1/*"
   ],
   "background": {
-    "service_worker": "background.js",
-    "scripts": [
-      "strings.js",
-      "background.js"
-    ]
+    "service_worker": "background.js"
   },
   "browser_specific_settings": {
     "gecko": {

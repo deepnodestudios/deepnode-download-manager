@@ -71,6 +71,9 @@ for (const rel of files) {
 archive.finalize();
 
 // Create Chrome .zip
+const chromeManifest = JSON.parse(fs.readFileSync(path.join(srcDir, 'manifest.json'), 'utf8'));
+if (chromeManifest.background) delete chromeManifest.background.scripts;
+
 const chromeOutFile = path.join(outDir, 'deepnode-extension-chrome.zip');
 const chromeOutput = fs.createWriteStream(chromeOutFile);
 const chromeArchive = archiver('zip', { zlib: { level: 9 } });
@@ -80,6 +83,10 @@ chromeOutput.on('close', () => {
 chromeArchive.on('error', (err) => { throw err; });
 chromeArchive.pipe(chromeOutput);
 for (const rel of files) {
-  chromeArchive.file(path.join(srcDir, rel), { name: rel });
+  if (rel === 'manifest.json') {
+    chromeArchive.append(JSON.stringify(chromeManifest, null, 2) + '\n', { name: rel });
+  } else {
+    chromeArchive.file(path.join(srcDir, rel), { name: rel });
+  }
 }
 chromeArchive.finalize();
