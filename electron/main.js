@@ -54,6 +54,20 @@ ipcMain.on('open-external', (e, url, browser) => {
       } catch (err) {
         shell.openExternal(url).catch(console.error);
       }
+    } else if (browser === 'chrome' && process.platform === 'win32') {
+      const candidates = [
+        path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(process.env['LOCALAPPDATA'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe')
+      ];
+      const chromeExe = candidates.find((p) => p && fs.existsSync(p)) || 'chrome';
+      try {
+        const child = spawn(chromeExe, [url], { detached: true, stdio: 'ignore' });
+        child.on('error', () => shell.openExternal(url).catch(console.error));
+        child.unref();
+      } catch (err) {
+        shell.openExternal(url).catch(console.error);
+      }
     } else {
       shell.openExternal(url).catch((err) => console.error('openExternal başarısız:', err.message));
     }

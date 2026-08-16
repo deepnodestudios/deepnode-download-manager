@@ -2,6 +2,8 @@
 export default {
   btn_install_amo: 'Mozilla Add-ons\'tan Kur',
   ff_store_install: 'Firefox eklentisini doğrudan Mozilla Add-ons mağazasından kurabilirsiniz:',
+  btn_install_chrome: 'Chrome Web Mağazası\'ndan Kur',
+  chrome_store_install: 'Chrome, Edge, Brave ve Opera için eklentiyi doğrudan Chrome Web Mağazası\'ndan kurabilirsiniz:',
   opt_alt_default: 'Alt (varsayılan)',
   tip_drag_file: "Dosyayı klasöre sürükle",
   // ── Navbar ─────────────────────────────────────────────

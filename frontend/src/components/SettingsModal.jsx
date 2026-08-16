@@ -180,6 +180,14 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
     }
   };
 
+  const handleChromeInstall = async () => {
+    try {
+      await window.ddmNative.openExternal('https://chromewebstore.google.com/detail/deepnode-download-manager/mccfjjophkdkdkhfofekdhlpbkomaami', 'chrome');
+    } catch (err) {
+      alert(t('alert_ext_folder', { msg: err.message }));
+    }
+  };
+
   const handleResetDefaults = () => {
     setCapturedExtensions(DEFAULT_CAPTURED);
     setIgnoredExtensions(DEFAULT_IGNORED);
@@ -706,13 +714,12 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                   <label className="form-label" style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <CheckCircle2 size={15} /> Chrome / Edge / Brave / Opera
                   </label>
-                  <ol style={{ margin: '4px 0 0 18px', padding: 0, fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
-                    <li>{t('ext_step1')}</li>
-                    <li>{t('ext_step2')}</li>
-                    <li>{t('ext_step3')}</li>
-                    <li>{t('ext_step4')}</li>
-                    <li>{t('ext_step5')}</li>
-                  </ol>
+                  <div style={{ margin: '4px 0 0 18px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    {t('chrome_store_install')}<br/>
+                    <button type="button" className="btn btn-primary" style={{ marginTop: '10px' }} onClick={handleChromeInstall}>
+                      {t('btn_install_chrome')}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="form-group">

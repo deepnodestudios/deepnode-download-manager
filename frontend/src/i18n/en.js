@@ -2,6 +2,8 @@
 export default {
   btn_install_amo: 'Install from Mozilla Add-ons',
   ff_store_install: 'You can install the Firefox extension directly from the Mozilla Add-ons store:',
+  btn_install_chrome: 'Install from Chrome Web Store',
+  chrome_store_install: 'You can install the extension for Chrome, Edge, Brave and Opera directly from the Chrome Web Store:',
   opt_alt_default: 'Alt (default)',
   st_canceled: 'Canceled',
   tip_drag_file: "Drag to extract",
