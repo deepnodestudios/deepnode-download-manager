@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Settings, Save, Filter, Sliders, RotateCcw, CheckCircle2, Puzzle, FolderOpen, Globe, Clock, Lock, Plus, Trash2, Languages } from 'lucide-react';
+import { X, Settings, Save, Filter, Sliders, RotateCcw, CheckCircle2, Puzzle, Globe, Clock, Lock, Plus, Trash2, Languages } from 'lucide-react';
 import { useT } from '../i18n';
 import { selectFolder } from '../native';
 
@@ -159,16 +159,6 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
       if (selected) setDownloadDir(selected);
     } catch (err) {
       console.error('Folder browser error:', err);
-    }
-  };
-
-  const openExtensionFolder = async () => {
-    try {
-      const res = await fetch('/api/open-extension-folder', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-    } catch (err) {
-      alert(t('alert_ext_folder', { msg: err.message }));
     }
   };
 
@@ -702,12 +692,6 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                     <Puzzle size={16} /> {t('ext_what_title')}
                   </div>
                   {t('ext_what_body_1')} <b>{t('ext_what_body_2')}</b> {t('ext_what_body_3')} <b>{t('ext_what_body_4')}</b> {t('ext_what_body_5')} <b>{t('ext_what_body_6')}</b>{t('ext_what_body_7')}
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
-                  <button type="button" className="btn btn-primary" onClick={openExtensionFolder}>
-                    <FolderOpen size={16} /> {t('btn_open_ext_folder')}
-                  </button>
                 </div>
 
                 <div className="form-group">
