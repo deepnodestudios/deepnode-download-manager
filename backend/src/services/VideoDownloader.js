@@ -117,10 +117,32 @@ export function isYouTubeUrl(url) {
   }
 }
 
-// web istemcisi PO token olmadan çoğu zaman yalnız format 18 (360p) döner.
-// tv/ios/android_vr JS runtime gerektirmeden yüksek kalite verir.
-export function youtubeExtractorArgs(clients = 'tv,ios,android_vr') {
+// YouTube: player_client zorlamak (tv/ios/android_vr) çoğu videoda yalnız
+// URL'siz / SABR satırları veya 360p bırakıyor. Varsayılan istemci https DASH verir.
+export function youtubeExtractorArgs(clients = null) {
+  if (!clients) return [];
   return ['--extractor-args', 'youtube:player_client=' + clients];
+}
+
+// Gerçekten indirilebilir mi? (url / fragment). Menüde URL'siz satır gösterme.
+export function formatIsDownloadable(f) {
+  if (!f) return false;
+  const ext = String(f.ext || '').toLowerCase();
+  const proto = String(f.protocol || '').toLowerCase();
+  const id = String(f.format_id || '');
+  const note = String(f.format_note || '').toLowerCase();
+  if (ext === 'mhtml' || proto === 'mhtml') return false;
+  if (/^sb\d/i.test(id) || /storyboard|preview/i.test(note)) return false;
+  if (f.url) return true;
+  if (f.fragment_base_url) return true;
+  if (Array.isArray(f.fragments) && f.fragments.length > 0) return true;
+  return false;
+}
+
+function isHlsLikeFormat(f) {
+  const proto = String((f && f.protocol) || '').toLowerCase();
+  const id = String((f && f.format_id) || '');
+  return proto.includes('m3u8') || /^hls-/i.test(id);
 }
 
 function stripYoutubeExtractorArgs(args) {
@@ -151,6 +173,7 @@ function inferFormatHeight(f) {
 function maxHeightOfJson(j) {
   let m = 0;
   for (const f of (j && j.formats) || []) {
+    if (!formatIsDownloadable(f)) continue;
     const h = inferFormatHeight(f);
     if (h > m) m = h;
   }
@@ -158,7 +181,8 @@ function maxHeightOfJson(j) {
 }
 
 function isVideoFormat(f) {
-  const h = Number(f.height) || 0;
+  if (!formatIsDownloadable(f)) return false;
+  const h = Number(f.height) || inferFormatHeight(f) || 0;
   if (h <= 0) return false;
   const vNone = !f.vcodec || f.vcodec === 'none';
   const audioOnly = f.acodec && f.acodec !== 'none' && vNone && !f.width;
@@ -394,16 +418,12 @@ async function probeVideoInfo(url, referer, cacheKey) {
   // Bu yüzden önce ÇEREZSİZ (hızlı) deneriz; yalnızca o başarısız olursa (oturum korumalı
   // CDN) çerezlerle tekrar deneriz. Çoğu film-sitesi HLS'i sadece Referer ile çalışır.
   //
-  // YouTube: web istemcisi ilk denemede "başarılı" 360p döner ve diğer istemciler
-  // hiç denenmezdi. Önce tv/ios/android_vr; 720p yoksa yedek istemci; en zengin
-  // sonucu tut.
+  // YouTube: varsayılan istemci https DASH verir. tv/ios/android_vr zorlamak
+  // URL'siz yüksek kalite satırları üretip menüyü şişiriyor, indirme ise düşüyor.
   const yt = isYouTubeUrl(url);
   const attempts = [];
   if (yt) {
-    attempts.push([...refArgs, ...youtubeExtractorArgs('tv,ios,android_vr')]);
-    attempts.push([...refArgs, ...youtubeExtractorArgs('android,tv_simply')]);
     attempts.push(refArgs.length ? refArgs : []);
-    if (ckArgs.length) attempts.push([...refArgs, ...ckArgs]);
   } else if (referer) {
     attempts.push(refArgs);
     attempts.push([...refArgs, ...ckArgs]);
@@ -453,7 +473,15 @@ export function summarizeVideoInfo(j) {
     if (h) f.height = h;
   });
 
-  const videoFormats = formats.filter(isVideoFormat);
+  let videoFormats = formats.filter(isVideoFormat);
+  const fromYt = /youtube/i.test(String(j.extractor_key || j.extractor || '')) ||
+    /youtube\.com|youtu\.be/i.test(String(j.webpage_url || j.original_url || ''));
+  // YouTube: aynı yükseklikte hem https DASH hem m3u8 varsa yalnız https göster
+  // (HLS menüde “iniyor gibi” görünüp indirmede düşebiliyor).
+  if (fromYt) {
+    const dashHeights = new Set(videoFormats.filter((f) => !isHlsLikeFormat(f)).map((f) => f.height));
+    videoFormats = videoFormats.filter((f) => !isHlsLikeFormat(f) || !dashHeights.has(f.height));
+  }
   const heightsSet = [...new Set(videoFormats.map((f) => f.height))].sort((a, b) => b - a);
 
   const qualities = heightsSet.map((h) => {
@@ -752,7 +780,8 @@ export class VideoDownloader extends EventEmitter {
       // Güvenlik: format_id yalnızca güvenli karakterlere sınırlanır, aksi halde 'best'.
       const fid = q.slice(4);
       if (/^[a-zA-Z0-9_\-]+$/.test(fid)) {
-        format = merge ? `${fid}+ba[ext=m4a]/${fid}+ba/${fid}` : `${fid}`;
+        // Progressive (sesli) itag'a +ba ekleme — 18+ba "format yok" hatası verir.
+        format = merge ? `${fid}+ba/${fid}` : `${fid}`;
       } else {
         format = merge ? 'bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b' : 'b[ext=mp4]/b';
       }
@@ -807,7 +836,6 @@ export class VideoDownloader extends EventEmitter {
       '--fixup', 'warn',
       '--hls-split-discontinuity',
       '--skip-unavailable-fragments',
-      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       // Hız & CDN Uyumluğu: HLS/DASH parçalarını 2 paralel kanalla indir. 4 paralel bağlantı
       // hassas CDN sunucularında (srv13 vb.) IP bazlı oran limitini tetikleyip indirmeyi kesiyordu;
       // 2 kanal yüksek hızı (~3MB/s) korurken CDN koruma duvarının altında kalır.
@@ -816,7 +844,10 @@ export class VideoDownloader extends EventEmitter {
     ];
     args.push(...networkArgs(this.url)); // proxy / site girişi
     if (this.referer) args.push('--referer', this.referer);
-    if (this._isYouTube()) args.push(...youtubeExtractorArgs());
+    // YouTube'da Chrome UA + zorlanmış player_client indirmeyi bozuyor; varsayılan istemci kalsın.
+    if (!this._isYouTube()) {
+      args.push('--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36');
+    }
     // NOT: `--merge-output-format mp4` ZORLAMIYORUZ. mp4'e zorlamak, akışlar
     // vp9/opus (webm) olduğunda eski bundled ffmpeg'de "Postprocessing: Stream
     // copy" hatası verip indirmeyi 3 parça (video+ses+0KB temp) hâlinde bırakıyordu.
@@ -827,9 +858,9 @@ export class VideoDownloader extends EventEmitter {
     if (ffmpegLoc) args.push('--ffmpeg-location', ffmpegLoc);
 
     // Oturum/token korumalı CDN'ler için tarayıcı çerezleri (sniff edilmiş akış = referer var).
-    // Çerez okuma başarısız olursa (ör. Chrome App-Bound şifreleme) çerezsiz bir kez daha denenir.
+    // YouTube'da çerez + player çakışması indirmeyi bozar — kullanma.
     this._baseArgs = args;
-    this._cookieArgs = this.referer ? cookieBrowserArgs() : [];
+    this._cookieArgs = (this.referer && !this._isYouTube()) ? cookieBrowserArgs() : [];
     this._cookieRetried = false;
     this._launch(bin, [...this._cookieArgs, ...args]);
   }
@@ -930,15 +961,27 @@ export class VideoDownloader extends EventEmitter {
           this._launch(bin, this._baseArgs);
           return;
         }
-        // YouTube web istemcisi takıldıysa/başarısızsa (SABR, 403, takılma
-        // bekçisinin öldürmesi) android istemciyle bir kez daha dene.
+        // YouTube: bozuk player_client yedeği KULLANMA (tv/ios/android URL'siz kalite
+        // bırakıp "format yok" üretir). Aynı varsayılan istemciyle yükseklik seçicine düş.
         if (!this._ytRetried && this._baseArgs && this._isYouTube()) {
           this._ytRetried = true;
-          const wasStalled = this._stalled;
           this._stalled = false;
           this.errorMsg = null;
-          console.log(`[VideoDownloader] ${wasStalled ? 'stalled' : 'exit ' + code} -> retrying with android player client`);
-          this._launch(bin, [...youtubeExtractorArgs('android,ios,tv'), ...stripYoutubeExtractorArgs(this._baseArgs)]);
+          let h = 0;
+          if (this.quality && /^fmt:/.test(this.quality)) {
+            // itag başarısız → aynı/alt yükseklikte indirilebilir en iyisi
+            h = parseInt(String(this.filename || '').match(/\[(\d+)p\]/)?.[1] || '0', 10) || 1080;
+          } else if (this.quality && this.quality !== 'best' && this.quality !== 'audio') {
+            h = parseInt(this.quality, 10) || 0;
+          }
+          const sel = h
+            ? `bv*[height<=${h}]+ba/b[height<=${h}]/b`
+            : 'bv*+ba/b';
+          console.log(`[VideoDownloader] YouTube format retry -> ${sel}`);
+          const args = this._baseArgs.slice();
+          const fi = args.indexOf('-f');
+          if (fi >= 0 && fi + 1 < args.length) args[fi + 1] = sel;
+          this._launch(bin, args);
           return;
         }
         this.status = 'error';
