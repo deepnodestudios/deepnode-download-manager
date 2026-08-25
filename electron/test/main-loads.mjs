@@ -55,6 +55,7 @@ export const app = {
   quit: noop,
   getLocale: () => 'tr-TR',
   setLoginItemSettings: noop,
+  getLoginItemSettings: () => ({ wasOpenedAtLogin: false, wasOpenedAsHidden: false }),
   setAsDefaultProtocolClient: noop,
   requestSingleInstanceLock: () => true
 };

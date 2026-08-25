@@ -304,10 +304,13 @@ async function loadSettings() {
 function applyStartupSetting() {
   try {
     const enable = appSettings.launchOnStartup === true;
+    const startMin = appSettings.startMinimized === true;
+    // On Windows, pass path and arguments explicitly so registry entry always stays synced
+    const args = (enable && startMin) ? ['--hidden', '--opened-at-login'] : (enable ? ['--opened-at-login'] : []);
     app.setLoginItemSettings({
       openAtLogin: enable,
-      // Açılışta doğrudan tepside başlasın
-      args: appSettings.startMinimized ? ['--hidden'] : []
+      path: process.execPath,
+      args: enable ? args : []
     });
   } catch (e) {
     console.error('setLoginItemSettings failed:', e.message);
@@ -672,14 +675,35 @@ if (!gotTheLock) {
 
   app.whenReady().then(async () => {
     const protocolUrl = process.argv.find(arg => arg.startsWith('deepnode://'));
-    const launchedHidden = process.argv.includes('--hidden');
+    
+    // Command line flags check (--hidden, --minimized, --opened-at-login, etc.)
+    const hasHiddenArg = process.argv.some(arg => 
+      arg === '--hidden' || 
+      arg === '--minimized' || 
+      arg === '--opened-at-login' || 
+      arg === '-m' ||
+      arg === '/hidden'
+    );
+
+    let wasOpenedAtLogin = false;
+    try {
+      if (typeof app.getLoginItemSettings === 'function') {
+        const loginSettings = app.getLoginItemSettings();
+        wasOpenedAtLogin = !!(loginSettings && (loginSettings.wasOpenedAtLogin || loginSettings.wasOpenedAsHidden));
+      }
+    } catch (e) {
+      wasOpenedAtLogin = false;
+    }
 
     await loadSettings();
     applyStartupSetting();
 
-    // Tepside gizli başlatma yalnız otomatik açılışta (--hidden, Windows login item):
-    // kullanıcı kısayoldan elle açtığında pencere her zaman görünür.
-    const showWindow = !protocolUrl && !launchedHidden;
+    // Otomatik açılışta veya gizli başlatma parametresinde:
+    // Eğer startMinimized ayarı açıksa veya --hidden ile açıldıysa pencereyi gizli başlat.
+    const isStartupLaunch = hasHiddenArg || wasOpenedAtLogin;
+    const shouldStartHidden = (isStartupLaunch && appSettings.startMinimized !== false) || (hasHiddenArg && appSettings.startMinimized);
+
+    const showWindow = !protocolUrl && !shouldStartHidden;
     createWindow(showWindow);
     createTray();
     startClipboardWatcher();
