@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Settings, Save, Filter, Sliders, RotateCcw, CheckCircle2, Puzzle, Globe, Clock, Lock, Plus, Trash2, Languages } from 'lucide-react';
 import { useT } from '../i18n';
-import { selectFolder } from '../native';
+import { selectFolder, openExternal } from '../native';
 
 const DEFAULT_CAPTURED = 'ZIP RAR 7Z TAR GZ ISO EXE MSI APK PDF DOCX XLSX PPTX MP4 MKV AVI MOV WEBM MP3 FLAC WAV';
 const DEFAULT_IGNORED = 'JS CSS HTML PHP TS JSON WOFF WOFF2 PNG JPG GIF SVG ICO XML TORRENT';
@@ -164,7 +164,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
 
   const handleFirefoxInstall = async () => {
     try {
-      await window.ddmNative.openExternal('https://addons.mozilla.org/addon/deepnode-download-manager/', 'firefox');
+      await openExternal('https://addons.mozilla.org/addon/deepnode-download-manager/', 'firefox');
     } catch (err) {
       alert(t('alert_ext_folder', { msg: err.message }));
     }
@@ -172,7 +172,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
 
   const handleChromeInstall = async () => {
     try {
-      await window.ddmNative.openExternal('https://chromewebstore.google.com/detail/deepnode-download-manager/mccfjjophkdkdkhfofekdhlpbkomaami', 'chrome');
+      await openExternal('https://chromewebstore.google.com/detail/deepnode-download-manager/mccfjjophkdkdkhfofekdhlpbkomaami', 'chrome');
     } catch (err) {
       alert(t('alert_ext_folder', { msg: err.message }));
     }

@@ -2,6 +2,8 @@
 export default {
   btn_install_amo: 'Cài đặt từ Mozilla Add-ons',
   ff_store_install: 'Bạn có thể cài đặt tiện ích mở rộng Firefox trực tiếp từ cửa hàng Tiện ích bổ sung Mozilla:',
+  btn_install_chrome: 'Cài đặt từ Cửa hàng Chrome trực tuyến',
+  chrome_store_install: 'Bạn có thể cài đặt tiện ích mở rộng cho Chrome, Edge, Brave và Opera trực tiếp từ Cửa hàng Chrome trực tuyến:',
   st_canceled: 'Đã hủy',
   opt_default: 'mặc định',
   refresh_modal_btn: 'Cập nhật URL',

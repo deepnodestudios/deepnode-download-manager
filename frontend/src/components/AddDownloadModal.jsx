@@ -72,6 +72,13 @@ function categoryFromUrl(raw) {
   }
 }
 
+function joinPath(base, sub) {
+  if (!base) return sub || '';
+  if (!sub) return base;
+  const sep = base.includes('\\') ? '\\' : '/';
+  return base.replace(/[\\/]+$/, '') + sep + sub.replace(/^[\\/]+/, '');
+}
+
 export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAddBatch, settings, initialUrl = '', initialQuality = '', initialReferer = '', initialIsVideo = false, initialFilename = '', isStandalone = false }) {
   const { t } = useT();
   const boxRef = useRef(null); // standalone: içerik yüksekliğini ölçüp pencereyi ona göre boyutlandır
@@ -125,7 +132,7 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
     if (manualDir) return;
     if (settings?.downloadDir) {
       const useCats = settings.useCategoryFolders !== false;
-      setSaveDir(useCats && category ? settings.downloadDir + '/' + category : settings.downloadDir);
+      setSaveDir(useCats && category ? joinPath(settings.downloadDir, category) : settings.downloadDir);
     }
   }, [settings, category, manualDir]);
 
@@ -280,8 +287,8 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
   };
 
   const handleQuickFolderSelect = (subDir) => {
-    const base = settings?.downloadDir || 'C:/Users/Downloads';
-    setSaveDir(base + (subDir ? '/' + subDir : ''));
+    const base = settings?.downloadDir || '';
+    setSaveDir(subDir ? joinPath(base, subDir) : base);
     setManualDir(true);
   };
 

@@ -2,6 +2,8 @@
 export default {
   btn_install_amo: '从 Mozilla Add-ons 安装',
   ff_store_install: '您可以直接从 Mozilla 附加组件商店安装 Firefox 扩展：',
+  btn_install_chrome: '从 Chrome 网上应用店安装',
+  chrome_store_install: '您可以直接从 Chrome 网上应用店安装适用于 Chrome、Edge、Brave 和 Opera 的扩展程序：',
   st_canceled: '已取消',
   opt_default: '默认',
   refresh_modal_btn: '更新网址',

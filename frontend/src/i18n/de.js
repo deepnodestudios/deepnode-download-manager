@@ -2,6 +2,8 @@
 export default {
   btn_install_amo: 'Aus Mozilla Add-ons installieren',
   ff_store_install: 'Sie können die Firefox-Erweiterung direkt aus dem Mozilla Add-ons Store installieren:',
+  btn_install_chrome: 'Aus dem Chrome Web Store installieren',
+  chrome_store_install: 'Sie können die Erweiterung für Chrome, Edge, Brave und Opera direkt aus dem Chrome Web Store installieren:',
   st_canceled: 'Abgebrochen',
   opt_default: 'Standard',
   refresh_modal_btn: 'URL aktualisieren',

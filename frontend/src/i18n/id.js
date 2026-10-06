@@ -2,6 +2,8 @@
 export default {
   btn_install_amo: 'Instal dari Mozilla Add-ons',
   ff_store_install: 'Anda dapat menginstal ekstensi Firefox langsung dari toko Add-on Mozilla:',
+  btn_install_chrome: 'Instal dari Chrome Web Store',
+  chrome_store_install: 'Anda dapat menginstal ekstensi untuk Chrome, Edge, Brave, dan Opera langsung dari Chrome Web Store:',
   st_canceled: 'Dibatalkan',
   opt_default: 'bawaan',
   refresh_modal_btn: 'Perbarui URL',

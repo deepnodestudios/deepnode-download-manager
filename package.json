@@ -1,6 +1,6 @@
 {
   "name": "deepnode-download-manager",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "DeepNode Download Manager - Desktop Download Manager",
   "main": "electron/main.js",
   "type": "module",
@@ -12,6 +12,7 @@
     "test": "node backend/test/video-formats.mjs && node backend/test/smoke.mjs && node electron/test/main-loads.mjs"
   },
   "dependencies": {
+    "@sentry/node": "^11.4.0",
     "axios": "^1.7.9",
     "cors": "^2.8.5",
     "express": "^4.21.2",

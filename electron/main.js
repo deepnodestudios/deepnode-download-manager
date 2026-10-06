@@ -4,6 +4,10 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import { setLanguage, getLanguage, t as et } from './i18n.js';
+import { initSentry, Sentry } from '../backend/src/sentry.js';
+
+// Initialize Sentry for Electron main process error & crash tracking
+initSentry({ processName: 'electron-main', appVersion: app.getVersion ? app.getVersion() : '1.5.3' });
 
 // DİKKAT: Bunlar dosyanın EN BAŞINDA tanımlı kalmalı. `SECURE_WEB_PREFERENCES`
 // gibi ÜST DÜZEY (top-level) sabitler `__dirname`'i modül yüklenirken kullanır;
@@ -412,12 +416,14 @@ serverEvents.on('taskbar-progress', (value) => {
 });
 
 // Safety net: never let a background error crash the whole app with the
-// "A JavaScript error occurred in the main process" dialog. Log instead.
+// "A JavaScript error occurred in the main process" dialog. Log and report to Sentry.
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception (handled):', err);
+  try { Sentry.captureException(err); } catch (_) {}
 });
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled rejection (handled):', reason);
+  try { Sentry.captureException(reason); } catch (_) {}
 });
 
 function createWindow(showWindow = true) {

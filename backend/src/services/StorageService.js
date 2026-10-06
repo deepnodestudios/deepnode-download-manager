@@ -40,6 +40,61 @@ function extFromMime(mimeType = '') {
 }
 
 
+function atomicWriteJsonSync(targetPath, data) {
+  const tmpPath = `${targetPath}.tmp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const bakPath = `${targetPath}.bak`;
+  const jsonStr = JSON.stringify(data, null, 2);
+
+  // 1. Geçici dosyaya yaz
+  fs.writeFileSync(tmpPath, jsonStr, 'utf-8');
+
+  // 2. Mevcut sağlam dosya varsa yedek kopyasını al (.bak)
+  if (fs.existsSync(targetPath)) {
+    try {
+      fs.copyFileSync(targetPath, bakPath);
+    } catch (e) { /* ignore */ }
+  }
+
+  // 3. Atomik taşıma / üzerine yazma
+  try {
+    fs.renameSync(tmpPath, targetPath);
+  } catch (err) {
+    // Windows dosya kilidi durumunda kopyala ve sil yedeği
+    try {
+      fs.copyFileSync(tmpPath, targetPath);
+      fs.unlinkSync(tmpPath);
+    } catch (e2) {
+      try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (e3) {}
+      throw err;
+    }
+  }
+}
+
+function safeReadJsonSync(targetPath, fallbackValue = null) {
+  const bakPath = `${targetPath}.bak`;
+  if (fs.existsSync(targetPath)) {
+    try {
+      const data = fs.readFileSync(targetPath, 'utf-8');
+      return JSON.parse(data);
+    } catch (err) {
+      console.error(`Error reading ${path.basename(targetPath)}:`, err.message);
+      // Ana dosya bozulduysa (.bak) yedeğinden kurtar
+      if (fs.existsSync(bakPath)) {
+        try {
+          console.warn(`Attempting recovery from backup: ${path.basename(bakPath)}`);
+          const bakData = fs.readFileSync(bakPath, 'utf-8');
+          const parsed = JSON.parse(bakData);
+          try { fs.copyFileSync(bakPath, targetPath); } catch (e) {}
+          return parsed;
+        } catch (bakErr) {
+          console.error(`Backup ${path.basename(bakPath)} also corrupted:`, bakErr.message);
+        }
+      }
+    }
+  }
+  return fallbackValue;
+}
+
 class StorageService {
   constructor() {
     this.migrateLegacyDataDir();
@@ -70,21 +125,15 @@ class StorageService {
   }
 
   loadDownloads() {
-    try {
-      if (fs.existsSync(DOWNLOADS_FILE)) {
-        const data = fs.readFileSync(DOWNLOADS_FILE, 'utf-8');
-        return JSON.parse(data);
-      }
-    } catch (err) {
-      console.error('Error reading downloads.json:', err.message);
-    }
+    const parsed = safeReadJsonSync(DOWNLOADS_FILE, null);
+    if (Array.isArray(parsed)) return parsed;
     return [];
   }
 
   saveDownloads(downloadsList) {
     try {
       this.downloads = downloadsList;
-      fs.writeFileSync(DOWNLOADS_FILE, JSON.stringify(downloadsList, null, 2), 'utf-8');
+      atomicWriteJsonSync(DOWNLOADS_FILE, downloadsList);
     } catch (err) {
       console.error('Error saving downloads.json:', err.message);
     }
@@ -145,20 +194,16 @@ class StorageService {
       ignoredExtensions: 'JS CSS HTML PHP TS JSON WOFF WOFF2 PNG JPG GIF SVG ICO XML TORRENT'
     };
 
-    try {
-      if (fs.existsSync(SETTINGS_FILE)) {
-        const data = fs.readFileSync(SETTINGS_FILE, 'utf-8');
-        const merged = { ...defaultSettings, ...JSON.parse(data) };
-        if (!merged.downloadDir || merged.downloadDir === OLD_DEFAULT_DOWNLOAD_DIR) {
-          merged.downloadDir = DEFAULT_DOWNLOAD_DIR;
-        }
-        if (merged.captureBypassKey === 'Alt') {
-          merged.captureBypassKey = 'Shift';
-        }
-        return merged;
+    const parsed = safeReadJsonSync(SETTINGS_FILE, null);
+    if (parsed && typeof parsed === 'object') {
+      const merged = { ...defaultSettings, ...parsed };
+      if (!merged.downloadDir || merged.downloadDir === OLD_DEFAULT_DOWNLOAD_DIR) {
+        merged.downloadDir = DEFAULT_DOWNLOAD_DIR;
       }
-    } catch (err) {
-      console.error('Error reading settings.json:', err.message);
+      if (merged.captureBypassKey === 'Alt') {
+        merged.captureBypassKey = 'Shift';
+      }
+      return merged;
     }
     return defaultSettings;
   }
@@ -166,7 +211,7 @@ class StorageService {
   saveSettings(newSettings) {
     try {
       this.settings = { ...this.settings, ...newSettings };
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(this.settings, null, 2), 'utf-8');
+      atomicWriteJsonSync(SETTINGS_FILE, this.settings);
       return this.settings;
     } catch (err) {
       console.error('Error saving settings.json:', err.message);

@@ -64,9 +64,9 @@ export function bringToFront() {
 }
 
 /** Bağlantıyı sistem tarayıcısında açar (Electron penceresinde değil). */
-export function openExternal(url) {
+export function openExternal(url, browser) {
   const b = bridge();
-  if (b && b.openExternal) { b.openExternal(url); return true; }
+  if (b && b.openExternal) { b.openExternal(url, browser); return true; }
   if (typeof window !== 'undefined') window.open(url, '_blank', 'noopener,noreferrer');
   return false;
 }

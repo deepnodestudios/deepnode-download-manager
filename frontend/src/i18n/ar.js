@@ -2,6 +2,8 @@
 export default {
   btn_install_amo: 'تثبيت من Mozilla Add-ons',
   ff_store_install: 'يمكنك تثبيت إضافة Firefox مباشرة من متجر Mozilla Add-ons:',
+  btn_install_chrome: 'تثبيت من سوق Chrome الإلكتروني',
+  chrome_store_install: 'يمكنك تثبيت الإضافة لمتصفحات Chrome وEdge وBrave وOpera مباشرةً من سوق Chrome الإلكتروني:',
   st_canceled: 'تم الإلغاء',
   opt_default: 'افتراضي',
   refresh_modal_btn: 'تحديث الرابط',

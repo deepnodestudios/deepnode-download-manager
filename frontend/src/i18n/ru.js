@@ -2,6 +2,8 @@
 export default {
   btn_install_amo: 'Установить из Mozilla Add-ons',
   ff_store_install: 'Вы можете установить расширение Firefox прямо из магазина дополнений Mozilla:',
+  btn_install_chrome: 'Установить из Интернет-магазина Chrome',
+  chrome_store_install: 'Вы можете установить расширение для Chrome, Edge, Brave и Opera прямо из Интернет-магазина Chrome:',
   st_canceled: 'Отменено',
   opt_default: 'по умолчанию',
   refresh_modal_btn: 'Обновить URL',

@@ -18,6 +18,9 @@ import { startScheduler, schedulerStatus } from './services/Scheduler.js';
 import { corsOptions, originGuard, appOnly, isExtensionOrigin, settingsForExtension } from './security.js';
 import { createUpdateRouter } from './routes/update.js';
 import { showItemInFolder, openPath } from './utils/shell.js';
+import { initSentry, Sentry } from './sentry.js';
+
+initSentry({ processName: 'backend' });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -956,6 +959,9 @@ app.get('*', (req, res) => {
     res.send('DeepNode Download Manager Backend Running.');
   }
 });
+
+// Sentry Express error handler
+Sentry.setupExpressErrorHandler(app);
 
 function onServerReady() {
   console.log(`🚀 DeepNode Download Manager Backend running on http://127.0.0.1:${activePort}`);
