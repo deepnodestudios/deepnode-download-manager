@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom';
 import {
   Play, Pause, Trash2, Layers, Video, Music, Archive, FileText, Cpu, Image as ImageIcon, Folder, FolderOpen, ExternalLink, AlertCircle, CheckCircle2, Clock,
-  RotateCcw, Link2, Edit3, Info, XCircle, CheckSquare, Square, DownloadCloud, RefreshCw, ChevronUp, ChevronDown, ArrowUpDown
+  RotateCcw, Link2, Edit3, Info, XCircle, CheckSquare, Square, DownloadCloud, RefreshCw, ChevronUp, ChevronDown, ArrowUpDown, Search
 } from 'lucide-react';
 import { useT } from '../i18n';
 import { isElectron, popupDownloadMenu } from '../native';
@@ -18,6 +18,8 @@ const COL_ORDER_KEY = 'dn-col-order';
 
 export default function DownloadList({
   downloads,
+  searchQuery = '',
+  onClearSearch,
   onStart,
   onPause,
   onDelete,
@@ -652,6 +654,25 @@ export default function DownloadList({
   }, [downloads, t]);
 
   if (downloads.length === 0) {
+    if (searchQuery) {
+      return (
+        <div className="table-container empty-state">
+          <div className="empty-icon"><Search size={44} /></div>
+          <h3 className="empty-title">{t('search_no_results_title')}</h3>
+          <p className="empty-desc">{t('search_no_results_desc', { query: searchQuery })}</p>
+          {onClearSearch && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={onClearSearch}
+              style={{ marginTop: '14px' }}
+            >
+              {t('btn_clear_search')}
+            </button>
+          )}
+        </div>
+      );
+    }
     return (
       <div className="table-container empty-state">
         <div className="empty-icon"><DownloadCloud size={44} /></div>

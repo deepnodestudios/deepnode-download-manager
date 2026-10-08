@@ -21,6 +21,8 @@ export default {
   nav_settings: 'Ajustes',
   nav_about: 'Acerca de',
   nav_open_download_folder: 'Carpeta de descargas predeterminada',
+  nav_search: 'Buscar descargas',
+  search_placeholder: 'Buscar por nombre o URL...',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'FILTROS DE ESTADO',
@@ -57,6 +59,9 @@ export default {
   // ── DownloadList ───────────────────────────────────────
   empty_title: 'Aún no hay descargas',
   empty_desc: 'Haz clic en "Añadir descarga" arriba o inicia una descarga desde tu navegador para empezar.',
+  search_no_results_title: 'No se encontraron resultados',
+  search_no_results_desc: 'No se encontraron descargas que coincidan con "{query}".',
+  btn_clear_search: 'Borrar búsqueda',
   bulk_selected: '{n} seleccionadas',
   bulk_start: 'Iniciar',
   bulk_pause: 'Pausar',

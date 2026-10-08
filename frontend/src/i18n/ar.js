@@ -21,6 +21,8 @@ export default {
   nav_settings: 'الإعدادات',
   nav_about: 'حول',
   nav_open_download_folder: 'مجلد التنزيل الافتراضي',
+  nav_search: 'البحث في التنزيلات',
+  search_placeholder: 'البحث حسب اسم الملف أو الرابط...',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'عوامل تصفية الحالة',
@@ -57,6 +59,9 @@ export default {
   // ── DownloadList ───────────────────────────────────────
   empty_title: 'لا توجد تنزيلات بعد',
   empty_desc: 'انقر على «إضافة تنزيل» أعلاه أو ابدأ تنزيلًا من المتصفح للبدء.',
+  search_no_results_title: 'لم يتم العثور على نتائج',
+  search_no_results_desc: 'لم يتم العثور على أي تنزيلات تطابق "{query}".',
+  btn_clear_search: 'مسح البحث',
   bulk_selected: 'تم تحديد {n}',
   bulk_start: 'بدء',
   bulk_pause: 'إيقاف مؤقت',

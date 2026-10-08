@@ -56,6 +56,9 @@ export default function App() {
     return p.get('mode') === 'complete' ? p.get('id') : null;
   });
 
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchInputRef = useRef(null);
   const wsRef = useRef(null);
 
   // Aktif arayüz dili (settings.language: 'auto' | 'tr' | 'en')
@@ -236,6 +239,10 @@ export default function App() {
       if (e.key === 'Insert' || ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N'))) {
         e.preventDefault();
         handleOpenAddModal();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        setIsSearchOpen(true);
+        setTimeout(() => searchInputRef.current?.focus(), 40);
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'L')) {
         e.preventDefault();
         setIsSnifferModalOpen(true);
@@ -270,13 +277,22 @@ export default function App() {
   // öğeler ana listede/saygılarda görünmez — onaylanınca bayrak kalkar ve listelenir
   const visibleDownloads = downloads.filter(item => !item.preflight);
 
-  // Filter downloads
+  // Filter downloads by activeFilter and searchQuery
   const filteredDownloads = visibleDownloads.filter(item => {
-    if (activeFilter === 'all') return true;
-    if (activeFilter === 'downloading') return item.status === 'downloading' || item.status === 'merging';
-    if (activeFilter === 'completed') return item.status === 'completed';
-    if (activeFilter === 'paused') return item.status === 'paused' || item.status === 'queued';
-    return item.category === activeFilter;
+    let matchesCategory = true;
+    if (activeFilter === 'downloading') matchesCategory = item.status === 'downloading' || item.status === 'merging';
+    else if (activeFilter === 'completed') matchesCategory = item.status === 'completed';
+    else if (activeFilter === 'paused') matchesCategory = item.status === 'paused' || item.status === 'queued';
+    else if (activeFilter !== 'all') matchesCategory = item.category === activeFilter;
+
+    if (!matchesCategory) return false;
+
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.trim().toLowerCase();
+    const nameMatch = (item.filename || '').toLowerCase().includes(q);
+    const urlMatch = (item.url || '').toLowerCase().includes(q);
+    const catMatch = (item.category || '').toLowerCase().includes(q);
+    return nameMatch || urlMatch || catMatch;
   });
 
   // Calculate total speed across all active downloads
@@ -519,6 +535,11 @@ export default function App() {
           onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
           onOpenAboutModal={() => setIsAboutModalOpen(true)}
           onOpenDownloadRootDir={handleOpenDownloadRootDir}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          isSearchOpen={isSearchOpen}
+          onToggleSearch={setIsSearchOpen}
+          searchInputRef={searchInputRef}
         />
 
         {extStatus?.stale && !extWarnDismissed && (
@@ -592,6 +613,8 @@ export default function App() {
 
             <DownloadList
               downloads={filteredDownloads}
+              searchQuery={searchQuery}
+              onClearSearch={() => setSearchQuery('')}
               onStart={handleStart}
               onPause={handlePause}
               onDelete={handleDelete}

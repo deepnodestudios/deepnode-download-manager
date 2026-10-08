@@ -1,6 +1,6 @@
-import React, { useLayoutEffect, useRef } from 'react';
+import React, { useLayoutEffect, useRef, useEffect } from 'react';
 import {
-  Plus, Play, Pause, Globe, FolderOpen, Settings, Info
+  Plus, Play, Pause, Globe, FolderOpen, Settings, Info, Search, X
 } from 'lucide-react';
 import { useT } from '../i18n';
 import { openExternal } from '../native';
@@ -13,7 +13,12 @@ export default function Navbar({
   onOpenSnifferModal,
   onOpenSettingsModal,
   onOpenAboutModal,
-  onOpenDownloadRootDir
+  onOpenDownloadRootDir,
+  searchQuery = '',
+  onSearchChange,
+  isSearchOpen = false,
+  onToggleSearch,
+  searchInputRef
 }) {
   const { t } = useT();
   const rowRef = useRef(null);
@@ -99,6 +104,60 @@ export default function Navbar({
         </div>
 
         <span className="toolbar-sep" />
+
+        {/* Arama butonu / Genişleyen arama çubuğu (Seçenek A) */}
+        <div className="nav-search-wrap">
+          {isSearchOpen || searchQuery ? (
+            <div className="nav-search-box">
+              <Search size={15} className="nav-search-icon" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                className="nav-search-input"
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    if (searchQuery) onSearchChange('');
+                    else onToggleSearch(false);
+                  }
+                }}
+                placeholder={t('search_placeholder')}
+                autoFocus
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  className="nav-search-btn"
+                  onClick={() => {
+                    onSearchChange('');
+                    searchInputRef?.current?.focus();
+                  }}
+                  title={t('btn_clear_search')}
+                >
+                  <X size={14} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="nav-search-btn"
+                  onClick={() => onToggleSearch(false)}
+                  title="Kapat (Esc)"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          ) : (
+            <button
+              className={`tb-btn ${searchQuery ? 'tb-btn-active' : ''}`}
+              onClick={() => onToggleSearch(true)}
+              title={`${t('nav_search')} (Ctrl+F)`}
+            >
+              <Search size={18} />
+            </button>
+          )}
+        </div>
 
         <button className="tb-btn" onClick={onOpenDownloadRootDir} title={t('nav_open_download_folder')}>
           <FolderOpen size={18} />

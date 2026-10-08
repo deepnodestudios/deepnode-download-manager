@@ -21,6 +21,8 @@ export default {
   nav_settings: '설정',
   nav_about: '정보',
   nav_open_download_folder: '기본 다운로드 폴더',
+  nav_search: '다운로드 검색',
+  search_placeholder: '파일명 또는 URL로 검색...',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: '상태 필터',
@@ -57,6 +59,9 @@ export default {
   // ── DownloadList ───────────────────────────────────────
   empty_title: '아직 다운로드가 없습니다',
   empty_desc: '위의 "다운로드 추가"를 클릭하거나 브라우저에서 다운로드를 시작하세요.',
+  search_no_results_title: '결과를 찾을 수 없습니다',
+  search_no_results_desc: '"{query}"와(과) 일치하는 다운로드를 찾을 수 없습니다.',
+  btn_clear_search: '검색 지우기',
   bulk_selected: '{n}개 선택됨',
   bulk_start: '시작',
   bulk_pause: '일시정지',

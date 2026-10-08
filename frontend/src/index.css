@@ -343,6 +343,80 @@ body {
   color: var(--text-strong);
   transform: translateY(-1px);
 }
+.tb-btn-active {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Arama çubuğu sarmalayıcı ve kutusu (Seçenek A) */
+.nav-search-wrap {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.nav-search-box {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 11px;
+  padding: 0 10px;
+  gap: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  animation: navSearchExpand 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes navSearchExpand {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.nav-search-box:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+}
+.nav-search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.nav-search-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  color: var(--text-strong);
+  width: 175px;
+  transition: width 0.15s ease;
+}
+.nav-search-input::placeholder {
+  color: var(--text-muted);
+}
+.nav-search-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 0;
+  flex-shrink: 0;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.nav-search-btn:hover {
+  color: var(--text-strong);
+  background: var(--bg-hover);
+}
 
 /* Dar pencerede etiketler gizlenmez; yalnızca dolgular daraltılır */
 @media (max-width: 1000px) {
@@ -358,6 +432,7 @@ body {
   .top-navbar .btn-add .btn-add-plus { margin-right: 0; }
   .top-navbar .btn-sniff { padding: 0 8px; }
   .top-navbar .seg-action { padding: 0 8px; }
+  .nav-search-input { width: 130px; }
 }
 
 /* Aşırı dar pencere: Sniffer gizlenir, ayraçlar kalkar, her şey kompakt */
@@ -371,6 +446,8 @@ body {
   .top-navbar .seg-actions { height: 32px; padding: 2px; }
   .top-navbar .seg-action { height: 26px; padding: 0 6px; }
   .tb-btn { width: 32px; height: 32px; }
+  .nav-search-box { height: 32px; padding: 0 7px; gap: 6px; }
+  .nav-search-input { width: 100px; font-size: 0.78rem; }
   .brand-section { gap: 6px; }
   .brand-title { font-size: 0.9rem; }
   .brand-badge { font-size: 0.5rem; padding: 1px 5px; }

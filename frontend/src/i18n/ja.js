@@ -21,6 +21,8 @@ export default {
   nav_settings: '設定',
   nav_about: 'このアプリについて',
   nav_open_download_folder: '既定のダウンロードフォルダー',
+  nav_search: 'ダウンロードを検索',
+  search_placeholder: 'ファイル名またはURLで検索...',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'ステータスフィルター',
@@ -57,6 +59,9 @@ export default {
   // ── DownloadList ───────────────────────────────────────
   empty_title: 'まだダウンロードはありません',
   empty_desc: '上の「ダウンロードを追加」をクリックするか、ブラウザーからダウンロードを開始してください。',
+  search_no_results_title: '結果が見つかりません',
+  search_no_results_desc: '"{query}" に一致するダウンロードは見つかりませんでした。',
+  btn_clear_search: '検索をクリア',
   bulk_selected: '{n} 件選択中',
   bulk_start: '開始',
   bulk_pause: '一時停止',

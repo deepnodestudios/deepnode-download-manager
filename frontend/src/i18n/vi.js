@@ -21,6 +21,8 @@ export default {
   nav_settings: 'Cài đặt',
   nav_about: 'Giới thiệu',
   nav_open_download_folder: 'Thư mục tải xuống mặc định',
+  nav_search: 'Tìm kiếm tệp tải xuống',
+  search_placeholder: 'Tìm theo tên tệp hoặc URL...',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'BỘ LỌC TRẠNG THÁI',
@@ -57,6 +59,9 @@ export default {
   // ── DownloadList ───────────────────────────────────────
   empty_title: 'Chưa có tải xuống nào',
   empty_desc: 'Nhấp "Thêm tải xuống" ở trên hoặc bắt đầu tải xuống từ trình duyệt để bắt đầu.',
+  search_no_results_title: 'Không tìm thấy kết quả',
+  search_no_results_desc: 'Không tìm thấy tệp tải xuống nào khớp với "{query}".',
+  btn_clear_search: 'Xóa tìm kiếm',
   bulk_selected: 'Đã chọn {n}',
   bulk_start: 'Bắt đầu',
   bulk_pause: 'Tạm dừng',

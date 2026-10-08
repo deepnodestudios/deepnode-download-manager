@@ -21,6 +21,8 @@ export default {
   nav_settings: 'Einstellungen',
   nav_about: 'Info',
   nav_open_download_folder: 'Standard-Download-Ordner',
+  nav_search: 'Downloads durchsuchen',
+  search_placeholder: 'Nach Dateiname oder URL suchen...',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'STATUSFILTER',
@@ -57,6 +59,9 @@ export default {
   // ── DownloadList ───────────────────────────────────────
   empty_title: 'Noch keine Downloads',
   empty_desc: 'Klicke oben auf „Download hinzufügen“ oder starte einen Download im Browser, um loszulegen.',
+  search_no_results_title: 'Keine Ergebnisse gefunden',
+  search_no_results_desc: 'Keine Downloads gefunden, die "{query}" entsprechen.',
+  btn_clear_search: 'Suche löschen',
   bulk_selected: '{n} ausgewählt',
   bulk_start: 'Starten',
   bulk_pause: 'Pausieren',

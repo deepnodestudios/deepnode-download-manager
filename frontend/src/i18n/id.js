@@ -21,6 +21,8 @@ export default {
   nav_settings: 'Pengaturan',
   nav_about: 'Tentang',
   nav_open_download_folder: 'Folder Unduhan Bawaan',
+  nav_search: 'Cari Unduhan',
+  search_placeholder: 'Cari berdasarkan nama file veya URL...',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'FILTER STATUS',
@@ -57,6 +59,9 @@ export default {
   // ── DownloadList ───────────────────────────────────────
   empty_title: 'Belum Ada Unduhan',
   empty_desc: 'Klik "Tambah Unduhan" di atas atau mulai unduhan dari browser Anda untuk memulai.',
+  search_no_results_title: 'Tidak ada hasil yang ditemukan',
+  search_no_results_desc: 'Tidak ada unduhan yang cocok dengan "{query}".',
+  btn_clear_search: 'Hapus Pencarian',
   bulk_selected: '{n} dipilih',
   bulk_start: 'Mulai',
   bulk_pause: 'Jeda',

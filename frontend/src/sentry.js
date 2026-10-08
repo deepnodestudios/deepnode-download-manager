@@ -15,7 +15,7 @@ export function initFrontendSentry() {
   try {
     Sentry.init({
       dsn,
-      release: 'deepnode-download-manager@1.5.3',
+      release: 'deepnode-download-manager@1.5.4',
       environment: import.meta.env.MODE || 'production',
       tracesSampleRate: 0.1,
       integrations: [

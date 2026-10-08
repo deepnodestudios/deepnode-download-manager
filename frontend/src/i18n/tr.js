@@ -15,6 +15,8 @@ export default {
   nav_settings: 'Ayarlar',
   nav_about: 'Hakkında',
   nav_open_download_folder: 'Varsayılan İndirme Klasörü',
+  nav_search: 'İndirilenlerde Ara',
+  search_placeholder: 'Dosya adı veya URL ara...',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'DURUM FİLTRELERİ',
@@ -51,6 +53,9 @@ export default {
   // ── DownloadList ───────────────────────────────────────
   empty_title: 'Henüz İndirme Bulunmuyor',
   empty_desc: 'Yukarıdaki "İndirme Ekle" butonuna tıklayarak veya tarayıcıdan indirme başlatarak kullanabilirsiniz.',
+  search_no_results_title: 'Sonuç bulunamadı',
+  search_no_results_desc: '"{query}" ile eşleşen bir indirme bulunamadı.',
+  btn_clear_search: 'Aramayı Temizle',
   bulk_selected: '{n} seçili',
   bulk_start: 'Başlat',
   bulk_pause: 'Duraklat',

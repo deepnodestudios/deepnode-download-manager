@@ -21,6 +21,8 @@ export default {
   nav_settings: 'सेटिंग्स',
   nav_about: 'ऐप के बारे में',
   nav_open_download_folder: 'डिफ़ॉल्ट डाउनलोड फ़ोल्डर',
+  nav_search: 'डाउनलोड खोजें',
+  search_placeholder: 'फ़ाइल नाम या URL द्वारा खोजें...',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'स्थिति फ़िल्टर',
@@ -57,6 +59,9 @@ export default {
   // ── DownloadList ───────────────────────────────────────
   empty_title: 'अभी कोई डाउनलोड नहीं',
   empty_desc: 'शुरू करने के लिए ऊपर "डाउनलोड जोड़ें" पर क्लिक करें या अपने ब्राउज़र से कोई डाउनलोड शुरू करें।',
+  search_no_results_title: 'कोई परिणाम नहीं मिला',
+  search_no_results_desc: '"{query}" से मेल खाने वाला कोई डाउनलोड नहीं मिला।',
+  btn_clear_search: 'खोज साफ़ करें',
   bulk_selected: '{n} चयनित',
   bulk_start: 'शुरू करें',
   bulk_pause: 'रोकें',

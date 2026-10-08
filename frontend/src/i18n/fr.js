@@ -21,6 +21,8 @@ export default {
   nav_settings: 'Paramètres',
   nav_about: 'À propos',
   nav_open_download_folder: 'Dossier de téléchargement par défaut',
+  nav_search: 'Rechercher des téléchargements',
+  search_placeholder: 'Rechercher par nom de fichier ou URL...',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'FILTRES D’ÉTAT',
@@ -57,6 +59,9 @@ export default {
   // ── DownloadList ───────────────────────────────────────
   empty_title: 'Aucun téléchargement pour l’instant',
   empty_desc: 'Cliquez sur « Ajouter un téléchargement » ci-dessus ou lancez un téléchargement depuis votre navigateur pour commencer.',
+  search_no_results_title: 'Aucun résultat trouvé',
+  search_no_results_desc: 'Aucun téléchargement correspondant à "{query}" n\'a été trouvé.',
+  btn_clear_search: 'Effacer la recherche',
   bulk_selected: '{n} sélectionnés',
   bulk_start: 'Démarrer',
   bulk_pause: 'Pause',

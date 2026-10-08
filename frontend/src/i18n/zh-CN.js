@@ -21,6 +21,8 @@ export default {
   nav_settings: '设置',
   nav_about: '关于',
   nav_open_download_folder: '默认下载文件夹',
+  nav_search: '搜索下载',
+  search_placeholder: '按文件名或 URL 搜索...',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: '状态筛选',
@@ -57,6 +59,9 @@ export default {
   // ── DownloadList ───────────────────────────────────────
   empty_title: '暂无下载',
   empty_desc: '点击上方的“添加下载”，或在浏览器中开始一个下载即可开始使用。',
+  search_no_results_title: '未找到结果',
+  search_no_results_desc: '未找到与 "{query}" 匹配的下载。',
+  btn_clear_search: '清除搜索',
   bulk_selected: '已选择 {n} 项',
   bulk_start: '开始',
   bulk_pause: '暂停',

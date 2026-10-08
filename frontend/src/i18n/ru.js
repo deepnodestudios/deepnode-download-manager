@@ -21,6 +21,8 @@ export default {
   nav_settings: 'Настройки',
   nav_about: 'О программе',
   nav_open_download_folder: 'Папка загрузок по умолчанию',
+  nav_search: 'Поиск загрузок',
+  search_placeholder: 'Поиск по имени файла или URL...',
 
   // ── Sidebar ────────────────────────────────────────────
   side_status_filters: 'ФИЛЬТРЫ СТАТУСА',
@@ -57,6 +59,9 @@ export default {
   // ── DownloadList ───────────────────────────────────────
   empty_title: 'Загрузок пока нет',
   empty_desc: 'Нажмите «Добавить загрузку» выше или начните загрузку из браузера, чтобы приступить.',
+  search_no_results_title: 'Ничего не найдено',
+  search_no_results_desc: 'Загрузок, соответствующих "{query}", не найдено.',
+  btn_clear_search: 'Очистить поиск',
   bulk_selected: 'Выбрано: {n}',
   bulk_start: 'Запустить',
   bulk_pause: 'Пауза',
