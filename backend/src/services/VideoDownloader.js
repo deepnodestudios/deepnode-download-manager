@@ -903,7 +903,7 @@ export class VideoDownloader extends EventEmitter {
 
     this.proc.on('error', (err) => {
       this.proc = null;
-      if (this.status === 'paused') return;
+      if (this.status === 'paused' || this.status === 'canceled') return;
       this.status = 'error';
       this.errorMsg = 'Could not run yt-dlp (' + (err.code || '') + '). Your antivirus may be blocking it.';
       this.emit('error', { id: this.id, error: this.errorMsg });
@@ -936,7 +936,7 @@ export class VideoDownloader extends EventEmitter {
     this.proc.on('close', (code) => {
       this.proc = null;
       if (this._stallTimer) { clearInterval(this._stallTimer); this._stallTimer = null; }
-      if (this.status === 'paused') return;
+      if (this.status === 'paused' || this.status === 'canceled') return;
       if (code === 0) {
         this.status = 'completed';
         this.percent = 100;
@@ -1186,6 +1186,28 @@ export class VideoDownloader extends EventEmitter {
           this.proc.kill('SIGTERM');
         }
       } catch (e) {}
+    }
+    this.emit('status-change', { id: this.id, status: this.status });
+  }
+
+  cancel() {
+    if (this.status === 'completed') return;
+    this.status = 'canceled';
+    this.speed = 0;
+    this.eta = 0;
+    if (this._stallTimer) {
+      clearInterval(this._stallTimer);
+      this._stallTimer = null;
+    }
+    if (this.proc) {
+      try {
+        if (isWin && this.proc.pid) {
+          spawnSync('taskkill', ['/F', '/T', '/PID', this.proc.pid.toString()]);
+        } else {
+          this.proc.kill('SIGTERM');
+        }
+      } catch (e) {}
+      this.proc = null;
     }
     this.emit('status-change', { id: this.id, status: this.status });
   }

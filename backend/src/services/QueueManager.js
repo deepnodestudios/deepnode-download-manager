@@ -239,6 +239,32 @@ class QueueManager {
     }
   }
 
+  cancelDownload(id) {
+    const engine = this.engines.get(id);
+    if (!engine) return false;
+    if (engine.status === 'completed') return false;
+
+    if (engine.preflight) {
+      this.deleteDownload(id, true);
+      return true;
+    }
+
+    if (typeof engine.cancel === 'function') {
+      engine.cancel();
+    } else {
+      if (engine.status === 'downloading') {
+        engine.pause();
+      }
+      engine.status = 'canceled';
+      engine.speed = 0;
+      engine.eta = 0;
+      this.saveState();
+      this.checkQueue();
+      this.broadcast({ type: 'STATUS_CHANGE', payload: { id, status: 'canceled' } });
+    }
+    return true;
+  }
+
   startAll() {
     // "Tümünü Başlat" ve zamanlayıcı da eşzamanlılık sınırına UYMALI. Eskiden
     // burada her motora doğrudan `start()` çağrılıyor, `maxConcurrentDownloads`

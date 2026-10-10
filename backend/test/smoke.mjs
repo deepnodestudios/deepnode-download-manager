@@ -368,6 +368,19 @@ async function run() {
 
     // Testi toparla: arka planda ağ/disk tüketmesinler
     await call('/api/download/pause-all', { origin: APP_ORIGIN, method: 'POST' });
+
+    console.log('\nR11 — İndirmeyi iptal etme (cancelDownload)');
+    const cancelTarget = await addDownload(`http://127.0.0.1:${ORIGIN_SRC}/slow.zip?cancel=1`, { filename: 'cancel_me.zip' });
+    const cancelId = cancelTarget.json.id;
+    await sleep(500);
+    const cancelRes = await call(`/api/download/${cancelId}/cancel`, {
+      origin: APP_ORIGIN,
+      method: 'POST'
+    });
+    check('cancel endpoint 200 döner ve success true verir', cancelRes.status === 200 && cancelRes.json && cancelRes.json.success === true);
+    await sleep(500);
+    const canceledItem = ((await call('/api/downloads', { origin: APP_ORIGIN })).json || []).find((d) => d.id === cancelId);
+    check('iptal edilen indirme durumu canceled oldu', canceledItem && canceledItem.status === 'canceled');
   } finally {
     backend.child.kill('SIGKILL');
     origin.close();

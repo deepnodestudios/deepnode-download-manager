@@ -7,7 +7,7 @@ import { setLanguage, getLanguage, t as et } from './i18n.js';
 import { initSentry, Sentry } from '../backend/src/sentry.js';
 
 // Initialize Sentry for Electron main process error & crash tracking
-initSentry({ processName: 'electron-main', appVersion: app.getVersion ? app.getVersion() : '1.5.4' });
+initSentry({ processName: 'electron-main', appVersion: app.getVersion ? app.getVersion() : '1.5.5' });
 
 // DİKKAT: Bunlar dosyanın EN BAŞINDA tanımlı kalmalı. `SECURE_WEB_PREFERENCES`
 // gibi ÜST DÜZEY (top-level) sabitler `__dirname`'i modül yüklenirken kullanır;

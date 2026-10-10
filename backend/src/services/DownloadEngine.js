@@ -705,6 +705,22 @@ export class DownloadEngine extends EventEmitter {
     this.emit('status-change', { id: this.id, status: this.status });
   }
 
+  cancel() {
+    if (this.status === 'completed') return;
+    this._epoch++; // uçuştaki çalışmayı geçersiz kıl (bkz. start())
+    this.status = 'canceled';
+    this.speed = 0;
+    this.eta = 0;
+
+    this.activeRequests.forEach((ctl) => {
+      try { ctl.destroy(); } catch (e) { /* istek zaten kapalı */ }
+    });
+    this.activeRequests = [];
+    this.stopSpeedTracker();
+
+    this.emit('status-change', { id: this.id, status: this.status });
+  }
+
   cleanup() {
     this.pause();
     if (this.tempDir && fs.existsSync(this.tempDir)) {
