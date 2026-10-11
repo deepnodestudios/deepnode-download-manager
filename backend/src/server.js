@@ -91,7 +91,7 @@ function hasUsableExt(filename, url) {
   return false;
 }
 
-// IDM davranışı: onay penceresi açılır açılmaz arka planda GIZLI bir ön indirme
+// Arka plan ön indirme davranışı: onay penceresi açılır açılmaz arka planda GIZLI bir ön indirme
 // (preflight) başlar. Kullanıcı "İndirmeyi Başlat" deyince aynı motor kaldığı
 // yerden devam eder (confirm-preflight); pencere kapatılır/vazgeçilirse parçalar
 // silinir (cancel-preflight). Videolar (yt-dlp) kalite seçimine bağlı olduğundan
@@ -454,7 +454,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 
 // 5. Add single download (STRICT RULE: Requires confirmedByUser: true from Download Dialog)
 app.post('/api/download/add', async (req, res) => {
-  const { url, filename, category, saveDir, segmentsCount, forceVideo, quality, autoStart, confirmedByUser, headers, explicit } = req.body;
+  const { url, filename, category, saveDir, segmentsCount, forceVideo, quality, autoStart, confirmedByUser, headers, explicit, queueId } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
   // STRICT USER GUARD: If user has not confirmed in the Save Location Dialog, DO NOT add or start download!
@@ -487,7 +487,7 @@ app.post('/api/download/add', async (req, res) => {
       }
     }
     stashHeaders(url, headers); // keep the browser session for the confirmed add
-    startPreflight(url, filename, headers); // IDM gibi: onay beklerken arka planda indirmeye başla
+    startPreflight(url, filename, headers); // Onay beklerken arka planda indirmeye başla
     serverEvents.emit('prompt-add', url);
     return res.json({ status: 'prompted', message: 'Folder & download confirmation window opened.' });
   }
@@ -496,10 +496,10 @@ app.post('/api/download/add', async (req, res) => {
   try {
     const sessionHeaders = takeHeaders(url, headers);
 
-    // IDM davranışı: onay penceresi açıkken arka planda inen ön indirme varsa
+    // Onay penceresi açıkken arka planda inen ön indirme varsa
     // yeni kayıt AÇMA — aynı motor, kullanıcının seçtiği ad/klasörle devam eder.
     if (!forceVideo) {
-      const pf = await confirmPreflightForUrl(url, { filename, saveDir, segmentsCount, autoStart });
+      const pf = await confirmPreflightForUrl(url, { filename, saveDir, segmentsCount, autoStart, queueId });
       if (pf) {
         // open-progress zaten confirmPreflightForUrl içinde erken emit edildi
         return res.json(pf);
@@ -510,11 +510,11 @@ app.post('/api/download/add', async (req, res) => {
       if (entry) dropPreflight(url, entry);
     }
 
-    const item = await queueManager.addDownload(url, filename, category, segmentsCount, forceVideo, quality, saveDir, sessionHeaders);
+    const item = await queueManager.addDownload(url, filename, category, segmentsCount, forceVideo, quality, saveDir, sessionHeaders, false, null, queueId || 'main');
     if (autoStart === false && item && item.id) {
       queueManager.pauseDownload(item.id);
     } else if (item && item.id) {
-      // IDM tarzı ilerleme penceresi: indirme başlatıldıysa Electron'a haber ver
+      // İlerleme penceresi: indirme başlatıldıysa Electron'a haber ver
       // (renderer IPC'ye güvenilmez — ana pencerede nodeIntegration kapalı)
       serverEvents.emit('open-progress', item.id);
     }
@@ -525,7 +525,7 @@ app.post('/api/download/add', async (req, res) => {
 });
 
 // 5b. Confirm a background preflight download: apply the user's final choices
-// (name/folder) and CONTINUE from the bytes already downloaded (IDM behaviour).
+// (name/folder) and CONTINUE from the bytes already downloaded.
 app.post('/api/download/confirm-preflight', appOnly(getPort), async (req, res) => {
   const { url, filename, saveDir, segmentsCount, autoStart } = req.body || {};
   const snap = await confirmPreflightForUrl(url, { filename, saveDir, segmentsCount, autoStart });
@@ -564,14 +564,14 @@ app.post('/api/download/video', async (req, res) => {
     // Eklentide seçilen kaliteyi ve referer'ı onay penceresine taşı (yoksa "en yüksek"e düşerdi)
     // video: true -> onay penceresi bunu daima video/manifest sayar (uzantıya bakmadan).
     // Uzantıdan gelen akış manifesti .txt gibi uzantısız olabilir; URL'den anlaşılmaz.
-    // IDM gibi: onay penceresi açılırken arka planda seçilen kaliteyle indirmeye başla.
+    // Onay penceresi açılırken arka planda seçilen kaliteyle indirmeye başla.
     startVideoPreflight(url, quality || null, referer || null, filename || null);
     serverEvents.emit('prompt-add', { url, quality: quality || null, referer: referer || null, video: true, filename: filename || null });
     return res.json({ status: 'prompted', message: 'Folder & download confirmation window opened.' });
   }
 
   try {
-    // IDM davranışı: onay penceresi açıkken arka planda inen video ön indirmesi varsa
+    // Onay penceresi açıkken arka planda inen video ön indirmesi varsa
     // (kalite/klasör/ad aynıysa) yeni kayıt AÇMA — aynı motor kaldığı baytlardan devam eder.
     const pf = await confirmVideoPreflightForUrl(url, { quality, filename, saveDir, autoStart });
     if (pf) {
@@ -583,7 +583,7 @@ app.post('/api/download/video', async (req, res) => {
     if (autoStart === false && item && item.id) {
       queueManager.pauseDownload(item.id);
     } else if (item && item.id) {
-      serverEvents.emit('open-progress', item.id); // IDM tarzı ilerleme penceresi
+      serverEvents.emit('open-progress', item.id); // İlerleme penceresi
     }
     res.json(item);
   } catch (err) {
@@ -591,7 +591,7 @@ app.post('/api/download/video', async (req, res) => {
   }
 });
 
-// 5.5. "Download all" (IDM tarzı): tek videonun birden çok kalitesini/varyantını
+// 5.5. "Download all": tek videonun birden çok kalitesini/varyantını
 // varsayılan Video klasörüne toplu ekler. Ayrı ayrı onay pencereleri açmadığı için
 // AÇIK bir kullanıcı eylemidir (kullanıcı eklentide "Tümünü indir"e tıkladı) ve
 // yalnızca video motoruna (yt-dlp) gider. Kötüye kullanımı sınırlamak için tavan var.
@@ -618,12 +618,12 @@ app.post('/api/download/video-batch', async (req, res) => {
 
 // 6. Add batch downloads
 app.post('/api/download/batch', appOnly(getPort), async (req, res) => {
-  const { urls } = req.body;
+  const { urls, saveDir, autoStart, queueId } = req.body;
   if (!Array.isArray(urls) || urls.length === 0) {
     return res.status(400).json({ error: 'URLs array is required' });
   }
   try {
-    const items = await queueManager.addBatchDownloads(urls);
+    const items = await queueManager.addBatchDownloads(urls, saveDir, autoStart, queueId || 'main');
     res.json(items);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -716,6 +716,19 @@ app.post('/api/open-download-root', appOnly(getPort), async (req, res) => {
   res.json({ success: true, path: root });
 });
 
+// Open a specific category folder in file explorer
+app.post('/api/open-category-folder', appOnly(getPort), async (req, res) => {
+  const { category } = req.body || {};
+  const dir = queueManager.categoryDir(category || 'General');
+  try {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    await openPath(dir);
+    res.json({ success: true, path: dir });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Yeniden indir: dosyayı ve parçaları silip baştan indirir
 app.post('/api/download/:id/redownload', appOnly(getPort), async (req, res) => {
   try {
@@ -752,6 +765,82 @@ app.post('/api/download/:id/update-url', appOnly(getPort), (req, res) => {
   }
 });
 
+// Özel Hız Sınırı Belirle (Per-download speed limit)
+app.post('/api/download/:id/speed-limit', appOnly(getPort), (req, res) => {
+  const { speedLimitKbps } = req.body || {};
+  const item = queueManager.setSpeedLimit(req.params.id, speedLimitKbps);
+  if (!item) return res.status(404).json({ error: 'Download not found' });
+  res.json({ success: true, download: item });
+});
+
+// Kuyruk Sıralaması: Yukarı / Aşağı / Başa / Sona Taşı
+app.post('/api/download/:id/move', appOnly(getPort), (req, res) => {
+  const { direction } = req.body || {};
+  const downloads = queueManager.moveDownload(req.params.id, direction);
+  if (!downloads) return res.status(404).json({ error: 'Download not found' });
+  res.json({ success: true, downloads });
+});
+
+// Kuyruk Sıralaması: Tüm listeyi verilen sıraya diz
+app.post('/api/downloads/reorder', appOnly(getPort), (req, res) => {
+  const { orderedIds } = req.body || {};
+  queueManager.reorderDownloads(orderedIds);
+  res.json({ success: true });
+});
+
+// İndirmeleri Dışa Aktar (Export - TXT veya JSON)
+app.get('/api/downloads/export', appOnly(getPort), (req, res) => {
+  const format = req.query.format || 'txt';
+  const all = queueManager.getAllDownloads();
+  if (format === 'json') {
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename="ddm-downloads.json"');
+    return res.json(all);
+  }
+  // TXT: Standart düz URL listesi (her satıra bir link)
+  const txt = all.map((d) => d.url).filter(Boolean).join('\r\n');
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="ddm-downloads.txt"');
+  res.send(txt);
+});
+
+// İndirmeleri İçe Aktar (Import - URL dizisi veya öğeler)
+app.post('/api/downloads/import', appOnly(getPort), async (req, res) => {
+  const { urls, items } = req.body || {};
+  let count = 0;
+  if (Array.isArray(items) && items.length > 0) {
+    for (const item of items) {
+      if (item && item.url) {
+        await queueManager.addDownload(item.url, item.filename, item.category, item.segmentsCount, false, 'best', item.saveDir);
+        count++;
+      }
+    }
+  } else if (Array.isArray(urls) && urls.length > 0) {
+    for (const u of urls) {
+      if (typeof u === 'string' && u.trim().startsWith('http')) {
+        await queueManager.addDownload(u.trim());
+        count++;
+      }
+    }
+  }
+  res.json({ success: true, count });
+});
+
+// Tarayıcı eklentisinden / uygulamadan toplu ekleme istemi (Prompt Batch)
+app.post('/api/download/prompt-batch', (req, res) => {
+  const { urls, referer } = req.body || {};
+  if (!Array.isArray(urls) || urls.length === 0) {
+    return res.status(400).json({ error: 'URLs array is required' });
+  }
+  const payload = { urls, referer: referer || null };
+  serverEvents.emit('prompt-batch', payload);
+  try {
+    const jsonStr = JSON.stringify({ type: 'PROMPT_BATCH', payload });
+    clients.forEach((c) => { if (c.readyState === 1) c.send(jsonStr); });
+  } catch (e) {}
+  res.json({ status: 'prompted', count: urls.length });
+});
+
 // 11. Start All / Pause All
 app.post('/api/download/start-all', appOnly(getPort), (req, res) => {
   queueManager.startAll();
@@ -785,6 +874,76 @@ app.post('/api/download/:id/priority', appOnly(getPort), (req, res) => {
 
 // Zamanlayıcı durumu
 app.get('/api/scheduler', (req, res) => res.json(schedulerStatus()));
+
+// Kuyruk Yönetimi Uçları (Multiple Named Queues)
+app.get('/api/queues', appOnly(getPort), (req, res) => {
+  const queues = storageService.getQueues();
+  const allDownloads = queueManager.getAllDownloads();
+  const queuesWithStats = queues.map(q => {
+    const qDownloads = allDownloads.filter(d => (d.queueId || 'main') === q.id);
+    return {
+      ...q,
+      totalCount: qDownloads.length,
+      downloadingCount: qDownloads.filter(d => d.status === 'downloading' || d.status === 'merging').length,
+      queuedCount: qDownloads.filter(d => d.status === 'queued').length,
+      completedCount: qDownloads.filter(d => d.status === 'completed').length,
+      pausedCount: qDownloads.filter(d => d.status === 'paused').length
+    };
+  });
+  res.json(queuesWithStats);
+});
+
+app.post('/api/queues', appOnly(getPort), (req, res) => {
+  const { name, maxConcurrent, schedulerEnabled, startTime, stopTime, days, afterStop, speedLimitKbps } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'Queue name is required' });
+  try {
+    const newQueue = storageService.createQueue(name, {
+      maxConcurrent, schedulerEnabled, startTime, stopTime, days, afterStop, speedLimitKbps
+    });
+    res.json(newQueue);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/queues/:id', appOnly(getPort), (req, res) => {
+  try {
+    const updated = storageService.updateQueue(req.params.id, req.body || {});
+    if (!updated) return res.status(404).json({ error: 'Queue not found' });
+    res.json(updated);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/queues/:id', appOnly(getPort), (req, res) => {
+  try {
+    const id = req.params.id;
+    if (id === 'main') return res.status(400).json({ error: 'Cannot delete main queue' });
+    storageService.deleteQueue(id);
+    queueManager.onQueueDeleted(id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/queues/:id/start', appOnly(getPort), (req, res) => {
+  queueManager.startQueue(req.params.id);
+  res.json({ success: true });
+});
+
+app.post('/api/queues/:id/pause', appOnly(getPort), (req, res) => {
+  queueManager.pauseQueue(req.params.id);
+  res.json({ success: true });
+});
+
+app.post('/api/download/:id/queue', appOnly(getPort), (req, res) => {
+  const { queueId } = req.body || {};
+  const updated = queueManager.moveDownloadToQueue(req.params.id, queueId);
+  if (!updated) return res.status(404).json({ error: 'Download not found' });
+  res.json(updated);
+});
 
 // 13. Settings API
 // The bundled browser-extension folder is refreshed on every app install, but
@@ -979,8 +1138,11 @@ function onServerReady() {
   setInterval(maybeUpdate, 12 * 3600 * 1000);
 
   // Zamanlayıcı (ayarlardan açılır)
-  startScheduler((evt) => {
-    queueManager.broadcast({ type: 'SCHEDULER', payload: { event: evt, at: new Date().toISOString() } });
+  startScheduler((evt, action) => {
+    queueManager.broadcast({ type: 'SCHEDULER', payload: { event: evt, action, at: new Date().toISOString() } });
+    if (evt === 'stop' && action && action !== 'nothing') {
+      serverEvents.emit('scheduler-stop-action', action);
+    }
   });
 }
 

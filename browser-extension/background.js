@@ -27,16 +27,16 @@ chrome.storage.onChanged.addListener((changes, area) => {
   });
 });
 
-const MEDIA_RE = /\.(mp4|mkv|webm|avi|mov|flv|m4v|mp3|m4a|aac|flac|wav|ogg|opus|zip|rar|7z|tar|gz|bz2|iso|pdf|exe|msi|apk|dmg|deb|docx|xlsx|pptx|m3u8|ts)(\?|$)/i;
+const MEDIA_RE = /\.(mp4|mkv|webm|avi|mov|flv|m4v|mp3|m4a|aac|flac|wav|ogg|opus|wma|wmv|asf|3gp|3gpp|f4m|f4f|mpd|m4s|ts|tsv|zip|rar|7z|tar|gz|bz2|iso|pdf|exe|msi|apk|dmg|deb|docx|xlsx|pptx|doc|xls|ppt|m3u8)(\?|$)/i;
 const VIDEO_SITE_RE = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|twitter\.com|x\.com|reddit\.com|soundcloud\.com|bilibili\.com|ok\.ru|vk\.com)$/i;
 
 function isVideoSite(url) {
   try { return VIDEO_SITE_RE.test(new URL(url).hostname); } catch (e) { return false; }
 }
 
-// HLS/DASH manifestleri (m3u8/mpd) siteden bağımsız olarak yt-dlp ile indirilir
+// HLS/DASH/HDS manifestleri (m3u8/mpd/f4m) siteden bağımsız olarak yt-dlp ile indirilir
 function isManifestUrl(url) {
-  return /\.(m3u8|mpd)(\?|$)/i.test(url || '');
+  return /\.(m3u8|mpd|f4m)(\?|$)/i.test(url || '');
 }
 
 // Recently seen media/stream URLs per tab (for blob/streaming fallback)
@@ -276,7 +276,7 @@ async function sendVideoToApp(url, quality, referer, filename) {
 }
 
 // "Tümünü indir": tek istekte, her çözünürlükten bir kaliteyi varsayılan Video klasörüne
-// ekler (ayrı ayrı onay pencereleri açmadan). IDM'nin "Download all" davranışına denk.
+// ekler (ayrı ayrı onay pencereleri açmadan). Standart "Download all" davranışına denk.
 async function sendVideoBatchToApp(url, qualities, referer, filename) {
   return (await postJson('/api/download/video-batch', {
     url,
@@ -326,6 +326,8 @@ async function doDownload(url, referrer) {
 function cleanTitle(t) {
   if (!t) return '';
   t = String(t).trim();
+  t = t.replace(/^\(\d+\+?\)\s*/, ''); // bildirim sayıları: (1), (99+)
+  t = t.replace(/[ \t\r\n\u25B6\u25B7]+/g, ' '); // oynat simgeleri (▶, ▷) ve fazla boşluklar
   const parts = t.split(/\s*(?:»|\||::)\s*|\s+[-–—]\s+/);
   if (parts.length > 1 && parts[0].trim().length >= 2) t = parts[0].trim();
   return t.slice(0, 150);
@@ -401,6 +403,11 @@ function buildContextMenus() {
       title: DN_I18N.t('ctx_scan'),
       contexts: ['page', 'frame']
     });
+    chrome.contextMenus.create({
+      id: 'dn-selection',
+      title: DN_I18N.t('ctx_download_selected'),
+      contexts: ['selection']
+    });
   });
 }
 chrome.runtime.onInstalled.addListener(buildContextMenus);
@@ -433,6 +440,25 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     }
   } else if (info.menuItemId === 'dn-scan' && tab) {
     chrome.tabs.sendMessage(tab.id, { type: 'DN_SCAN' });
+  } else if (info.menuItemId === 'dn-selection' && tab) {
+    chrome.tabs.sendMessage(tab.id, { type: 'DN_GET_SELECTION_URLS' }, async (response) => {
+      let urls = (response && response.urls) || [];
+      if (!urls.length && info.selectionText) {
+        const matches = info.selectionText.match(/https?:\/\/[^\s"'<>]+/gi);
+        if (matches) urls = matches;
+      }
+      if (urls.length > 0) {
+        try {
+          await fetch(`http://localhost:${cfg.appPort || 5000}/api/download/prompt-batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls, referer: tab.url })
+          });
+        } catch (err) {
+          wakeApp(urls[0]);
+        }
+      }
+    });
   }
 });
 
@@ -442,13 +468,69 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 // when no filename can be resolved (URL has no extension either).
 const MIME_EXT = {
   'application/x-bittorrent': 'torrent',
+  'application/torrent': 'torrent',
   'application/zip': 'zip',
+  'application/x-zip': 'zip',
+  'application/x-zip-compressed': 'zip',
+  'application/x-rar': 'rar',
   'application/x-rar-compressed': 'rar',
+  'application/vnd.rar': 'rar',
   'application/x-7z-compressed': '7z',
+  'application/x-compress-7z': '7z',
+  'application/gzip': 'gz',
+  'application/x-gzip': 'gz',
+  'application/x-tar': 'tar',
+  'application/x-gtar': 'tar',
+  'application/x-bzip2': 'bz2',
   'application/pdf': 'pdf',
   'application/x-msdownload': 'exe',
+  'application/x-msdos-program': 'exe',
+  'application/x-dosexec': 'exe',
+  'application/x-msi': 'msi',
   'application/x-iso9660-image': 'iso',
-  'application/vnd.android.package-archive': 'apk'
+  'application/vnd.android.package-archive': 'apk',
+  'application/x-apple-diskimage': 'dmg',
+  'application/vnd.debian.binary-package': 'deb',
+  'application/x-deb': 'deb',
+  'application/dash+xml': 'mpd',
+  'application/f4m+xml': 'f4m',
+  'application/vnd.apple.mpegurl': 'm3u8',
+  'application/x-mpegurl': 'm3u8',
+  'application/octet-stream-m3u8': 'm3u8',
+  'video/vnd.mpeg.dash.mpd': 'mpd',
+  'video/mpegurl': 'm3u8',
+  'video/x-mpegurl': 'm3u8',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/x-matroska': 'mkv',
+  'video/quicktime': 'mov',
+  'video/x-flv': 'flv',
+  'video/flv': 'flv',
+  'flv-application/octet-stream': 'flv',
+  'video/3gpp': '3gp',
+  'video/3gpp2': '3gp',
+  'video/x-ms-wmv': 'wmv',
+  'video/x-ms-asf': 'asf',
+  'video/avi': 'avi',
+  'video/msvideo': 'avi',
+  'video/x-msvideo': 'avi',
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/mp4a-latm': 'm4a',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/flac': 'flac',
+  'audio/aac': 'aac',
+  'audio/ogg': 'ogg',
+  'audio/opus': 'opus',
+  'audio/x-ms-wma': 'wma',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-powerpoint': 'ppt',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx'
 };
 async function resolveItemFilename(item) {
   let name = item.filename ? item.filename.split(/[\\/]/).pop() : '';
@@ -573,13 +655,13 @@ if (typeof chrome !== 'undefined' && chrome.downloads) {
 chrome.webRequest.onCompleted.addListener((d) => {
   if (d.tabId < 0) return;
   const url = d.url || '';
-  // .ts parçaları tek başına işe yaramaz ve m3u8 manifestlerini tampondan iterdi
-  if (/\.ts(\?|$)/i.test(url)) return;
+  // .ts, .tsv, .m4s ve .f4f parçaları tek başına işe yaramaz ve m3u8/mpd manifestlerini tampondan iterdi
+  if (/\.(ts|tsv|m4s|f4f)(\?|$)/i.test(url)) return;
   // Manifest URL uzantısız/tokenlı olabilir — Content-Type ile de yakala
   const ctHeader = (d.responseHeaders || []).find((h) => h.name && h.name.toLowerCase() === 'content-type');
   const ct = ctHeader && ctHeader.value ? ctHeader.value.toLowerCase() : '';
-  const ctManifest = /mpegurl|dash\+xml/.test(ct);
-  const urlMedia = MEDIA_RE.test(url) || /mime=(video|audio)/i.test(url);
+  const ctManifest = /mpegurl|dash\+xml|f4m\+xml/.test(ct);
+  const urlMedia = MEDIA_RE.test(url) || /mime=(video|audio)/i.test(url) || /^(video|audio)\//.test(ct);
   if (!urlMedia && !ctManifest) return;
   rememberStream(d.tabId, url, isManifestUrl(url) || ctManifest);
 }, { urls: ['<all_urls>'] }, ['responseHeaders']);

@@ -90,14 +90,12 @@ body {
   position: relative;
   background: var(--bg-header);
   border-bottom: 1px solid var(--border-color);
-  padding: 10px 16px;
-  min-height: 58px;
+  padding: 8px 16px;
+  min-height: 54px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  gap: 14px;
-  align-items: center;
+  gap: 12px;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
@@ -120,20 +118,20 @@ body {
 .brand-section {
   display: flex;
   align-items: center;
-  min-width: 0;
-  width: 208px;
-  flex: 0 1 208px;
-  overflow: hidden;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: max-content;
 }
 
 .brand-clickable {
   display: inline-flex;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
   width: fit-content;
   max-width: 100%;
   cursor: pointer;
   border-radius: 8px;
+  user-select: none;
   transition: opacity 0.15s ease, filter 0.15s ease;
 }
 
@@ -143,17 +141,17 @@ body {
 }
 
 .brand-icon {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  padding: 6px;
-  border-radius: 12px;
+  padding: 5px;
+  border-radius: 10px;
   background: linear-gradient(135deg, rgba(41, 121, 255, 0.18), rgba(45, 225, 194, 0.10));
   border: 1px solid rgba(41, 121, 255, 0.30);
-  filter: drop-shadow(0 3px 10px rgba(41, 121, 255, 0.35));
+  filter: drop-shadow(0 2px 8px rgba(41, 121, 255, 0.30));
 }
 
 .brand-icon img {
@@ -176,11 +174,11 @@ body {
 .brand-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
 }
 
 .brand-title {
-  font-size: 1.12rem;
+  font-size: 1.05rem;
   font-weight: 800;
   letter-spacing: -0.3px;
   background: linear-gradient(90deg, #ffffff, #9dc2ff);
@@ -190,9 +188,9 @@ body {
 }
 
 .brand-badge {
-  font-size: 0.58rem;
-  padding: 2px 7px;
-  border-radius: 20px;
+  font-size: 0.55rem;
+  padding: 2px 6px;
+  border-radius: 12px;
   background: linear-gradient(135deg, rgba(41, 121, 255, 0.25), rgba(45, 225, 194, 0.18));
   color: var(--teal);
   border: 1px solid rgba(45, 225, 194, 0.35);
@@ -203,7 +201,7 @@ body {
 .brand-sub {
   /* Genişlik JS ile üst satıra (DeepNode + ULTRA) tam sığdırılır (Navbar.jsx) */
   width: max-content;
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   color: var(--text-muted);
   font-weight: 500;
   white-space: nowrap;
@@ -212,53 +210,114 @@ body {
 .action-toolbar {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   flex-wrap: nowrap;
   justify-content: flex-end;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* İndirme Ekle — birincil CTA */
 .btn-add {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 38px;
-  padding: 0 15px 0 9px;
+  gap: 7px;
+  height: 36px;
+  padding: 0 13px 0 8px;
   border: none;
-  border-radius: 12px;
+  border-radius: 11px;
   background: linear-gradient(135deg, var(--primary), var(--primary-2));
   color: #ffffff;
   font-family: inherit;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
   flex: 0 0 auto;
-  box-shadow: 0 4px 16px var(--primary-glow);
+  box-shadow: 0 3px 14px var(--primary-glow);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .btn-add:hover {
   transform: translateY(-1px);
-  box-shadow: 0 7px 22px var(--primary-glow);
+  box-shadow: 0 6px 18px var(--primary-glow);
 }
 .btn-add-plus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.18);
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.22);
 }
 
-/* Başlat / Duraklat — bölmeli kontrol */
+/* Toplu İndirme — mor vurgulu buton */
+.btn-batch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 11px;
+  background: rgba(147, 51, 234, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.32);
+  color: #d8b4fe;
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.btn-batch:hover {
+  background: rgba(147, 51, 234, 0.22);
+  border-color: rgba(168, 85, 247, 0.50);
+  box-shadow: 0 0 14px rgba(168, 85, 247, 0.22);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+/* Medya Yakalayıcı — turkuaz vurgulu buton */
+.btn-sniff {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 11px;
+  background: rgba(45, 225, 194, 0.10);
+  border: 1px solid rgba(45, 225, 194, 0.30);
+  color: var(--teal);
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+}
+.btn-sniff:hover {
+  background: rgba(45, 225, 194, 0.20);
+  border-color: rgba(45, 225, 194, 0.50);
+  box-shadow: 0 0 14px rgba(45, 225, 194, 0.20);
+  transform: translateY(-1px);
+}
+
+/* Dikey ayırıcı — buton grupları arası */
+.toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border-color);
+  margin: 0 3px;
+  flex: 0 0 auto;
+}
+
+/* Başlat / Duraklat / Zamanlayıcı — bölmeli kontrol */
 .seg-actions {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   padding: 3px;
-  height: 38px;
-  border-radius: 12px;
+  height: 36px;
+  border-radius: 11px;
   background: var(--bg-hover);
   border: 1px solid var(--border-color);
   flex: 0 0 auto;
@@ -266,59 +325,31 @@ body {
 .seg-action {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 12px;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
   border: none;
-  border-radius: 9px;
+  border-radius: 8px;
   background: transparent;
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
   transition: background 0.15s ease, color 0.15s ease;
 }
 .seg-start { color: var(--success-2); }
 .seg-start:hover { background: rgba(16, 185, 129, 0.16); }
 .seg-pause { color: #fbbf24; }
 .seg-pause:hover { background: rgba(245, 158, 11, 0.16); }
+.seg-action.seg-active {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
 .seg-divider {
   width: 1px;
-  height: 18px;
+  height: 16px;
   background: var(--border-color);
-  flex: 0 0 auto;
-}
-
-/* Medya Yakalayıcı — turkuaz vurgulu buton */
-.btn-sniff {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 38px;
-  padding: 0 13px;
-  border-radius: 12px;
-  background: rgba(45, 225, 194, 0.10);
-  border: 1px solid rgba(45, 225, 194, 0.30);
-  color: var(--teal);
-  font-family: inherit;
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-  flex: 0 0 auto;
-  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
-}
-.btn-sniff:hover {
-  background: rgba(45, 225, 194, 0.20);
-  box-shadow: 0 0 14px rgba(45, 225, 194, 0.18);
-  transform: translateY(-1px);
-}
-
-/* Dikey ayırıcı — buton grupları arası */
-.toolbar-sep {
-  width: 1px;
-  height: 24px;
-  background: var(--border-color);
-  margin: 0 4px;
   flex: 0 0 auto;
 }
 
@@ -327,9 +358,9 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
   background: transparent;
   border: 1px solid transparent;
   color: var(--text-muted);
@@ -358,12 +389,12 @@ body {
 .nav-search-box {
   display: flex;
   align-items: center;
-  height: 38px;
+  height: 36px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 11px;
-  padding: 0 10px;
-  gap: 8px;
+  padding: 0 9px;
+  gap: 7px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   animation: navSearchExpand 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -390,9 +421,9 @@ body {
   border: none;
   outline: none;
   font-family: inherit;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--text-strong);
-  width: 175px;
+  width: 160px;
   transition: width 0.15s ease;
 }
 .nav-search-input::placeholder {
@@ -402,8 +433,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -418,38 +449,48 @@ body {
   background: var(--bg-hover);
 }
 
-/* Dar pencerede etiketler gizlenmez; yalnızca dolgular daraltılır */
-@media (max-width: 1000px) {
-  .top-navbar .btn-add { padding: 0 12px; }
-  .top-navbar .seg-action { padding: 0 10px; }
-  .top-navbar .btn-sniff { padding: 0 10px; }
+/* ── Navbar Responsive Breakpoints ─────────────────────────── */
+
+/* 1220px altı: Kuyruk ve zamanlayıcı butonlarının yazılarını gizle (yalnızca simgeler) */
+@media (max-width: 1220px) {
+  .top-navbar .seg-action .btn-label { display: none; }
+  .top-navbar .seg-action { padding: 0 8px; }
+  .top-navbar .seg-actions { gap: 1px; }
 }
 
-/* Etiketler daraldığında buton metinleri gizlenir (~949px viewport eşiği) */
-@media (max-width: 940px) {
-  .top-navbar .btn-label { display: none; }
-  .top-navbar .btn-add { padding: 0 10px; }
-  .top-navbar .btn-add .btn-add-plus { margin-right: 0; }
-  .top-navbar .btn-sniff { padding: 0 8px; }
-  .top-navbar .seg-action { padding: 0 8px; }
+/* 1040px altı: Toplu İndirme ve Medya Yakalayıcı yazılarını gizle (yalnızca simgeler) */
+@media (max-width: 1040px) {
+  .top-navbar .btn-batch .btn-label,
+  .top-navbar .btn-sniff .btn-label { display: none; }
+  .top-navbar .btn-batch,
+  .top-navbar .btn-sniff { padding: 0 10px; }
+  .top-navbar .brand-sub { display: none; }
   .nav-search-input { width: 130px; }
 }
 
-/* Aşırı dar pencere: Sniffer gizlenir, ayraçlar kalkar, her şey kompakt */
-@media (max-width: 620px) {
-  .top-navbar .btn-sniff { display: none; }
+/* 880px altı: İndirme Ekle yazısını da gizle; tüm butonlar kompakt simge olur */
+@media (max-width: 880px) {
+  .top-navbar .btn-add .btn-label { display: none; }
+  .top-navbar .btn-add { padding: 0 9px; }
+  .nav-search-input { width: 110px; }
+  .top-navbar { gap: 8px; padding: 6px 12px; }
+}
+
+/* 680px altı: Aşırı dar pencerede ayraçlar kalkar, tam kompakt */
+@media (max-width: 680px) {
   .top-navbar .toolbar-sep { display: none; }
   .top-navbar .seg-divider { display: none; }
-  .top-navbar { gap: 4px; padding: 8px 8px; }
-  .top-navbar .btn-add { padding: 0 0 0 7px; gap: 0; }
-  .top-navbar .btn-add, .top-navbar .btn-sniff { height: 32px; }
-  .top-navbar .seg-actions { height: 32px; padding: 2px; }
-  .top-navbar .seg-action { height: 26px; padding: 0 6px; }
-  .tb-btn { width: 32px; height: 32px; }
+  .top-navbar { gap: 4px; padding: 6px 8px; }
+  .top-navbar .btn-add,
+  .top-navbar .btn-batch,
+  .top-navbar .btn-sniff { height: 32px; padding: 0 7px; border-radius: 8px; }
+  .top-navbar .seg-actions { height: 32px; padding: 2px; border-radius: 8px; }
+  .top-navbar .seg-action { height: 26px; padding: 0 6px; border-radius: 6px; }
+  .tb-btn { width: 30px; height: 30px; border-radius: 8px; }
   .nav-search-box { height: 32px; padding: 0 7px; gap: 6px; }
-  .nav-search-input { width: 100px; font-size: 0.78rem; }
-  .brand-section { gap: 6px; }
-  .brand-title { font-size: 0.9rem; }
+  .nav-search-input { width: 90px; font-size: 0.76rem; }
+  .brand-icon { width: 30px; height: 30px; padding: 4px; border-radius: 8px; }
+  .brand-title { font-size: 0.92rem; }
   .brand-badge { font-size: 0.5rem; padding: 1px 5px; }
 }
 
@@ -1275,7 +1316,7 @@ body {
   -webkit-app-region: no-drag;
 }
 
-/* Kompakt (IDM benzeri) yerleşim — yalnız standalone pencere:
+/* Kompakt yerleşim — yalnız standalone pencere:
    dar dolgu/aralıklar; gövde ASLA kırpılmaz/kaydırmaz (temel .modal-body'nin
    max-height:70vh + overflow-y:auto kuralı burada iptal edilir), pencere içeriğe göre boyutlanır */
 .standalone-add-container .modal-header { padding: 8px 14px; }
@@ -1302,7 +1343,7 @@ body {
   to { transform: rotate(360deg); }
 }
 
-/* IDM tarzı "İndirme Tamamlandı" paneli (bağımsız ilerleme penceresi) */
+/* "İndirme Tamamlandı" paneli (bağımsız ilerleme penceresi) */
 .dl-complete-panel {
   display: flex;
   flex-direction: column;

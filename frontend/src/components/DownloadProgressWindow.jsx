@@ -3,7 +3,7 @@ import { X, Minus, Download, Pause, Play, FolderOpen, FileText, Loader, Check } 
 import { useT } from '../i18n';
 import { closeWindow, minimizeWindow, resizeWindow } from '../native';
 
-// IDM tarzı bağımsız indirme ilerleme penceresi (mode=progress&id=...).
+// Bağımsız indirme ilerleme penceresi (mode=progress&id=...).
 // İndirme verisi App'in WS aboneliğinden prop olarak gelir; pencere içeriğe göre
 // otomatik boyutlanır (AddDownloadModal ile aynı resize-add-window IPC deseni).
 export default function DownloadProgressWindow({ download, settings }) {
@@ -61,7 +61,7 @@ export default function DownloadProgressWindow({ download, settings }) {
   const isActive = download && (download.status === 'downloading' || download.status === 'merging');
   const isDone = download && download.status === 'completed';
 
-  // IDM davranışı: tamamlanınca ayrı "İndirme Tamamlandı" diyaloğu açılır
+  // Tamamlanınca ayrı "İndirme Tamamlandı" diyaloğu açılır
   // (Electron download-completed ile). Diyalog etkinse bu pencere kendini kapatır;
   // diyalog kapatılmışsa ("bir daha gösterme") burada tamamlanma paneli kalır.
   useEffect(() => {
@@ -73,7 +73,7 @@ export default function DownloadProgressWindow({ download, settings }) {
 
   const act = (action) => fetch(`/api/download/${download.id}/${action}`, { method: 'POST' }).catch(() => {});
 
-  // Tamamlanma panelindeki Aç / Klasörü Aç: işletim sistemine devredince pencere kapanır (IDM davranışı).
+  // Tamamlanma panelindeki Aç / Klasörü Aç: işletim sistemine devredince pencere kapanır.
   const actAndClose = (action) =>
     fetch(`/api/download/${download.id}/${action}`, { method: 'POST' })
       .then((res) => { if (res.ok) closeWindow(); })
@@ -113,7 +113,7 @@ export default function DownloadProgressWindow({ download, settings }) {
               <Loader size={16} className="dn-spin" /> {t('prog_loading')}
             </div>
           ) : isDone ? (
-            /* IDM tarzı tamamlanma görünümü: animasyonlu onay işareti + dosya bilgisi */
+            /* Tamamlanma görünümü: animasyonlu onay işareti + dosya bilgisi */
             <div className="dl-complete-panel">
               <div className="dl-complete-check">
                 <Check size={30} strokeWidth={3} />
@@ -134,7 +134,7 @@ export default function DownloadProgressWindow({ download, settings }) {
                 </span>
               </div>
 
-              {/* Bilgi satırları (IDM benzeri etiket/değer) */}
+              {/* Bilgi satırları (etiket / değer) */}
               <div className="panel-box" style={{ padding: '8px 12px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: '14px', rowGap: '4px', fontSize: '0.8rem' }}>
                   {rows.map(([label, value, color], i) => (

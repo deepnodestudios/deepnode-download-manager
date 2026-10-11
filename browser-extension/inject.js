@@ -11,8 +11,8 @@
   if (window.__dnHooked) return;
   window.__dnHooked = true;
 
-  var URL_RE = /\.(m3u8|mpd)(\?|$)/i;
-  var CT_RE = /(mpegurl|dash\+xml|vnd\.apple\.mpegurl|x-mpegurl)/i;
+  var URL_RE = /\.(m3u8|mpd|f4m)(\?|$)/i;
+  var CT_RE = /(mpegurl|dash\+xml|f4m\+xml|vnd\.apple\.mpegurl|x-mpegurl)/i;
 
   // Sayfanın kendi fetch çağrılarını sarmaladığımız için (window.fetch değiştiriliyor),
   // sayfanın YAKALAMADIĞI fetch ağ hataları ("TypeError: Failed to fetch") yığın izinde
@@ -46,20 +46,21 @@
     } catch (e) { /* ignore */ }
   }
 
-  // HLS master playlist'i, tek kaliteli media playlist'ten ayırt et: master içinde
+  // HLS/DASH/HDS master playlist'i, tek kaliteli media playlist'ten ayırt et: master içinde
   // #EXT-X-STREAM-INF (varyant/kalite listesi) bulunur. Master'ı tercih edersek yt-dlp
   // TÜM kaliteleri görür; yoksa yalnızca o an oynayan tek kalite gelir.
   function looksMaster(txt) {
     if (typeof txt !== 'string' || !txt) return false;
     if (/#EXT-X-STREAM-INF/i.test(txt)) return true;
     if (/<MPD[\s>]/i.test(txt) && /<Representation[\s>]/i.test(txt)) return true;
+    if (/<manifest[\s>]/i.test(txt) && /<media[\s>]/i.test(txt)) return true;
     return false;
   }
   function urlLooksLikeMaster(u) {
     try {
       var p = new URL(u, location.href).pathname.toLowerCase();
       if (/chunklist|media[_-]|index-sd|playlist_64|playlist_240/.test(p)) return false;
-      return /master|index\.m3u8|playlist\.m3u8|manifest\.m3u8|\.mpd$/.test(p);
+      return /master|index\.m3u8|playlist\.m3u8|manifest\.m3u8|\.mpd$|\.f4m$/.test(p);
     } catch (e) { return false; }
   }
   function isM3u8Url(u) {

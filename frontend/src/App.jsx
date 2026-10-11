@@ -9,14 +9,21 @@ import DownloadProgressWindow from './components/DownloadProgressWindow';
 import DownloadCompleteWindow from './components/DownloadCompleteWindow';
 import MediaSnifferModal from './components/MediaSnifferModal';
 import SettingsModal from './components/SettingsModal';
+import SchedulerModal from './components/SchedulerModal';
+import BatchDownloadModal from './components/BatchDownloadModal';
 import AboutModal from './components/AboutModal';
+import UpdateModal from './components/UpdateModal';
 import { I18nProvider, translate, resolveLanguage } from './i18n';
 import { closeWindow, bringToFront, openExternal } from './native';
 import { setAnonymousUser } from './sentry';
+import { ListOrdered } from 'lucide-react';
 
 export default function App() {
   const [downloads, setDownloads] = useState([]);
   const [settings, setSettings] = useState(null);
+  const [queues, setQueues] = useState([]);
+  const [isNewQueueModalOpen, setIsNewQueueModalOpen] = useState(false);
+  const [newQueueName, setNewQueueName] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem('dn-sidebar-width');
@@ -31,7 +38,11 @@ export default function App() {
     const [initialIsVideoForAdd, setInitialIsVideoForAdd] = useState(false);
     const [initialFilenameForAdd, setInitialFilenameForAdd] = useState('');
   const [isSnifferModalOpen, setIsSnifferModalOpen] = useState(false);
+  const [isSchedulerModalOpen, setIsSchedulerModalOpen] = useState(false);
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+  const [initialBatchUrls, setInitialBatchUrls] = useState([]);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const importInputRef = useRef(null);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const [selectedDownloadForChunks, setSelectedDownloadForChunks] = useState(null);
   const [propertiesItem, setPropertiesItem] = useState(null);
@@ -43,15 +54,17 @@ export default function App() {
   const [extWarnDismissed, setExtWarnDismissed] = useState(false);
   const [appUpdate, setAppUpdate] = useState(null); // uygulama güncelleme bilgisi
   const [appUpdateDismissed, setAppUpdateDismissed] = useState(false);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [currentVersion, setCurrentVersion] = useState('');
   const [isStandaloneAdd] = useState(() => {
     return new URLSearchParams(window.location.search).get('mode') === 'add';
   });
-  // IDM tarzı bağımsız ilerleme penceresi (mode=progress&id=...)
+  // Bağımsız ilerleme penceresi (mode=progress&id=...)
   const [standaloneProgressId] = useState(() => {
     const p = new URLSearchParams(window.location.search);
     return p.get('mode') === 'progress' ? p.get('id') : null;
   });
-  // IDM tarzı "İndirme Tamamlandı" diyaloğu (mode=complete&id=...)
+  // "İndirme Tamamlandı" diyaloğu (mode=complete&id=...)
   const [standaloneCompleteId] = useState(() => {
     const p = new URLSearchParams(window.location.search);
     return p.get('mode') === 'complete' ? p.get('id') : null;
@@ -93,7 +106,7 @@ export default function App() {
       setIsAddModalOpen(true);
     }
 
-    // Initial fetch of downloads and settings
+    // Initial fetch of downloads, settings and queues
     const refreshState = () => {
       fetch('/api/downloads')
         .then(res => res.json())
@@ -109,6 +122,16 @@ export default function App() {
           }
         })
         .catch(err => console.error('Failed to fetch settings:', err));
+
+      fetch('/api/queues')
+        .then(res => res.json())
+        .then(data => setQueues(data || []))
+        .catch(err => console.error('Failed to fetch queues:', err));
+
+      fetch('/api/app/info')
+        .then(res => res.json())
+        .then(data => { if (data?.version) setCurrentVersion(data.version); })
+        .catch(() => {});
     };
     refreshState();
 
@@ -154,6 +177,7 @@ export default function App() {
         if (type === 'INIT_STATE') {
           setDownloads(payload.downloads || []);
           setSettings(payload.settings || {});
+          if (payload.queues) setQueues(payload.queues);
           if (payload.settings?.anonymousId) {
             setAnonymousUser(payload.settings.anonymousId);
           }
@@ -193,6 +217,16 @@ export default function App() {
           if (payload && payload.url) {
             handleOpenAddModal(payload.url);
           }
+        } else if (type === 'PROMPT_BATCH') {
+          if (payload && Array.isArray(payload.urls)) {
+            setInitialBatchUrls(payload.urls);
+            setIsBatchModalOpen(true);
+            bringToFront();
+          }
+        } else if (type === 'VIRUS_ALERT') {
+          if (payload && payload.threat) {
+            alert(tt('virus_alert_detected', { file: payload.filename || 'Dosya', threat: payload.threat }));
+          }
         }
       } catch (err) {
         console.error('WS Parse Error:', err);
@@ -206,6 +240,17 @@ export default function App() {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (wsRef.current) wsRef.current.close();
     };
+  }, []);
+
+  useEffect(() => {
+    if (window.ddmNative?.onPromptBatch) {
+      window.ddmNative.onPromptBatch((payload) => {
+        if (payload?.urls) {
+          setInitialBatchUrls(payload.urls);
+          setIsBatchModalOpen(true);
+        }
+      });
+    }
   }, []);
 
   // Tarayıcıdaki eklenti eski sürümde mi? (eklenti 30 sn'de bir sunucuya
@@ -228,14 +273,22 @@ export default function App() {
     const check = () =>
       fetch('/api/update/check')
         .then(res => res.json())
-        .then(data => { if (data && !data.error) setAppUpdate(data); })
+        .then(data => {
+          if (data && !data.error) {
+            setAppUpdate(data);
+            if (data.current) setCurrentVersion(data.current);
+            if (data.updateAvailable) {
+              setIsUpdateModalOpen(true);
+            }
+          }
+        })
         .catch(() => {});
     check();
     const timer = setInterval(check, 6 * 60 * 60 * 1000);
     return () => clearInterval(timer);
-  }, [isStandaloneAdd]);
+  }, [isStandaloneAdd, standaloneProgressId]);
 
-  // Global klavye kısayolları (IDM tarzı): Insert/Ctrl+N ekle, Ctrl+L yakalayıcı,
+  // Global klavye kısayolları: Insert/Ctrl+N ekle, Ctrl+L yakalayıcı,
   // Ctrl+, ayarlar, F1 hakkında. Liste kısayolları (Del, Ctrl+A, Enter) DownloadList'te.
   useEffect(() => {
     if (isStandaloneAdd || standaloneProgressId) return;
@@ -282,17 +335,25 @@ export default function App() {
     }
   }, [settings?.theme]);
 
-  // IDM ön indirmesi (preflight): onay penceresi açıkken arka planda inen gizli
+  // Arka plan ön indirmesi (preflight): onay penceresi açıkken arka planda inen gizli
   // öğeler ana listede/saygılarda görünmez — onaylanınca bayrak kalkar ve listelenir
   const visibleDownloads = downloads.filter(item => !item.preflight);
 
   // Filter downloads by activeFilter and searchQuery
   const filteredDownloads = visibleDownloads.filter(item => {
     let matchesCategory = true;
-    if (activeFilter === 'downloading') matchesCategory = item.status === 'downloading' || item.status === 'merging';
-    else if (activeFilter === 'completed') matchesCategory = item.status === 'completed';
-    else if (activeFilter === 'paused') matchesCategory = item.status === 'paused' || item.status === 'queued';
-    else if (activeFilter !== 'all') matchesCategory = item.category === activeFilter;
+    if (activeFilter.startsWith('queue:')) {
+      const qId = activeFilter.replace('queue:', '');
+      matchesCategory = (item.queueId || 'main') === qId;
+    } else if (activeFilter === 'downloading') {
+      matchesCategory = item.status === 'downloading' || item.status === 'merging';
+    } else if (activeFilter === 'completed') {
+      matchesCategory = item.status === 'completed';
+    } else if (activeFilter === 'paused') {
+      matchesCategory = item.status === 'paused' || item.status === 'queued';
+    } else if (activeFilter !== 'all') {
+      matchesCategory = item.category === activeFilter;
+    }
 
     if (!matchesCategory) return false;
 
@@ -327,6 +388,7 @@ export default function App() {
             referer: newDownloadData.referer,
             saveDir: newDownloadData.saveDir,
             autoStart: newDownloadData.autoStart,
+            queueId: newDownloadData.queueId || 'main',
             confirmedByUser: true
           }
         : {
@@ -345,7 +407,7 @@ export default function App() {
       if (newDownloadData.autoStart === false && data.id) {
         await fetch(`/api/download/${data.id}/pause`, { method: 'POST' });
       }
-      // Not: IDM tarzı ilerleme penceresini backend tetikler (serverEvents 'open-progress')
+      // Not: İlerleme penceresini backend tetikler (serverEvents 'open-progress')
       // — ana pencerede nodeIntegration kapalı olduğundan renderer IPC'si güvenilmez.
       // Yakalanan link için arka planda ön indirme (preflight) varsa /api/download/add
       // onu sunucu tarafında devralıp KALDIĞI YERDEN devam ettirir (yeni kayıt açmaz).
@@ -354,17 +416,60 @@ export default function App() {
     }
   };
 
-  const handleAddBatch = async (urls) => {
+  const handleAddBatch = async (urls, saveDir, autoStart, queueId = 'main') => {
     try {
       const res = await fetch('/api/download/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls })
+        body: JSON.stringify({ urls, saveDir, autoStart, queueId })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
     } catch (err) {
       alert(tt('alert_batch_error', { msg: err.message }));
+    }
+  };
+
+  const handleExportDownloads = () => {
+    const link = document.createElement('a');
+    link.href = '/api/downloads/export?format=txt';
+    link.download = 'ddm-downloads.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleImportDownloads = () => {
+    importInputRef.current?.click();
+  };
+
+  const handleImportFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      if (file.name.endsWith('.json')) {
+        const data = JSON.parse(text);
+        const res = await fetch('/api/downloads/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(Array.isArray(data) ? { items: data } : data)
+        });
+        const resData = await res.json();
+        alert(tt('import_success', { count: resData.count || 0 }));
+      } else {
+        const urls = text.match(/https?:\/\/[^\s"'<>]+/gi) || [];
+        if (urls.length > 0) {
+          setInitialBatchUrls(urls);
+          setIsBatchModalOpen(true);
+        } else {
+          alert(tt('import_no_urls'));
+        }
+      }
+    } catch (err) {
+      alert(tt('alert_import_failed', { msg: err.message }));
+    } finally {
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -497,6 +602,72 @@ export default function App() {
     }
   };
 
+  const handleMoveToQueue = async (id, targetQueueId) => {
+    try {
+      const res = await fetch(`/api/download/${id}/queue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queueId: targetQueueId })
+      });
+      if (res.ok) {
+        setDownloads(prev => prev.map(d => d.id === id ? { ...d, queueId: targetQueueId } : d));
+      }
+    } catch (err) {
+      console.error('Failed to move download to queue:', err);
+    }
+  };
+
+  const handleCreateQueue = async (name) => {
+    if (!name || !name.trim()) return;
+    try {
+      const res = await fetch('/api/queues', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() })
+      });
+      if (res.ok) {
+        const newQ = await res.json();
+        setQueues(prev => [...prev, newQ]);
+        setIsNewQueueModalOpen(false);
+        setNewQueueName('');
+      }
+    } catch (err) {
+      alert(tt('alert_add_error', { msg: err.message }));
+    }
+  };
+
+  const handleDeleteQueue = async (id) => {
+    if (!window.confirm(tt('confirm_delete_queue') || 'Bu kuyruğu silmek istediğinize emin misiniz? Kuyruktaki indirmeler Ana Kuyruğa aktarılacaktır.')) return;
+    try {
+      const res = await fetch(`/api/queues/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setQueues(prev => prev.filter(q => q.id !== id));
+        setDownloads(prev => prev.map(d => d.queueId === id ? { ...d, queueId: 'main' } : d));
+        if (activeFilter === `queue:${id}`) {
+          setActiveFilter('all');
+        }
+      }
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleUpdateQueue = async (id, data) => {
+    try {
+      const res = await fetch(`/api/queues/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setQueues(prev => prev.map(q => q.id === id ? updated : q));
+      }
+    } catch (err) {
+      console.error('Failed to update queue:', err);
+    }
+  };
+
   if (standaloneCompleteId) {
     return (
       <I18nProvider languagePref={settings?.language}>
@@ -529,6 +700,7 @@ export default function App() {
               closeWindow();
             }}
             settings={settings}
+            queues={queues}
             initialUrl={initialUrlForAdd}
             initialQuality={initialQualityForAdd}
             initialReferer={initialRefererForAdd}
@@ -547,9 +719,14 @@ export default function App() {
         <Navbar
           sidebarWidth={sidebarWidth}
           onOpenAddModal={handleOpenAddModal}
+          onOpenBatchModal={() => { setInitialBatchUrls([]); setIsBatchModalOpen(true); }}
           onStartAll={handleStartAll}
           onPauseAll={handlePauseAll}
+          onOpenSchedulerModal={() => setIsSchedulerModalOpen(true)}
+          schedulerEnabled={!!settings?.schedulerEnabled}
           onOpenSnifferModal={() => setIsSnifferModalOpen(true)}
+          onExportDownloads={handleExportDownloads}
+          onImportDownloads={handleImportDownloads}
           onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
           onOpenAboutModal={() => setIsAboutModalOpen(true)}
           onOpenDownloadRootDir={handleOpenDownloadRootDir}
@@ -622,6 +799,9 @@ export default function App() {
             activeFilter={activeFilter}
             setActiveFilter={setActiveFilter}
             downloads={visibleDownloads}
+            queues={queues}
+            onOpenNewQueueModal={() => { setNewQueueName(''); setIsNewQueueModalOpen(true); }}
+            onDeleteQueue={handleDeleteQueue}
           />
 
           <main className="content-area">
@@ -645,6 +825,8 @@ export default function App() {
               onCopyUrl={handleCopyUrl}
               onShowProperties={handleShowProperties}
               onSetPriority={handleSetPriority}
+              queues={queues}
+              onMoveToQueue={handleMoveToQueue}
             />
           </main>
         </div>
@@ -655,13 +837,31 @@ export default function App() {
           onAddDownload={handleAddDownload}
           onAddBatch={handleAddBatch}
           settings={settings}
+          queues={queues}
           initialUrl={initialUrlForAdd}
+        />
+
+        <BatchDownloadModal
+          isOpen={isBatchModalOpen}
+          onClose={() => { setIsBatchModalOpen(false); setInitialBatchUrls([]); }}
+          onAddBatch={handleAddBatch}
+          settings={settings}
+          initialUrls={initialBatchUrls}
+        />
+
+        <input
+          type="file"
+          ref={importInputRef}
+          style={{ display: 'none' }}
+          accept=".txt,.json"
+          onChange={handleImportFileChange}
         />
 
         <MediaSnifferModal
           isOpen={isSnifferModalOpen}
           onClose={() => setIsSnifferModalOpen(false)}
           onAddBatch={handleAddBatch}
+          queues={queues}
         />
 
         <SettingsModal
@@ -671,9 +871,66 @@ export default function App() {
           onSaveSettings={handleSaveSettings}
         />
 
+        <SchedulerModal
+          isOpen={isSchedulerModalOpen}
+          onClose={() => setIsSchedulerModalOpen(false)}
+          settings={settings}
+          onSaveSettings={handleSaveSettings}
+          queues={queues}
+          onUpdateQueue={handleUpdateQueue}
+        />
+
+        {isNewQueueModalOpen && (
+          <div className="modal-overlay" onClick={() => setIsNewQueueModalOpen(false)}>
+            <div className="modal-box" style={{ maxWidth: '420px' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <div className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <ListOrdered size={20} color="var(--primary-2)" />
+                  <span>{tt('btn_add_queue')}</span>
+                </div>
+                <button className="btn btn-ghost btn-icon" onClick={() => setIsNewQueueModalOpen(false)}>×</button>
+              </div>
+              <form onSubmit={(e) => { e.preventDefault(); handleCreateQueue(newQueueName); }}>
+                <div className="modal-body">
+                  <div className="form-group">
+                    <label className="form-label">{tt('prompt_queue_name')}</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newQueueName}
+                      onChange={e => setNewQueueName(e.target.value)}
+                      placeholder={tt('prompt_queue_name')}
+                      autoFocus
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn btn-secondary" onClick={() => setIsNewQueueModalOpen(false)}>
+                    {tt('btn_cancel')}
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    {tt('btn_save')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         <AboutModal
           isOpen={isAboutModalOpen}
           onClose={() => setIsAboutModalOpen(false)}
+        />
+
+        <UpdateModal
+          isOpen={isUpdateModalOpen}
+          onClose={() => {
+            setIsUpdateModalOpen(false);
+            setAppUpdateDismissed(true);
+          }}
+          updateData={appUpdate}
+          currentVersion={currentVersion}
         />
 
         {deleteTarget && (

@@ -32,5 +32,8 @@ contextBridge.exposeInMainWorld('ddmNative', {
 
   // Bu köprünün var olduğunu anlamak için (tarayıcıda çalışırken undefined)
   startDrag: (filePath) => ipcRenderer.send('start-drag', filePath),
+  onPromptBatch: (cb) => {
+    ipcRenderer.on('prompt-batch', (event, payload) => cb(payload));
+  },
   isElectron: true
 });

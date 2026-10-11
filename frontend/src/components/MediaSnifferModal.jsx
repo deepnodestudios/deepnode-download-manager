@@ -12,7 +12,7 @@ const FILE_TYPE_OPTIONS = [
   { key: 'program', Icon: Package }
 ];
 
-export default function MediaSnifferModal({ isOpen, onClose, onAddBatch }) {
+export default function MediaSnifferModal({ isOpen, onClose, onAddBatch, queues = [] }) {
   const { t } = useT();
   const [pageUrl, setPageUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,6 +22,8 @@ export default function MediaSnifferModal({ isOpen, onClose, onAddBatch }) {
   const [depth, setDepth] = useState(0);
   const [sameDomainOnly, setSameDomainOnly] = useState(true);
   const [scanInfo, setScanInfo] = useState('');
+  const [filterQuery, setFilterQuery] = useState('');
+  const [selectedQueue, setSelectedQueue] = useState('main');
   const [fileTypes, setFileTypes] = useState(
     Object.fromEntries(FILE_TYPE_OPTIONS.map(o => [o.key, true]))
   );
@@ -32,6 +34,20 @@ export default function MediaSnifferModal({ isOpen, onClose, onAddBatch }) {
 
   const toggleFileType = (key) => {
     setFileTypes(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const applyPreset = (preset) => {
+    if (preset === 'all') {
+      setFileTypes(Object.fromEntries(FILE_TYPE_OPTIONS.map(o => [o.key, true])));
+    } else if (preset === 'images') {
+      setFileTypes(Object.fromEntries(FILE_TYPE_OPTIONS.map(o => [o.key, o.key === 'image'])));
+    } else if (preset === 'media') {
+      setFileTypes(Object.fromEntries(FILE_TYPE_OPTIONS.map(o => [o.key, o.key === 'video' || o.key === 'audio'])));
+    } else if (preset === 'docs') {
+      setFileTypes(Object.fromEntries(FILE_TYPE_OPTIONS.map(o => [o.key, o.key === 'document'])));
+    } else if (preset === 'archives') {
+      setFileTypes(Object.fromEntries(FILE_TYPE_OPTIONS.map(o => [o.key, o.key === 'archive'])));
+    }
   };
 
   const handleSniff = async (e) => {
@@ -48,6 +64,7 @@ export default function MediaSnifferModal({ isOpen, onClose, onAddBatch }) {
     setErrorMsg('');
     setFoundLinks([]);
     setSelectedUrls({});
+    setFilterQuery('');
 
     try {
       const res = await fetch('/api/sniffer', {
@@ -75,32 +92,38 @@ export default function MediaSnifferModal({ isOpen, onClose, onAddBatch }) {
     }
   };
 
+  const displayedLinks = foundLinks.filter(l => {
+    if (!filterQuery.trim()) return true;
+    const q = filterQuery.toLowerCase();
+    return (l.filename || '').toLowerCase().includes(q) || (l.url || '').toLowerCase().includes(q);
+  });
+
   const toggleSelect = (url) => {
     setSelectedUrls(prev => ({ ...prev, [url]: !prev[url] }));
   };
 
   const toggleAll = () => {
-    const allSelected = foundLinks.every(l => selectedUrls[l.url]);
-    const nextState = {};
-    foundLinks.forEach(l => { nextState[l.url] = !allSelected; });
+    const allSelected = displayedLinks.every(l => selectedUrls[l.url]);
+    const nextState = { ...selectedUrls };
+    displayedLinks.forEach(l => { nextState[l.url] = !allSelected; });
     setSelectedUrls(nextState);
   };
 
   const handleDownloadSelected = () => {
     const urlsToDownload = foundLinks.filter(l => selectedUrls[l.url]).map(l => l.url);
     if (urlsToDownload.length > 0) {
-      onAddBatch(urlsToDownload);
+      onAddBatch(urlsToDownload, null, false, selectedQueue);
       onClose();
     }
   };
 
   return (
     <div className="modal-overlay">
-      <div className="modal-box" style={{ maxWidth: '720px' }}>
+      <div className="modal-box" style={{ maxWidth: '750px' }}>
         <div className="modal-header">
           <div className="modal-title">
             <Globe size={20} color="var(--teal)" />
-            <span>{t('sn_title')}</span>
+            <span>{t('site_grabber') || 'Site Grabber'} — {t('sn_title')}</span>
           </div>
           <button className="btn btn-ghost btn-icon" onClick={onClose}>
             <X size={18} />
@@ -139,6 +162,28 @@ export default function MediaSnifferModal({ isOpen, onClose, onAddBatch }) {
             </label>
           </div>
 
+          {/* Preset Project Templates */}
+          <div style={{ marginTop: '10px' }}>
+            <div className="form-label" style={{ marginBottom: '6px' }}>{t('site_grabber_title')}</div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-secondary btn-chip" onClick={() => applyPreset('all')}>
+                {t('preset_all')}
+              </button>
+              <button type="button" className="btn btn-secondary btn-chip" onClick={() => applyPreset('images')}>
+                {t('preset_images')}
+              </button>
+              <button type="button" className="btn btn-secondary btn-chip" onClick={() => applyPreset('media')}>
+                {t('preset_media')}
+              </button>
+              <button type="button" className="btn btn-secondary btn-chip" onClick={() => applyPreset('docs')}>
+                {t('preset_docs')}
+              </button>
+              <button type="button" className="btn btn-secondary btn-chip" onClick={() => applyPreset('archives')}>
+                {t('preset_archives')}
+              </button>
+            </div>
+          </div>
+
           {/* Dosya türü filtresi: yalnızca seçilen kategoriler taranır */}
           <div style={{ marginTop: '10px' }}>
             <div className="form-label" style={{ marginBottom: '6px' }}>{t('lbl_file_types')}</div>
@@ -169,16 +214,43 @@ export default function MediaSnifferModal({ isOpen, onClose, onAddBatch }) {
           )}
 
           {foundLinks.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
-                <span style={{ color: 'var(--text-muted)' }}>{t('detected_files', { n: foundLinks.length })}</span>
-                <button type="button" className="btn btn-secondary" onClick={toggleAll} style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
-                  {t('btn_toggle_all')}
-                </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', flexWrap: 'wrap', gap: '8px' }}>
+                <span style={{ color: 'var(--text-muted)' }}>{t('detected_files', { n: displayedLinks.length })}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {queues && queues.length > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>{t('target_queue')}</label>
+                      <select
+                        className="form-select"
+                        value={selectedQueue}
+                        onChange={(e) => setSelectedQueue(e.target.value)}
+                        style={{ width: 'auto', padding: '3px 8px', fontSize: '0.78rem' }}
+                      >
+                        {queues.map(q => (
+                          <option key={q.id} value={q.id}>{q.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <button type="button" className="btn btn-secondary" onClick={toggleAll} style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+                    {t('btn_toggle_all')}
+                  </button>
+                </div>
               </div>
 
+              {/* Live search filter */}
+              <input
+                type="text"
+                className="form-input"
+                placeholder={t('ph_search') || 'Ara...'}
+                value={filterQuery}
+                onChange={(e) => setFilterQuery(e.target.value)}
+                style={{ fontSize: '0.82rem', padding: '6px 12px' }}
+              />
+
               <div style={{ maxHeight: '300px', overflowY: 'auto', background: 'var(--bg-inset)', border: '1px solid var(--border-color)', borderRadius: '10px' }}>
-                {foundLinks.map((item, idx) => (
+                {displayedLinks.map((item, idx) => (
                   <div
                     key={idx}
                     onClick={() => toggleSelect(item.url)}

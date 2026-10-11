@@ -1,11 +1,12 @@
 import React, { useRef, useState, useEffect } from 'react';
 import {
   DownloadCloud, PlayCircle, CheckCircle, PauseCircle,
-  Video, Music, Archive, FileText, Cpu, Image as ImageIcon, Folder
+  Video, Music, Archive, FileText, Cpu, Image as ImageIcon, Folder, FolderOpen,
+  ListOrdered, Plus, Trash2
 } from 'lucide-react';
 import { useT } from '../i18n';
 
-export default function Sidebar({ activeFilter, setActiveFilter, downloads, sidebarWidth, setSidebarWidth }) {
+export default function Sidebar({ activeFilter, setActiveFilter, downloads, sidebarWidth, setSidebarWidth, queues, onOpenNewQueueModal, onDeleteQueue }) {
   const { t } = useT();
   const sidebarRef = useRef(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -127,7 +128,81 @@ export default function Sidebar({ activeFilter, setActiveFilter, downloads, side
                   <Icon size={18} />
                   <span>{item.label}</span>
                 </div>
-                <span className="nav-count">{count}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-icon"
+                    title={`${item.label} ${t('nav_open_download_folder') || 'klasörünü aç'}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fetch('/api/open-category-folder', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ category: item.id })
+                      }).catch(() => {});
+                    }}
+                    style={{ padding: '2px', opacity: 0.6 }}
+                  >
+                    <FolderOpen size={13} />
+                  </button>
+                  <span className="nav-count">{count}</span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
+      <div>
+        <div className="nav-section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{t('side_queues') || 'Kuyruklar'}</span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon"
+            title={t('btn_add_queue') || 'Yeni Kuyruk Ekle'}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenNewQueueModal?.();
+            }}
+            style={{ padding: '2px', opacity: 0.7 }}
+          >
+            <Plus size={14} />
+          </button>
+        </div>
+        <ul className="nav-list">
+          {(queues || []).map((q) => {
+            const count = downloads.filter(d => (d.queueId || 'main') === q.id).length;
+            const isQActive = activeFilter === `queue:${q.id}`;
+            const isCustom = q.id !== 'main' && q.id !== 'sync';
+            return (
+              <li
+                key={q.id}
+                className={`nav-item ${isQActive ? 'active' : ''}`}
+                onClick={() => setActiveFilter(`queue:${q.id}`)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
+                  <ListOrdered size={16} />
+                  <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                    {q.name}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span className="nav-count">{count}</span>
+                  {isCustom && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-icon"
+                      title={t('btn_delete') || 'Sil'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteQueue?.(q.id);
+                      }}
+                      style={{ padding: '2px', opacity: 0.5 }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
               </li>
             );
           })}

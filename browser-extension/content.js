@@ -69,7 +69,21 @@ function refreshSiteBlocked(cb) {
   });
 }
 
-if (dnCtxValid()) chrome.storage.local.get({ showButton: true }, (v) => { showButton = v.showButton; });
+let customBtnOffset = null;
+if (dnCtxValid()) {
+  chrome.storage.local.get({ showButton: true, customBtnOffset: null }, (v) => {
+    showButton = v.showButton;
+    if (v.customBtnOffset && typeof v.customBtnOffset === 'object') {
+      if (typeof v.customBtnOffset.offsetX === 'number' && typeof v.customBtnOffset.offsetY === 'number') {
+        customBtnOffset = v.customBtnOffset;
+      } else {
+        // Eski relX/relY formatını temizle (sabit piksel yerine sağ-üst çapa bazlı ofset kullanılır)
+        customBtnOffset = null;
+        chrome.storage.local.remove('customBtnOffset');
+      }
+    }
+  });
+}
 refreshLang();
 refreshSiteBlocked();
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -82,9 +96,18 @@ chrome.storage.onChanged.addListener((changes, area) => {
   });
   if (changes.appLanguage) refreshLang();
   if (changes.disabledSites) refreshSiteBlocked();
+  if (changes.customBtnOffset) {
+    const nv = changes.customBtnOffset.newValue;
+    if (nv && typeof nv.offsetX === 'number' && typeof nv.offsetY === 'number') {
+      customBtnOffset = nv;
+    } else {
+      customBtnOffset = null;
+    }
+    if (current) place(current);
+  }
 });
 
-// ---- Floating download button that follows hovered media ----
+// ---- Floating download button that follows hovered/playing media ----
 const btn = document.createElement('div');
 btn.className = 'dn-dl-btn';
 btn.setAttribute('role', 'button');
@@ -101,17 +124,210 @@ function dnEl(tag, className, text) {
 
 function applyButtonText() {
   btn.textContent = '';
+
+  // Sürükleme tutamacı
+  const dragHandle = dnEl('span', 'dn-drag', '⠿');
+  dragHandle.title = DN_I18N.t('btn_drag') || 'Sürüklemek için tutun (Sıfırlamak için çift tıklayın)';
+  btn.appendChild(dragHandle);
+
   btn.appendChild(dnEl('span', 'dn-ic', '↓'));
-  btn.appendChild(dnEl('span', '', DN_I18N.t('btn_download_with')));
+  btn.appendChild(dnEl('span', 'dn-txt', DN_I18N.t('btn_download_with')));
+
   const closeEl = dnEl('span', 'dn-close', '×');
   closeEl.setAttribute('role', 'button');
   closeEl.setAttribute('aria-label', DN_I18N.t('btn_hide'));
   closeEl.title = DN_I18N.t('btn_hide');
   closeEl.addEventListener('click', onCloseClick);
   btn.appendChild(closeEl);
+
   btn.setAttribute('aria-label', DN_I18N.t('btn_aria'));
 }
 applyButtonText();
+
+// Medya elemanının (video/audio) sayfada gerçekten görünen sınır kutusunu (bounding rect) hesaplar.
+// YouTube feed'i, kart önizlemeleri ve kapsayıcı overflow:hidden/clip kırpmalarını hesaplar.
+// Ayrıca letterbox/pillarbox durumunda gerçek video içeriğinin sınırlarını tespit eder.
+function getVisibleMediaRect(el) {
+  if (!el || typeof el.getBoundingClientRect !== 'function') return null;
+  const vr = el.getBoundingClientRect();
+  let top = vr.top;
+  let left = vr.left;
+  let bottom = vr.bottom;
+  let right = vr.right;
+
+  // Ata elemanları gezerek kırpan kapsayıcıları tespit et ve sınırları daralt
+  let p = el.parentElement || (el.parentNode && el.parentNode.host);
+  while (p && p !== document.body && p !== document.documentElement) {
+    let cs = null;
+    try { cs = window.getComputedStyle(p); } catch (e) {}
+
+    const hasOverflowClip = cs && (
+      cs.overflow === 'hidden' || cs.overflow === 'clip' ||
+      cs.overflowX === 'hidden' || cs.overflowX === 'clip' ||
+      cs.overflowY === 'hidden' || cs.overflowY === 'clip' ||
+      cs.overflow === 'auto' || cs.overflow === 'scroll' ||
+      cs.overflowX === 'auto' || cs.overflowX === 'scroll' ||
+      cs.overflowY === 'auto' || cs.overflowY === 'scroll'
+    );
+
+    const tag = (p.tagName || '').toUpperCase();
+    const pid = p.id || '';
+    const isKnownContainer = (
+      tag === 'YTD-THUMBNAIL' ||
+      tag === 'YTD-INLINE-PREVIEW-RENDERER' ||
+      tag === 'YTD-VIDEO-PREVIEW' ||
+      tag === 'YTD-PLAYER' ||
+      tag === 'YTD-RICH-GRID-MEDIA' ||
+      pid === 'inline-preview-player' ||
+      pid === 'player-container' ||
+      pid === 'movie_player' ||
+      (p.classList && (
+        p.classList.contains('html5-video-player') ||
+        p.classList.contains('video-stream')
+      )) ||
+      (typeof p.getAttribute === 'function' && /video/i.test(p.getAttribute('data-testid') || ''))
+    );
+
+    if (hasOverflowClip || isKnownContainer) {
+      const pr = p.getBoundingClientRect();
+      if (pr.width > 20 && pr.height > 20) {
+        top = Math.max(top, pr.top);
+        left = Math.max(left, pr.left);
+        bottom = Math.min(bottom, pr.bottom);
+        right = Math.min(right, pr.right);
+      }
+    }
+    p = p.parentElement || (p.parentNode && p.parentNode.host);
+  }
+
+  // object-fit: contain nedeniyle oluşan letterbox/pillarbox siyah bantlarını hesaba kat
+  if (el.tagName === 'VIDEO' && el.videoWidth > 0 && el.videoHeight > 0) {
+    let cs = null;
+    try { cs = window.getComputedStyle(el); } catch (e) {}
+    const fit = cs ? cs.objectFit : 'contain';
+    if (fit === 'contain' || !fit || fit === 'scale-down') {
+      const boxW = right - left;
+      const boxH = bottom - top;
+      if (boxW > 40 && boxH > 40) {
+        const videoRatio = el.videoWidth / el.videoHeight;
+        const boxRatio = boxW / boxH;
+        // Kutu videodan belirgin şekilde daha genişse (sağ ve sol siyah bantlar - pillarbox)
+        if (boxRatio > videoRatio * 1.08) {
+          const contentW = boxH * videoRatio;
+          const padX = (boxW - contentW) / 2;
+          left += padX;
+          right -= padX;
+        }
+        // Kutu videodan belirgin şekilde daha yüksekse (üst ve alt siyah bantlar - letterbox)
+        else if (boxRatio < videoRatio * 0.92) {
+          const contentH = boxW / videoRatio;
+          const padY = (boxH - contentH) / 2;
+          top += padY;
+          bottom -= padY;
+        }
+      }
+    }
+  }
+
+  const width = right - left;
+  const height = bottom - top;
+  if (width < 30 || height < 30) return null;
+
+  return { top, left, bottom, right, width, height };
+}
+
+// ---- Sürüklenebilir Buton (Draggable Bar) ----
+let isDragging = false;
+let preventClick = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let initialLeft = 0;
+let initialTop = 0;
+
+btn.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  if (e.target && e.target.classList.contains('dn-close')) return;
+
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  initialLeft = parseFloat(btn.style.left) || 0;
+  initialTop = parseFloat(btn.style.top) || 0;
+  isDragging = false;
+
+  const onMouseMove = (ev) => {
+    const dx = ev.clientX - dragStartX;
+    const dy = ev.clientY - dragStartY;
+    if (!isDragging && Math.hypot(dx, dy) > 3) {
+      isDragging = true;
+      btn.classList.add('dn-dragging');
+    }
+    if (isDragging) {
+      ev.preventDefault();
+      const btnW = btn.offsetWidth || 135;
+      const btnH = btn.offsetHeight || 28;
+      let minLeft = window.scrollX + 4;
+      let maxLeft = window.scrollX + window.innerWidth - btnW - 4;
+      let minTop = window.scrollY + 4;
+      let maxTop = window.scrollY + window.innerHeight - btnH - 4;
+      if (current) {
+        const vr = getVisibleMediaRect(current);
+        if (vr) {
+          minLeft = window.scrollX + vr.left + 4;
+          maxLeft = Math.max(minLeft, window.scrollX + vr.right - btnW - 4);
+          minTop = window.scrollY + vr.top + 4;
+          maxTop = Math.max(minTop, window.scrollY + vr.bottom - btnH - 4);
+        }
+      }
+      btn.style.left = Math.max(minLeft, Math.min(maxLeft, initialLeft + dx)) + 'px';
+      btn.style.top = Math.max(minTop, Math.min(maxTop, initialTop + dy)) + 'px';
+    }
+  };
+
+  const onMouseUp = () => {
+    window.removeEventListener('mousemove', onMouseMove, true);
+    window.removeEventListener('mouseup', onMouseUp, true);
+
+    if (isDragging) {
+      btn.classList.remove('dn-dragging');
+      preventClick = true;
+      setTimeout(() => { preventClick = false; isDragging = false; }, 120);
+
+      if (current) {
+        const vr = getVisibleMediaRect(current);
+        if (vr) {
+          const btnW = btn.offsetWidth || 135;
+          const defaultLeft = window.scrollX + vr.right - btnW - 8;
+          const defaultTop = window.scrollY + vr.top + 8;
+          const currentLeft = parseFloat(btn.style.left) || defaultLeft;
+          const currentTop = parseFloat(btn.style.top) || defaultTop;
+          customBtnOffset = {
+            offsetX: Math.round(currentLeft - defaultLeft),
+            offsetY: Math.round(currentTop - defaultTop)
+          };
+          if (dnCtxValid()) {
+            chrome.storage.local.set({ customBtnOffset });
+          }
+        }
+      }
+    }
+  };
+
+  window.addEventListener('mousemove', onMouseMove, true);
+  window.addEventListener('mouseup', onMouseUp, true);
+});
+
+// Çift tıklayınca konumu varsayılana sıfırla
+btn.addEventListener('dblclick', (e) => {
+  if (e.target && e.target.classList.contains('dn-close')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  customBtnOffset = null;
+  if (dnCtxValid()) {
+    chrome.storage.local.remove('customBtnOffset');
+  }
+  if (current) place(current);
+  toast(DN_I18N.t('btn_reset_pos'));
+});
 
 // User can temporarily dismiss the button via the corner X. It stays hidden on
 // this page; it comes back on SPA/page navigation or when the popup toggle is
@@ -174,10 +390,29 @@ let hoverPrefetchTimer = null;
 let hoverPrefetchCtx = null;
 
 function place(el) {
-  const r = el.getBoundingClientRect();
-  if (r.bottom < 0 || r.top > window.innerHeight) { hide(); return; }
-  btn.style.top = (window.scrollY + r.top + 8) + 'px';
-  btn.style.left = (window.scrollX + r.left + r.width - 88) + 'px';
+  const r = getVisibleMediaRect(el);
+  if (!r || r.bottom < 0 || r.top > window.innerHeight) { hide(); return; }
+
+  const btnW = btn.offsetWidth || 135;
+  const btnH = btn.offsetHeight || 28;
+
+  // Varsayılan çapa: görünen video/medya alanının sağ-üst köşesi (8px boşluk)
+  let targetLeft = window.scrollX + r.right - btnW - 8;
+  let targetTop = window.scrollY + r.top + 8;
+
+  if (customBtnOffset && typeof customBtnOffset.offsetX === 'number' && typeof customBtnOffset.offsetY === 'number') {
+    targetLeft += customBtnOffset.offsetX;
+    targetTop += customBtnOffset.offsetY;
+  }
+
+  // Sürükleme veya özel ofset olsa bile butonun görünen video alanından dışarı taşmasını engelle
+  const minLeft = window.scrollX + r.left + 4;
+  const maxLeft = Math.max(minLeft, window.scrollX + r.right - btnW - 4);
+  const minTop = window.scrollY + r.top + 4;
+  const maxTop = Math.max(minTop, window.scrollY + r.bottom - btnH - 4);
+
+  btn.style.top = Math.max(minTop, Math.min(maxTop, targetTop)) + 'px';
+  btn.style.left = Math.max(minLeft, Math.min(maxLeft, targetLeft)) + 'px';
   btn.style.display = 'flex';
   current = el;
   // Warm the formats cache for THIS video as soon as the button appears
@@ -204,7 +439,7 @@ document.addEventListener('webkitfullscreenchange', onFsChange, true);
 
 let lastMove = 0;
 document.addEventListener('mousemove', (e) => {
-  if (!showButton || siteBlocked || inFullscreen) return;
+  if (!showButton || siteBlocked || inFullscreen || isDragging) return;
   maybeRestoreButton(); // SPA navigation (e.g. YouTube) brings the button back
   if (dismissed) return;
   const now = Date.now();
@@ -219,17 +454,22 @@ document.addEventListener('mousemove', (e) => {
     }
   }
 
-  // Find video/audio element under cursor using boundingClientRect (bypasses pointer-events/overlays)
+  // Find video/audio element under cursor using visible bounding box (bypasses pointer-events/overlays)
   const mediaEls = document.querySelectorAll('video, audio');
   let media = null;
+  let smallestArea = Infinity;
   for (let i = 0; i < mediaEls.length; i++) {
     const el = mediaEls[i];
-    const r = el.getBoundingClientRect();
+    const r = getVisibleMediaRect(el);
+    if (!r) continue;
     if (r.width > 40 && r.height > 40 &&
         e.clientX >= r.left && e.clientX <= r.right &&
         e.clientY >= r.top && e.clientY <= r.bottom) {
-      media = el;
-      break;
+      const area = r.width * r.height;
+      if (area < smallestArea) {
+        smallestArea = area;
+        media = el;
+      }
     }
   }
 
@@ -259,9 +499,9 @@ function mediaUrl(el) {
 const VIDEO_SITE_RE = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|twitter\.com|x\.com|reddit\.com|soundcloud\.com|bilibili\.com|ok\.ru|vk\.com|pornhub\.com|phncdn\.com|xnxx\.com|xxnx\.com|xnxx-cdn\.com|xvideos\.com|xvideos-cdn\.com|eporner\.com|spankbang\.com|hqporner\.com|beeg\.com|youporn\.com|redtube\.com|tube8\.com|xhamster\.com|txxx\.com|drtuber\.com|rule34video\.com)$/i;
 const onVideoSite = VIDEO_SITE_RE.test(location.hostname);
 
-// HLS/DASH manifestleri (m3u8/mpd) siteden bağımsız olarak yt-dlp ile indirilir
+// HLS/DASH/HDS manifestleri (m3u8/mpd/f4m) siteden bağımsız olarak yt-dlp ile indirilir
 function isManifestUrl(u) {
-  return /\.(m3u8|mpd)(\?|$)/i.test(u || '');
+  return /\.(m3u8|mpd|f4m)(\?|$)/i.test(u || '');
 }
 
 // inject.js (MAIN world) sayfanın fetch/XHR çağrılarından yakaladığı manifest
@@ -379,8 +619,15 @@ function maybePrefetch() {
 if (onVideoSite) {
   maybePrefetch();                                          // immediately on load
   window.addEventListener('yt-navigate-finish', maybePrefetch, true); // YouTube SPA nav (instant)
-  setInterval(maybePrefetch, 2000);           // catches other SPA navigations
-  document.addEventListener('play', maybePrefetch, true); // when a video starts
+  document.addEventListener('play', (e) => {
+    maybePrefetch();
+    if (e.target && isMedia(e.target) && showButton && !siteBlocked && !inFullscreen && !dismissed) {
+      const r = getVisibleMediaRect(e.target);
+      if (r && r.width > 80 && r.height > 60) {
+        place(e.target);
+      }
+    }
+  }, true);
   setTimeout(maybePrefetch, 1500);
 }
 
@@ -407,7 +654,7 @@ function ytWatchUrlFromFeed(el) {
       const a = renderer.querySelector('a#thumbnail[href*="watch?v="], a.yt-simple-endpoint[href*="watch?v="], a[href*="/shorts/"], a[href*="watch?v="]');
       if (a && a.href) return ytCleanWatch(a.href);
     }
-    const r = el.getBoundingClientRect();
+    const r = getVisibleMediaRect(el) || el.getBoundingClientRect();
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     const links = document.querySelectorAll('a#thumbnail[href*="watch?v="], a[href*="/watch?v="], a[href*="/shorts/"]');
     let best = null, bestArea = Infinity;
@@ -466,7 +713,7 @@ function getVideoContextUrl(el) {
 btn.addEventListener('click', (e) => {
   e.preventDefault();
   e.stopPropagation();
-  if (!current) return;
+  if (preventClick || isDragging || !current) return;
   const url = mediaUrl(current);
   const targetPageUrl = getVideoContextUrl(current);
   const isYouTubePage = /(^|\.)(youtube\.com|youtu\.be)$/i.test(location.hostname);
@@ -564,7 +811,16 @@ function onDocClickForMenu(e) {
 // Sayfa başlığından dosya adı tahmini — HLS/.txt manifestlerinde başlık metadatası yok,
 // yt-dlp "master" derdi. Site ekini (" - Site", " | Site", " » Site") at, ilk parçayı al.
 function dnPageTitleGuess() {
-  let t = (document.title || '').trim();
+  let t = '';
+  try { t = window.top.document.title; } catch (e) {}
+  if (!t) {
+    const og = document.querySelector('meta[property="og:title"], meta[name="twitter:title"]');
+    if (og && og.content) t = og.content;
+  }
+  if (!t) t = document.title || '';
+  t = String(t).trim();
+  t = t.replace(/^\(\d+\+?\)\s*/, ''); // (1), (99+) bildirim sayaçları
+  t = t.replace(/[ \t\r\n\u25B6\u25B7]+/g, ' '); // oynat simgeleri (▶, ▷) ve fazla boşluklar
   const parts = t.split(/\s*(?:»|\||::)\s*|\s+[-–—]\s+/);
   if (parts.length > 1 && parts[0].trim().length >= 2) t = parts[0].trim();
   return t.slice(0, 150);
@@ -575,8 +831,20 @@ function openQualityMenu(pageUrl, referer) {
   const menu = document.createElement('div');
   menu.className = 'dn-qmenu';
   const r = btn.getBoundingClientRect();
-  menu.style.top = (window.scrollY + r.bottom + 4) + 'px';
-  menu.style.left = (window.scrollX + Math.max(4, r.right - 300)) + 'px';
+  const menuWidth = 300;
+  let left = window.scrollX + r.right - menuWidth;
+  if (left < window.scrollX + 8) left = window.scrollX + Math.max(8, r.left);
+  if (left + menuWidth > window.scrollX + window.innerWidth - 8) {
+    left = window.scrollX + window.innerWidth - menuWidth - 8;
+  }
+
+  let top = window.scrollY + r.bottom + 4;
+  if (r.bottom + 260 > window.innerHeight && r.top > 260) {
+    top = window.scrollY + r.top - 264;
+  }
+
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
   const preloaded = formatsCache.get(pageKey(pageUrl));
   const loadingText = (preloaded && preloaded.data) ? '' : DN_I18N.t('q_loading');
   menu.appendChild(dnEl('div', 'dn-qhead', DN_I18N.t('q_title')));
@@ -592,7 +860,7 @@ function openQualityMenu(pageUrl, referer) {
     closeQualityMenu();
   };
 
-  // "Tümünü indir": her çözünürlükten bir tane (IDM gibi) — varsayılan Video klasörüne,
+  // "Tümünü indir": her çözünürlükten bir tane — varsayılan Video klasörüne,
   // ayrı ayrı onay pencereleri açmadan toplu eklenir.
   const pickAll = (heights) => {
     dnSendMessage({
@@ -624,7 +892,7 @@ function openQualityMenu(pageUrl, referer) {
     const allHeights = (data && data.heights && data.heights.length)
       ? data.heights
       : [...new Set(qualities.map(q => q.height))];
-    // IDM gibi menünün EN ÜSTÜNDE dursun.
+    // Menünün EN ÜSTÜNDE dursun.
     if (!(data && data.error) && allHeights.length > 1) {
       addRow('__all__', DN_I18N.t('g_download_all'), 0, 'dn-qall');
     }
@@ -665,12 +933,12 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeQuali
 // ---- Grabber panel (scan page for media) ----
 // Dosya türü grupları — uygulamadaki Medya Yakalayıcı filtresiyle aynı kategoriler
 const DN_TYPE_GROUPS = {
-  video: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'm4v', 'm3u8'],
-  audio: ['mp3', 'wav', 'flac', 'm4a', 'aac', 'ogg'],
-  image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'],
-  document: ['pdf', 'docx', 'xlsx', 'pptx', 'epub'],
-  archive: ['zip', 'rar', '7z', 'tar', 'gz', 'iso'],
-  program: ['exe', 'msi', 'apk', 'dmg']
+  video: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'm4v', '3gp', '3gpp', 'wmv', 'asf', 'm3u8', 'mpd', 'f4m'],
+  audio: ['mp3', 'wav', 'flac', 'm4a', 'aac', 'ogg', 'opus', 'wma'],
+  image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'],
+  document: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'epub', 'txt'],
+  archive: ['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'iso'],
+  program: ['exe', 'msi', 'apk', 'dmg', 'deb']
 };
 function dnTypeLabel(tkey) { return DN_I18N.t('type_' + tkey); }
 
@@ -705,7 +973,7 @@ function collectPageMedia(cb) {
     if (r.width >= 200 && r.height >= 200 && el.src) add(el.src, 'image');
   });
   document.querySelectorAll('a[href]').forEach((a) => {
-    if (/\.(mp4|mkv|webm|mp3|m4a|flac|wav|zip|rar|7z|pdf|exe|msi|iso|apk|docx|xlsx|pptx)(\?|$)/i.test(a.href)) add(a.href);
+    if (/\.(mp4|mkv|webm|avi|mov|flv|m4v|3gp|wmv|mp3|m4a|flac|wav|ogg|opus|wma|zip|rar|7z|tar|gz|bz2|pdf|doc|docx|xls|xlsx|ppt|pptx|exe|msi|iso|apk|dmg|deb)(\?|$)/i.test(a.href)) add(a.href);
   });
   dnSendMessage({ type: 'DN_GET_STREAMS' }, (resp) => {
     // Ağdan yakalanan akışlar (m3u8/googlevideo) uzantısız olabilir -> video say
@@ -730,6 +998,35 @@ function openPanel(entries) {
   closeX.setAttribute('aria-label', DN_I18N.t('g_close'));
   header.appendChild(closeX);
   panel.appendChild(header);
+
+  // Sürüklenebilir panel başlığı (Grabber)
+  let pDragging = false, pStartX = 0, pStartY = 0, pInitLeft = 0, pInitTop = 0;
+  header.addEventListener('mousedown', (e) => {
+    if (e.target && e.target.classList.contains('dn-x')) return;
+    pDragging = true;
+    pStartX = e.clientX;
+    pStartY = e.clientY;
+    const rect = panel.getBoundingClientRect();
+    pInitLeft = rect.left;
+    pInitTop = rect.top;
+    panel.style.right = 'auto';
+    panel.style.left = pInitLeft + 'px';
+    panel.style.top = pInitTop + 'px';
+
+    const onPDragMove = (ev) => {
+      if (!pDragging) return;
+      ev.preventDefault();
+      panel.style.left = Math.max(0, Math.min(window.innerWidth - 360, pInitLeft + (ev.clientX - pStartX))) + 'px';
+      panel.style.top = Math.max(0, Math.min(window.innerHeight - 80, pInitTop + (ev.clientY - pStartY))) + 'px';
+    };
+    const onPDragEnd = () => {
+      pDragging = false;
+      window.removeEventListener('mousemove', onPDragMove, true);
+      window.removeEventListener('mouseup', onPDragEnd, true);
+    };
+    window.addEventListener('mousemove', onPDragMove, true);
+    window.addEventListener('mouseup', onPDragEnd, true);
+  });
 
   if (presentTypes.length > 1) {
     const filters = dnEl('div', 'dn-filters');
@@ -803,6 +1100,27 @@ function openPanel(entries) {
   });
 }
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg && msg.type === 'DN_SCAN' && !siteBlocked) collectPageMedia(openPanel);
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === 'DN_SCAN' && !siteBlocked) {
+    collectPageMedia(openPanel);
+  }
+  if (msg && msg.type === 'DN_GET_SELECTION_URLS') {
+    const urls = new Set();
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      try {
+        const range = sel.getRangeAt(0);
+        const container = document.createElement('div');
+        container.appendChild(range.cloneContents());
+        container.querySelectorAll('a[href]').forEach((a) => {
+          if (/^https?:/i.test(a.href)) urls.add(a.href);
+        });
+      } catch (e) {}
+      const text = sel.toString();
+      const matches = text.match(/https?:\/\/[^\s"'<>]+/gi);
+      if (matches) matches.forEach((u) => urls.add(u));
+    }
+    sendResponse({ urls: Array.from(urls) });
+    return true;
+  }
 });

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom';
 import {
   Play, Pause, Trash2, Layers, Video, Music, Archive, FileText, Cpu, Image as ImageIcon, Folder, FolderOpen, ExternalLink, AlertCircle, CheckCircle2, Clock,
-  RotateCcw, Link2, Edit3, Info, XCircle, CheckSquare, Square, DownloadCloud, RefreshCw, ChevronUp, ChevronDown, ArrowUpDown, Search
+  RotateCcw, Link2, Edit3, Info, XCircle, CheckSquare, Square, DownloadCloud, RefreshCw, ChevronUp, ChevronDown, ArrowUpDown, Search, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, Gauge
 } from 'lucide-react';
 import { useT } from '../i18n';
 import { isElectron, popupDownloadMenu } from '../native';
@@ -31,7 +31,9 @@ export default function DownloadList({
   onRename,
   onCopyUrl,
   onShowProperties,
-  onSetPriority
+  onSetPriority,
+  queues = [],
+  onMoveToQueue
 }) {
   const { t } = useT();
   const [menu, setMenu] = useState(null); // { x, y, item }
@@ -39,6 +41,7 @@ export default function DownloadList({
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [dragBox, setDragBox] = useState(null); // { x1, y1, x2, y2 } in container coords
   const [refreshingItem, setRefreshingItem] = useState(null);
+  const [speedLimitTarget, setSpeedLimitTarget] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'desc' });
 
   const sortedDownloads = useMemo(() => {
@@ -92,6 +95,18 @@ export default function DownloadList({
       }
     } catch (err) {
       console.error('Failed to update download URL:', err);
+    }
+  };
+
+  const handleMoveDownload = async (id, direction) => {
+    try {
+      await fetch(`/api/download/${id}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ direction })
+      });
+    } catch (err) {
+      console.error('Failed to move download:', err);
     }
   };
   const lastClickedIndex = useRef(-1);
@@ -446,6 +461,24 @@ export default function DownloadList({
     it.push({ command: 'redownload', label: t('ctx_redownload') });
     it.push({ command: 'refreshurl', label: t('ctx_refresh_url') });
     it.push({ command: 'rename', label: t('ctx_rename') });
+    it.push({ command: 'speedlimit', label: t('ctx_speed_limit') || 'Özel Hız Sınırı Belirle...' });
+    it.push({ type: 'separator' });
+    if (queues && queues.length > 1) {
+      it.push({
+        label: t('ctx_move_to_queue') || 'Kuyruğa Taşı',
+        submenu: queues.map(q => ({
+          command: `queue:${q.id}`,
+          label: (item.queueId || 'main') === q.id ? `✓ ${q.name}` : q.name
+        }))
+      });
+      it.push({ type: 'separator' });
+    }
+    it.push({ label: t('ctx_queue_order') || 'Kuyruk Sırası', submenu: [
+      { command: 'move:up', label: t('ctx_move_up') || 'Yukarı Taşı' },
+      { command: 'move:down', label: t('ctx_move_down') || 'Aşağı Taşı' },
+      { command: 'move:top', label: t('ctx_move_top') || 'En Başa Al' },
+      { command: 'move:bottom', label: t('ctx_move_bottom') || 'En Sona Al' }
+    ] });
     it.push({ type: 'separator' });
     const pr = item.priority || 'normal';
     it.push({ label: t('ctx_priority'), submenu: [
@@ -473,6 +506,11 @@ export default function DownloadList({
       case 'redownload': onRedownload && onRedownload(item); break;
       case 'refreshurl': setRefreshingItem(item); break;
       case 'rename': onRename && onRename(item); break;
+      case 'speedlimit': setSpeedLimitTarget(item); break;
+      case 'move:up': handleMoveDownload(item.id, 'up'); break;
+      case 'move:down': handleMoveDownload(item.id, 'down'); break;
+      case 'move:top': handleMoveDownload(item.id, 'top'); break;
+      case 'move:bottom': handleMoveDownload(item.id, 'bottom'); break;
       case 'copyurl': onCopyUrl && onCopyUrl(item); break;
       case 'chunks': onInspectChunks && onInspectChunks(item); break;
       case 'properties': onShowProperties && onShowProperties(item); break;
@@ -481,7 +519,12 @@ export default function DownloadList({
       case 'priority:high': onSetPriority && onSetPriority(item.id, 'high'); break;
       case 'priority:normal': onSetPriority && onSetPriority(item.id, 'normal'); break;
       case 'priority:low': onSetPriority && onSetPriority(item.id, 'low'); break;
-      default: break;
+      default:
+        if (cmd && cmd.startsWith('queue:')) {
+          const targetQ = cmd.replace('queue:', '');
+          onMoveToQueue && onMoveToQueue(item.id, targetQ);
+        }
+        break;
     }
   };
 
@@ -857,6 +900,11 @@ export default function DownloadList({
                     case 'speed': return (
                       <td key="speed" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--link)', fontWeight: '600', whiteSpace: 'nowrap', textAlign: 'center' }}>
                         {item.status === 'downloading' ? `${formatBytes(item.speed)}/s` : '-'}
+                        {item.speedLimitKbps > 0 && (
+                          <div style={{ fontSize: '10px', color: '#eab308', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px', marginTop: '2px' }} title={t('tip_custom_speed_limit') || 'Özel Hız Limiti'}>
+                            <Gauge size={10} /> {item.speedLimitKbps} KB/s
+                          </div>
+                        )}
                       </td>
                     );
                     case 'eta': return (
@@ -867,6 +915,11 @@ export default function DownloadList({
                     case 'status': return (
                       <td key="status" style={{ textAlign: 'center' }}>
                         {getStatusBadge(item.status)}
+                        {item.virusAlert && (
+                          <div style={{ fontSize: '10px', color: '#ef4444', fontWeight: 600, marginTop: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px' }} title="Zararlı yazılım tespit edildi!">
+                            <AlertCircle size={10} /> {t('virus_alert') || 'Virüs Uyarısı!'}
+                          </div>
+                        )}
                       </td>
                     );
                     case 'date': return (
@@ -881,7 +934,27 @@ export default function DownloadList({
                         onClick={(e) => e.stopPropagation()}
                         onDoubleClick={(e) => e.stopPropagation()}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                          {/* Kuyrukta Yukarı / Aşağı Taşı */}
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-icon"
+                            title={t('ctx_move_up') || 'Kuyrukta Yukarı Taşı'}
+                            onClick={() => handleMoveDownload(item.id, 'up')}
+                            style={{ padding: '2px', opacity: 0.5 }}
+                          >
+                            <ArrowUp size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-icon"
+                            title={t('ctx_move_down') || 'Kuyrukta Aşağı Taşı'}
+                            onClick={() => handleMoveDownload(item.id, 'down')}
+                            style={{ padding: '2px', opacity: 0.5 }}
+                          >
+                            <ArrowDown size={12} />
+                          </button>
+
                           {item.status === 'completed' && (
                             <button
                               className="btn btn-success btn-icon"
@@ -982,6 +1055,47 @@ export default function DownloadList({
           <div className="dn-ctx-item" onClick={() => run(onRename, menu.item)}>
             <Edit3 size={14} /> {t('ctx_rename')}
           </div>
+          <div className="dn-ctx-item" onClick={() => run(() => setSpeedLimitTarget(menu.item))}>
+            <Gauge size={14} /> {t('ctx_speed_limit') || 'Özel Hız Sınırı Belirle...'}
+          </div>
+
+          <div className="dn-ctx-sep" />
+
+          {queues && queues.length > 1 && (
+            <>
+              <div className="dn-ctx-item" style={{ cursor: 'default', opacity: 0.7, fontSize: '11px', padding: '4px 14px' }}>
+                {t('ctx_move_to_queue') || 'Kuyruğa Taşı'}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', padding: '0 14px 6px' }}>
+                {queues.map(q => (
+                  <button
+                    key={q.id}
+                    className={`btn ${(menu.item.queueId || 'main') === q.id ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ padding: '3px 8px', fontSize: '11px', textAlign: 'left', display: 'flex', justifyContent: 'space-between' }}
+                    onClick={() => run(onMoveToQueue, menu.item.id, q.id)}
+                  >
+                    <span>{q.name}</span>
+                    {(menu.item.queueId || 'main') === q.id && <span>✓</span>}
+                  </button>
+                ))}
+              </div>
+              <div className="dn-ctx-sep" />
+            </>
+          )}
+
+          {/* Kuyruk Sıralaması */}
+          <div className="dn-ctx-item" onClick={() => run(handleMoveDownload, menu.item.id, 'up')}>
+            <ArrowUp size={14} /> {t('ctx_move_up') || 'Kuyrukta Yukarı Taşı'}
+          </div>
+          <div className="dn-ctx-item" onClick={() => run(handleMoveDownload, menu.item.id, 'down')}>
+            <ArrowDown size={14} /> {t('ctx_move_down') || 'Kuyrukta Aşağı Taşı'}
+          </div>
+          <div className="dn-ctx-item" onClick={() => run(handleMoveDownload, menu.item.id, 'top')}>
+            <ChevronsUp size={14} /> {t('ctx_move_top') || 'En Başa Al'}
+          </div>
+          <div className="dn-ctx-item" onClick={() => run(handleMoveDownload, menu.item.id, 'bottom')}>
+            <ChevronsDown size={14} /> {t('ctx_move_bottom') || 'En Sona Al'}
+          </div>
 
           <div className="dn-ctx-sep" />
 
@@ -1030,6 +1144,64 @@ export default function DownloadList({
         download={refreshingItem}
         onRefreshUrl={handleRefreshUrlSubmit}
       />
+
+      {speedLimitTarget && (
+        <div className="modal-overlay" onClick={() => setSpeedLimitTarget(null)}>
+          <div className="modal-box" style={{ maxWidth: '400px', width: '92%' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Gauge size={18} color="var(--accent)" />
+                <span>{t('speed_limit_title') || 'İndirme Hız Sınırı'}</span>
+              </div>
+              <button className="btn btn-ghost btn-icon" onClick={() => setSpeedLimitTarget(null)}>×</button>
+            </div>
+            <div className="modal-body" style={{ padding: '16px' }}>
+              <p style={{ margin: '0 0 10px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                <strong>{speedLimitTarget.filename}</strong> {t('speed_limit_desc') || 'için özel hız sınırı belirleyin (0 = sınırsız):'}
+              </p>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input
+                  type="number"
+                  className="form-input"
+                  style={{ flex: 1 }}
+                  placeholder="0"
+                  defaultValue={speedLimitTarget.speedLimitKbps || 0}
+                  id="custom-speed-limit-input"
+                  min={0}
+                  step={50}
+                  autoFocus
+                />
+                <span style={{ fontSize: '13px', fontWeight: 600 }}>KB/s</span>
+              </div>
+            </div>
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', padding: '10px 16px' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setSpeedLimitTarget(null)}>
+                {t('btn_cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={async () => {
+                  const val = document.getElementById('custom-speed-limit-input')?.value;
+                  const kbps = Math.max(0, parseInt(val, 10) || 0);
+                  try {
+                    await fetch(`/api/download/${speedLimitTarget.id}/speed-limit`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ speedLimitKbps: kbps })
+                    });
+                  } catch (e) {
+                    console.error('Failed to set speed limit:', e);
+                  }
+                  setSpeedLimitTarget(null);
+                }}
+              >
+                {t('btn_save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
     </>
   );

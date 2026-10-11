@@ -3,10 +3,9 @@ import { X, Minus, FolderOpen, FileText, Loader, CheckCircle2, GripHorizontal } 
 import { useT } from '../i18n';
 import { closeWindow, minimizeWindow, resizeWindow } from '../native';
 
-// IDM tarzı "İndirme Tamamlandı" diyaloğu (mode=complete&id=...).
+// Bağımsız "İndirme Tamamlandı" diyaloğu (mode=complete&id=...).
 // İndirme bitince Electron tarafı bu pencereyi açar: dosya bilgisi, adres,
-// kaydedilen yol ve Aç / Klasörü Aç / Kapat butonları — IDM'in klasik
-// "Download complete" penceresinin birebir karşılığı.
+// kaydedilen yol ve Aç / Klasörü Aç / Kapat butonları.
 export default function DownloadCompleteWindow({ download }) {
   const { t } = useT();
   const boxRef = useRef(null);
@@ -39,7 +38,7 @@ export default function DownloadCompleteWindow({ download }) {
     if (download) document.title = '✓ ' + (download.filename || '');
   }, [download]);
 
-  // IDM davranışı: dosyayı/klasörü açma işlemi işletim sistemine devredildiğinde
+  // Dosyayı/klasörü açma işlemi işletim sistemine devredildiğinde
   // diyalog kapanır (Firefox/Chrome'daki "Open/Reveal kapatır" deseni).
   const act = (action) =>
     fetch(`/api/download/${download.id}/${action}`, { method: 'POST' })
@@ -85,7 +84,7 @@ export default function DownloadCompleteWindow({ download }) {
             </div>
           ) : (
             <>
-              {/* Üst blok: yeşil onay + "İndirme Tamamlandı" + indirilen boyut (IDM üst satırı) */}
+              {/* Üst blok: yeşil onay + "İndirme Tamamlandı" + indirilen boyut */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div className="dl-complete-check" style={{ width: '44px', height: '44px', flexShrink: 0 }}>
                   <CheckCircle2 size={26} />
@@ -104,21 +103,21 @@ export default function DownloadCompleteWindow({ download }) {
                 </div>
               </div>
 
-              {/* Adres (IDM "Address") */}
+              {/* Adres */}
               <div className="form-group">
                 <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>{t('done_address')}</label>
                 <input className="form-input" type="text" readOnly value={download.url || ''} title={download.url || ''}
                   style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }} onFocus={(e) => e.target.select()} />
               </div>
 
-              {/* Kaydedilen yol (IDM "The file saved as") */}
+              {/* Kaydedilen yol */}
               <div className="form-group">
                 <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>{t('done_saved_as')}</label>
                 <input className="form-input" type="text" readOnly value={download.savePath || ''} title={download.savePath || ''}
                   style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }} onFocus={(e) => e.target.select()} />
               </div>
 
-              {/* "Bu pencereyi bir daha gösterme" (IDM "Don't show this dialog again") */}
+              {/* "Bu pencereyi bir daha gösterme" */}
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
                 <input type="checkbox" checked={dontShow} onChange={(e) => toggleDontShow(e.target.checked)} />
                 {t('done_dont_show')}

@@ -8,6 +8,31 @@ const DATA_DIR = path.join(os.homedir(), '.deepnode');
 const LEGACY_DATA_DIR = path.join(os.homedir(), '.omnidownloader');
 const DOWNLOADS_FILE = path.join(DATA_DIR, 'downloads.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+const QUEUES_FILE = path.join(DATA_DIR, 'queues.json');
+
+export const DEFAULT_QUEUES = [
+  {
+    id: 'main',
+    name: 'Ana İndirme Kuyruğu',
+    schedulerEnabled: false,
+    startTime: '02:00',
+    stopTime: '08:00',
+    days: [0, 1, 2, 3, 4, 5, 6],
+    afterStop: 'nothing',
+    speedLimitKbps: 0
+  },
+  {
+    id: 'sync',
+    name: 'Senkronizasyon Kuyruğu',
+    maxConcurrent: 1,
+    schedulerEnabled: false,
+    startTime: '01:00',
+    stopTime: '06:00',
+    days: [0, 1, 2, 3, 4, 5, 6],
+    afterStop: 'nothing',
+    speedLimitKbps: 0
+  }
+];
 
 // Standart Windows "İndirilenler" (Downloads) klasörü
 const DEFAULT_DOWNLOAD_DIR = path.join(os.homedir(), 'Downloads');
@@ -18,20 +43,67 @@ const OLD_DEFAULT_DOWNLOAD_DIR = path.join(os.homedir(), 'Downloads', 'OmniDownl
 // captured/ignored file-type filter.
 const MIME_TO_EXT = {
   'application/x-bittorrent': 'torrent',
+  'application/torrent': 'torrent',
   'application/zip': 'zip',
+  'application/x-zip': 'zip',
   'application/x-zip-compressed': 'zip',
+  'application/x-rar': 'rar',
   'application/x-rar-compressed': 'rar',
   'application/vnd.rar': 'rar',
   'application/x-7z-compressed': '7z',
+  'application/x-compress-7z': '7z',
   'application/gzip': 'gz',
+  'application/x-gzip': 'gz',
   'application/x-tar': 'tar',
+  'application/x-gtar': 'tar',
+  'application/x-bzip2': 'bz2',
   'application/pdf': 'pdf',
   'application/x-msdownload': 'exe',
   'application/x-msdos-program': 'exe',
+  'application/x-dosexec': 'exe',
+  'application/x-msi': 'msi',
   'application/x-iso9660-image': 'iso',
   'application/vnd.android.package-archive': 'apk',
+  'application/x-apple-diskimage': 'dmg',
+  'application/vnd.debian.binary-package': 'deb',
+  'application/x-deb': 'deb',
+  'application/dash+xml': 'mpd',
+  'application/f4m+xml': 'f4m',
+  'application/vnd.apple.mpegurl': 'm3u8',
+  'application/x-mpegurl': 'm3u8',
+  'application/octet-stream-m3u8': 'm3u8',
+  'video/vnd.mpeg.dash.mpd': 'mpd',
+  'video/mpegurl': 'm3u8',
+  'video/x-mpegurl': 'm3u8',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/x-matroska': 'mkv',
+  'video/quicktime': 'mov',
+  'video/x-flv': 'flv',
+  'video/flv': 'flv',
+  'video/3gpp': '3gp',
+  'video/3gpp2': '3gp',
+  'video/x-ms-wmv': 'wmv',
+  'video/x-ms-asf': 'asf',
+  'video/avi': 'avi',
+  'video/msvideo': 'avi',
+  'video/x-msvideo': 'avi',
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/mp4a-latm': 'm4a',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/flac': 'flac',
+  'audio/aac': 'aac',
+  'audio/ogg': 'ogg',
+  'audio/opus': 'opus',
+  'audio/x-ms-wma': 'wma',
+  'application/msword': 'doc',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-powerpoint': 'ppt',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx'
 };
 
@@ -104,6 +176,7 @@ class StorageService {
 
     this.downloads = this.loadDownloads();
     this.settings = this.loadSettings();
+    this.queues = this.loadQueues();
   }
 
   // OmniDownload döneminden kalan ~/.omnidownloader klasörünü (indirilenler
@@ -127,7 +200,12 @@ class StorageService {
 
   loadDownloads() {
     const parsed = safeReadJsonSync(DOWNLOADS_FILE, null);
-    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed)) {
+      return parsed.map(item => ({
+        ...item,
+        queueId: item.queueId || 'main'
+      }));
+    }
     return [];
   }
 
@@ -138,6 +216,81 @@ class StorageService {
     } catch (err) {
       console.error('Error saving downloads.json:', err.message);
     }
+  }
+
+  loadQueues() {
+    const parsed = safeReadJsonSync(QUEUES_FILE, null);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      // Ensure 'main' queue always exists
+      if (!parsed.some(q => q.id === 'main')) {
+        parsed.unshift({ ...DEFAULT_QUEUES[0] });
+      }
+      return parsed;
+    }
+    return JSON.parse(JSON.stringify(DEFAULT_QUEUES));
+  }
+
+  saveQueues(queuesList) {
+    try {
+      this.queues = queuesList;
+      atomicWriteJsonSync(QUEUES_FILE, queuesList);
+    } catch (err) {
+      console.error('Error saving queues.json:', err.message);
+    }
+  }
+
+  getQueues() {
+    if (!this.queues || !this.queues.length) {
+      this.queues = this.loadQueues();
+    }
+    return this.queues;
+  }
+
+  createQueue(name, options = {}) {
+    if (!name || typeof name !== 'string') throw new Error('Queue name is required');
+    const id = 'q_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+    const newQueue = {
+      id,
+      name: name.trim(),
+      maxConcurrent: Math.max(1, parseInt(options.maxConcurrent, 10) || 3),
+      schedulerEnabled: !!options.schedulerEnabled,
+      startTime: options.startTime || '02:00',
+      stopTime: options.stopTime || '08:00',
+      days: Array.isArray(options.days) ? options.days : [0, 1, 2, 3, 4, 5, 6],
+      afterStop: options.afterStop || 'nothing',
+      speedLimitKbps: Math.max(0, parseInt(options.speedLimitKbps, 10) || 0)
+    };
+    const list = [...this.getQueues(), newQueue];
+    this.saveQueues(list);
+    return newQueue;
+  }
+
+  updateQueue(id, updates = {}) {
+    const list = this.getQueues().map(q => {
+      if (q.id === id) {
+        return {
+          ...q,
+          ...(updates.name && id !== 'main' ? { name: updates.name.trim() } : {}),
+          ...(typeof updates.maxConcurrent !== 'undefined' ? { maxConcurrent: Math.max(1, parseInt(updates.maxConcurrent, 10) || 3) } : {}),
+          ...(typeof updates.schedulerEnabled !== 'undefined' ? { schedulerEnabled: !!updates.schedulerEnabled } : {}),
+          ...(typeof updates.startTime !== 'undefined' ? { startTime: updates.startTime } : {}),
+          ...(typeof updates.stopTime !== 'undefined' ? { stopTime: updates.stopTime } : {}),
+          ...(Array.isArray(updates.days) ? { days: updates.days } : {}),
+          ...(updates.afterStop ? { afterStop: updates.afterStop } : {}),
+          ...(typeof updates.speedLimitKbps !== 'undefined' ? { speedLimitKbps: Math.max(0, parseInt(updates.speedLimitKbps, 10) || 0) } : {})
+        };
+      }
+      return q;
+    });
+    this.saveQueues(list);
+    return list.find(q => q.id === id) || null;
+  }
+
+  deleteQueue(id) {
+    if (id === 'main') throw new Error('Cannot delete main queue');
+    const list = this.getQueues().filter(q => q.id !== id);
+    this.saveQueues(list);
+    return list;
   }
 
   loadSettings() {
@@ -166,7 +319,22 @@ class StorageService {
       // Bildirimler ve bitiş eylemi
       notifyOnComplete: true,
       confirmOnDelete: true,
-      afterAllComplete: 'nothing',  // 'nothing' | 'exit' | 'shutdown'
+      afterAllComplete: 'nothing',  // 'nothing' | 'exit' | 'shutdown' | 'sleep'
+
+      // Antivirüs / Güvenlik Taraması (Windows Defender / Özel Antivirüs)
+      virusScanEnabled: false,
+      virusScannerPath: '',
+
+      // Kategoriye özel klasör yolları (boş ise downloadDir/Kategori kullanılır)
+      categoryDirs: {
+        General: '',
+        Compressed: '',
+        Documents: '',
+        Music: '',
+        Programs: '',
+        Video: '',
+        Images: ''
+      },
 
       // Proxy (Proxy/Socks ayarları)
       proxyEnabled: false,
@@ -183,6 +351,7 @@ class StorageService {
       scheduleStartTime: '02:00',   // kuyruğu başlat
       scheduleStopTime: '08:00',    // kuyruğu duraklat ('' = durdurma)
       scheduleDays: [1, 2, 3, 4, 5, 6, 0], // 0=Pazar ... 6=Cumartesi
+      schedulerAfterStop: 'nothing', // 'nothing' | 'exit' | 'shutdown' | 'sleep'
 
       // Bakım
       autoUpdateYtDlp: true,
@@ -234,6 +403,14 @@ class StorageService {
         this.settings.anonymousId = crypto.randomUUID();
       }
       atomicWriteJsonSync(SETTINGS_FILE, this.settings);
+
+      // Keep main queue concurrency in sync with settings.maxConcurrentDownloads
+      if (typeof newSettings.maxConcurrentDownloads !== 'undefined') {
+        const mc = Math.max(1, parseInt(newSettings.maxConcurrentDownloads, 10) || 3);
+        const qList = this.getQueues().map(q => q.id === 'main' ? { ...q, maxConcurrent: mc } : q);
+        this.saveQueues(qList);
+      }
+
       return this.settings;
     } catch (err) {
       console.error('Error saving settings.json:', err.message);
@@ -289,22 +466,22 @@ class StorageService {
   getCategoryForFilename(filename, mimeType = '') {
     const ext = path.extname(filename).toLowerCase();
     
-    if (['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v'].includes(ext) || mimeType.startsWith('video/')) {
+    if (['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v', '.3gp', '.3gpp', '.asf', '.f4m', '.f4f', '.mpd', '.m3u8', '.ts', '.tsv'].includes(ext) || mimeType.startsWith('video/') || /mpegurl|dash\+xml|f4m\+xml/.test(mimeType)) {
       return 'Video';
     }
-    if (['.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma'].includes(ext) || mimeType.startsWith('audio/')) {
+    if (['.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma', '.opus', '.aiff', '.mid', '.midi'].includes(ext) || mimeType.startsWith('audio/')) {
       return 'Music';
     }
-    if (['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.iso'].includes(ext)) {
+    if (['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.iso', '.xz', '.tgz', '.dmg'].includes(ext)) {
       return 'Compressed';
     }
-    if (['.pdf', '.docx', '.doc', '.xlsx', '.pptx', '.txt', '.epub', '.csv'].includes(ext) || mimeType.includes('pdf') || mimeType.includes('document')) {
+    if (['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt', '.txt', '.epub', '.csv', '.rtf', '.odt'].includes(ext) || mimeType.includes('pdf') || mimeType.includes('document') || mimeType.includes('spreadsheet') || mimeType.includes('presentation')) {
       return 'Documents';
     }
-    if (['.exe', '.msi', '.bat', '.cmd', '.dmg', '.apk', '.sh'].includes(ext)) {
+    if (['.exe', '.msi', '.bat', '.cmd', '.apk', '.sh', '.deb', '.rpm', '.appimage'].includes(ext)) {
       return 'Programs';
     }
-    if (['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp', '.bmp'].includes(ext) || mimeType.startsWith('image/')) {
+    if (['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp', '.bmp', '.ico', '.avif', '.tiff', '.tif'].includes(ext) || mimeType.startsWith('image/')) {
       return 'Images';
     }
     return 'General';

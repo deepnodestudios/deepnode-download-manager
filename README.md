@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://deepnodestudios.net/DDM/assets/deepnode-app-icon.png" width="96" alt="DeepNode Download Manager">
   <h1>DeepNode Download Manager</h1>
-  <p><strong>Fast, smart and organized download manager for Windows — a free, open-source IDM alternative.</strong></p>
+  <p><strong>Fast, smart and organized multi-threaded download manager for Windows.</strong></p>
   <p><a href="README.md"><strong>English</strong></a> · <a href="README.tr.md">Türkçe</a></p>
   <p>
     <a href="https://github.com/deepnodestudios/deepnode-download-manager/releases/latest"><img src="https://img.shields.io/github/v/release/deepnodestudios/deepnode-download-manager?label=release" alt="Release"></a>

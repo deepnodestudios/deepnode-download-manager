@@ -10,7 +10,7 @@ import { initSentry, Sentry } from '../backend/src/sentry.js';
 // Initialize Sentry for Electron main process error & crash tracking
 initSentry({
   processName: 'electron-main',
-  appVersion: app.getVersion ? app.getVersion() : '1.5.6',
+  appVersion: app.getVersion ? app.getVersion() : '1.5.7',
   anonymousId: storageService.getAnonymousId()
 });
 
@@ -195,7 +195,16 @@ serverEvents.on('prompt-add', (payload) => {
   if (payload && payload.url) return createAddDownloadWindow(payload.url, payload.quality, payload.referer, payload.video, payload.filename);
 });
 
-// IDM tarzı bağımsız ilerleme penceresi: indirme başlatılınca açılır,
+serverEvents.on('prompt-batch', (payload) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('prompt-batch', payload);
+  }
+});
+
+// Bağımsız ilerleme penceresi: indirme başlatılınca açılır,
 // içeriğe göre otomatik boyutlanır (resize-add-window IPC'sini paylaşır).
 const progressWindows = new Set();
 const MAX_PROGRESS_WINDOWS = 12;
@@ -335,7 +344,7 @@ serverEvents.on('settings-changed', (s) => {
   if (getLanguage() !== prevLang) buildTrayMenu();
 });
 
-// İndirme bitince bildirim + ses + IDM tarzı "İndirme Tamamlandı" diyaloğu
+// İndirme bitince bildirim + ses + "İndirme Tamamlandı" diyaloğu
 serverEvents.on('download-completed', (item) => {
   try {
     if (appSettings.notifyOnComplete !== false && Notification.isSupported()) {
@@ -349,14 +358,14 @@ serverEvents.on('download-completed', (item) => {
     if (appSettings.soundNotifications !== false) {
       shell.beep();
     }
-    // IDM'deki gibi tamamlanma diyaloğu (ayarlardan "bir daha gösterme" ile kapatılabilir)
+    // Tamamlanma diyaloğu (ayarlardan "bir daha gösterme" ile kapatılabilir)
     if (appSettings.showCompleteDialog !== false && item && item.id) {
       createCompleteWindow(item.id);
     }
   } catch (e) { /* ignore */ }
 });
 
-// IDM tarzı "Download complete" diyaloğu: dosya bilgisi + Aç / Klasörü Aç.
+// "Download complete" diyaloğu: dosya bilgisi + Aç / Klasörü Aç.
 // İlerleme pencereleriyle aynı frameless desen ve resize IPC'sini kullanır.
 function createCompleteWindow(downloadId) {
   if (!downloadId) return;
@@ -373,7 +382,7 @@ function createCompleteWindow(downloadId) {
     center: true,
     resizable: true,
     skipTaskbar: false,
-    alwaysOnTop: true, // IDM gibi öne çıkar; kullanıcı görene kadar üstte kalır
+    alwaysOnTop: true, // Kullanıcı görene kadar üstte kalır
     webPreferences: { ...SECURE_WEB_PREFERENCES }
   });
   hardenWindow(win);
@@ -382,9 +391,7 @@ function createCompleteWindow(downloadId) {
   win.once('ready-to-show', () => setTimeout(() => { try { win.setAlwaysOnTop(false); } catch (e) {} }, 1500));
 }
 
-// Tüm indirmeler bitince: bir şey yapma / uygulamayı kapat / bilgisayarı kapat
-serverEvents.on('all-complete', () => {
-  const action = appSettings.afterAllComplete || 'nothing';
+function executePostAction(action) {
   if (action === 'exit') {
     isQuitting = true;
     app.quit();
@@ -400,7 +407,24 @@ serverEvents.on('all-complete', () => {
         spawn('shutdown', ['/s', '/t', '60'], { detached: true, windowsHide: true }).unref();
       }
     } catch (e) { /* ignore */ }
+  } else if (action === 'sleep') {
+    try {
+      if (process.platform === 'win32') {
+        spawn('rundll32.exe', ['powrprof.dll,SetSuspendState', '0,1,0'], { detached: true, windowsHide: true }).unref();
+      }
+    } catch (e) { /* ignore */ }
   }
+}
+
+// Tüm indirmeler bitince: bir şey yapma / uygulamayı kapat / bilgisayarı kapat / uyku modu
+serverEvents.on('all-complete', () => {
+  const action = appSettings.afterAllComplete || 'nothing';
+  executePostAction(action);
+});
+
+// Zamanlayıcı durdurma saati geldiğinde belirlenen eylem
+serverEvents.on('scheduler-stop-action', (action) => {
+  executePostAction(action);
 });
 
 // Auto-update: installer started externally — quit app so NSIS can overwrite files
@@ -434,10 +458,10 @@ process.on('unhandledRejection', (reason) => {
 function createWindow(showWindow = true) {
   mainWindow = new BrowserWindow({
     show: showWindow,
-    width: 1078,
-    height: 580,
-    minWidth: 1078,
-    minHeight: 420,
+    width: 1200,
+    height: 680,
+    minWidth: 920,
+    minHeight: 460,
     title: 'DeepNode Download Manager',
     backgroundColor: '#0b0f19',
     autoHideMenuBar: true,
@@ -528,7 +552,7 @@ function createTray() {
   }
 }
 
-// ---- IDM-style update notification ----
+// ---- Update notification ----
 // Pencere tepside gizliyken bile kullanıcı güncellemeden haberdar olsun:
 // açılışta (15 sn sonra) ve 6 saatte bir backend'in /api/update/check ucunu sorgula;
 // yeni sürüm varsa OS bildirimi + tepsi balonu göster. Aynı sürüm için bir kez.
@@ -608,6 +632,19 @@ function startClipboardWatcher() {
       if (!text || text === lastClipboardText) return;
       lastClipboardText = text;
 
+      // Çoklu URL tespiti (Panoya toplu link kopyalanmışsa)
+      const multiUrls = text.match(/https?:\/\/[^\s"'<>()]+/gi);
+      if (multiUrls && multiUrls.length >= 2) {
+        if (!(await isClipboardWatchEnabled())) return;
+        bringToFront();
+        await fetch(appUrl('/api/download/prompt-batch'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls: multiUrls })
+        }).catch(() => {});
+        return;
+      }
+
       const lower = text.toLowerCase();
       const mediaExtensions = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.zip', '.rar', '.7z', '.tar', '.gz', '.pdf', '.exe', '.msi', '.iso', '.mp3', '.flac', '.wav', '.apk', '.dmg', '.docx', '.xlsx', '.pptx', '.png', '.jpg', '.jpeg'];
       const isDownloadable = (lower.startsWith('http://') || lower.startsWith('https://')) && mediaExtensions.some(ext => lower.includes(ext));
@@ -675,8 +712,11 @@ if (!gotTheLock) {
 } else {
   app.on('second-instance', (event, commandLine, workingDirectory) => {
     const protocolUrl = commandLine.find(arg => arg.startsWith('deepnode://'));
+    const httpUrl = commandLine.find(arg => /^https?:\/\//i.test(arg));
     if (protocolUrl) {
       handleProtocolUrl(protocolUrl);
+    } else if (httpUrl) {
+      createAddDownloadWindow(httpUrl);
     } else if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
@@ -686,6 +726,7 @@ if (!gotTheLock) {
 
   app.whenReady().then(async () => {
     const protocolUrl = process.argv.find(arg => arg.startsWith('deepnode://'));
+    const initialHttpUrl = process.argv.find(arg => /^https?:\/\//i.test(arg));
     
     // Command line flags check (--hidden, --minimized, --opened-at-login, etc.)
     const hasHiddenArg = process.argv.some(arg => 
@@ -716,10 +757,13 @@ if (!gotTheLock) {
 
     const showWindow = !protocolUrl && !shouldStartHidden;
     createWindow(showWindow);
+    if (initialHttpUrl && !protocolUrl) {
+      createAddDownloadWindow(initialHttpUrl);
+    }
     createTray();
     startClipboardWatcher();
 
-    // IDM-style update notification: startup (15s) + every 6 hours
+    // Update notification: startup (15s) + every 6 hours
     setTimeout(checkUpdateNotify, 15000);
     setInterval(checkUpdateNotify, 6 * 60 * 60 * 1000);
 

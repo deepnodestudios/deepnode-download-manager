@@ -495,7 +495,7 @@ export function summarizeVideoInfo(j) {
     return { height: h, size };
   });
 
-  // IDM benzeri ÇEŞİTLİLİK: aynı çözünürlükte hem düşük boyutlu (ör. AV1/mp4) hem yüksek
+  // Format Çeşitliliği: aynı çözünürlükte hem düşük boyutlu (ör. AV1/mp4) hem yüksek
   // boyutlu (ör. H.264/mp4 veya VP9/webm) varyantı ayrı satır olarak sun. Her (kapsayıcı,
   // codec) ailesinden en yüksek bit hızlı formatı seçip dedup ederiz; kullanıcı hangi
   // format_id'yi seçerse indirme tam onu (+ en iyi ses) getirir.
@@ -660,6 +660,7 @@ export class VideoDownloader extends EventEmitter {
     this.quality = item.quality || 'best';
     this.referer = item.referer || null; // akış yakalama: CDN Referer isteyebilir
     this.priority = item.priority || 'normal';
+    this.queueId = item.queueId || 'main';
     this.saveDir = item.saveDir || path.join(storageService.settings.downloadDir, 'Video');
     this.savePath = item.savePath || null;
     this.status = item.status || 'queued';
@@ -670,7 +671,7 @@ export class VideoDownloader extends EventEmitter {
     this.percent = item.percent || 0;
     this.checksum = null;
     this.segmentsCount = 1;
-    this.preflight = item.preflight || false; // IDM ön indirmesi: onaylanana dek arayüzde gizli
+    this.preflight = item.preflight || false; // Arka plan ön indirmesi: onaylanana dek arayüzde gizli
     this.proc = null;
     this.errorMsg = item.errorMsg || null;
     this.createdFiles = new Set();
@@ -678,8 +679,14 @@ export class VideoDownloader extends EventEmitter {
     this._doneStreamsBytes = 0;
     this._curStreamPath = null;
     this._curStreamTotal = 0;
+    this.speedLimitKbps = item.speedLimitKbps || 0;
     // İndirme ekranında baştan gösterilecek SABİT toplam boyut (video+ses birlikte)
     this.plannedTotal = 0;
+  }
+
+  setSpeedLimit(kbps) {
+    this.speedLimitKbps = Math.max(0, parseInt(kbps, 10) || 0);
+    this.emit('meta');
   }
 
   // Seçilen kaliteye göre indirmenin TOPLAM boyutunu (video+ses birleşik) döndürür.
@@ -843,6 +850,10 @@ export class VideoDownloader extends EventEmitter {
       '--progress-template', 'download:OMNI|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s'
     ];
     args.push(...networkArgs(this.url)); // proxy / site girişi
+    const effectiveLimit = this.speedLimitKbps > 0 ? this.speedLimitKbps : (storageService.settings.globalSpeedLimitKbps || 0);
+    if (effectiveLimit > 0) {
+      args.push('--limit-rate', `${effectiveLimit}K`);
+    }
     if (this.referer) args.push('--referer', this.referer);
     // YouTube'da Chrome UA + zorlanmış player_client indirmeyi bozuyor; varsayılan istemci kalsın.
     if (!this._isYouTube()) {
@@ -1221,6 +1232,8 @@ export class VideoDownloader extends EventEmitter {
       quality: this.quality,
       referer: this.referer,
       priority: this.priority,
+      queueId: this.queueId || 'main',
+      speedLimitKbps: this.speedLimitKbps || 0,
       saveDir: this.saveDir,
       savePath: this.savePath,
       category: 'Video',

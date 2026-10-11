@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Settings, Save, Filter, Sliders, RotateCcw, CheckCircle2, Puzzle, Globe, Clock, Lock, Plus, Trash2, Languages } from 'lucide-react';
+import { X, Settings, Save, Filter, Sliders, RotateCcw, CheckCircle2, Puzzle, Globe, Clock, Lock, Plus, Trash2, Languages, FolderOpen, Folder, Shield } from 'lucide-react';
 import { useT } from '../i18n';
 import { selectFolder, openExternal } from '../native';
 
@@ -34,6 +34,8 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
   const [showCompleteDialog, setShowCompleteDialog] = useState(settings?.showCompleteDialog ?? true);
   const [confirmOnDelete, setConfirmOnDelete] = useState(settings?.confirmOnDelete ?? true);
   const [afterAllComplete, setAfterAllComplete] = useState(settings?.afterAllComplete || 'nothing');
+  const [virusScanEnabled, setVirusScanEnabled] = useState(settings?.virusScanEnabled ?? false);
+  const [virusScannerPath, setVirusScannerPath] = useState(settings?.virusScannerPath || '');
   const [clipboardWatch, setClipboardWatch] = useState(settings?.clipboardWatch ?? true);
   const [autoUpdateYtDlp, setAutoUpdateYtDlp] = useState(settings?.autoUpdateYtDlp ?? true);
 
@@ -53,11 +55,21 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
   const [scheduleStartTime, setScheduleStartTime] = useState(settings?.scheduleStartTime || '02:00');
   const [scheduleStopTime, setScheduleStopTime] = useState(settings?.scheduleStopTime || '');
   const [scheduleDays, setScheduleDays] = useState(settings?.scheduleDays || [0, 1, 2, 3, 4, 5, 6]);
+  const [schedulerAfterStop, setSchedulerAfterStop] = useState(settings?.schedulerAfterStop || settings?.afterAllComplete || 'nothing');
 
   // File types / filtering settings
   const [enableFileFiltering, setEnableFileFiltering] = useState(settings?.enableFileFiltering ?? true);
   const [capturedExtensions, setCapturedExtensions] = useState(settings?.capturedExtensions || DEFAULT_CAPTURED);
   const [ignoredExtensions, setIgnoredExtensions] = useState(settings?.ignoredExtensions || DEFAULT_IGNORED);
+  const [categoryDirs, setCategoryDirs] = useState(settings?.categoryDirs || {
+    General: '',
+    Compressed: '',
+    Documents: '',
+    Music: '',
+    Programs: '',
+    Video: '',
+    Images: ''
+  });
 
   // KRİTİK: Modal her zaman mount durumda; useState başlangıç değerleri yalnızca
   // İLK render'da (settings henüz backend'den gelmeden) okunur. Bu yüzden modal
@@ -86,6 +98,8 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
     setShowCompleteDialog(settings.showCompleteDialog ?? true);
     setConfirmOnDelete(settings.confirmOnDelete ?? true);
     setAfterAllComplete(settings.afterAllComplete || 'nothing');
+    setVirusScanEnabled(settings.virusScanEnabled ?? false);
+    setVirusScannerPath(settings.virusScannerPath || '');
     setClipboardWatch(settings.clipboardWatch ?? true);
     setAutoUpdateYtDlp(settings.autoUpdateYtDlp ?? true);
     setProxyEnabled(settings.proxyEnabled ?? false);
@@ -98,9 +112,19 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
     setScheduleStartTime(settings.scheduleStartTime || '02:00');
     setScheduleStopTime(settings.scheduleStopTime || '');
     setScheduleDays(settings.scheduleDays || [0, 1, 2, 3, 4, 5, 6]);
+    setSchedulerAfterStop(settings.schedulerAfterStop || settings.afterAllComplete || 'nothing');
     setEnableFileFiltering(settings.enableFileFiltering ?? true);
     setCapturedExtensions(settings.capturedExtensions || DEFAULT_CAPTURED);
     setIgnoredExtensions(settings.ignoredExtensions || DEFAULT_IGNORED);
+    setCategoryDirs(settings.categoryDirs || {
+      General: '',
+      Compressed: '',
+      Documents: '',
+      Music: '',
+      Programs: '',
+      Video: '',
+      Images: ''
+    });
   }, [isOpen, settings]);
 
   if (!isOpen) return null;
@@ -120,6 +144,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
       startMinimized,
       minimizeToTrayOnClose,
       useCategoryFolders,
+      categoryDirs,
       autoStartDownloads,
       duplicateAction,
       maxRetries: Number(maxRetries),
@@ -129,6 +154,8 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
       showCompleteDialog,
       confirmOnDelete,
       afterAllComplete,
+      virusScanEnabled,
+      virusScannerPath: virusScannerPath.trim(),
       clipboardWatch,
       autoUpdateYtDlp,
       proxyEnabled,
@@ -141,6 +168,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
       scheduleStartTime,
       scheduleStopTime,
       scheduleDays,
+      schedulerAfterStop,
       enableFileFiltering,
       capturedExtensions: capturedExtensions.trim().toUpperCase(),
       ignoredExtensions: ignoredExtensions.trim().toUpperCase()
@@ -159,6 +187,22 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
       if (selected) setDownloadDir(selected);
     } catch (err) {
       console.error('Folder browser error:', err);
+    }
+  };
+
+  const browseCategoryDir = async (cat) => {
+    try {
+      let selected = await selectFolder();
+      if (!selected) {
+        const res = await fetch('/api/select-folder', { method: 'POST' });
+        const data = await res.json();
+        if (data && data.folderPath) selected = data.folderPath;
+      }
+      if (selected) {
+        setCategoryDirs((prev) => ({ ...prev, [cat]: selected }));
+      }
+    } catch (err) {
+      console.error('Category folder browser error:', err);
     }
   };
 
@@ -271,6 +315,63 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-dark)', marginLeft: '25px', marginBottom: '8px' }}>
                   {t('category_folders_note')}
                 </div>
+
+                {useCategoryFolders && (
+                  <div className="panel-box" style={{ marginTop: '8px', marginBottom: '14px', padding: '12px' }}>
+                    <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Folder size={15} color="var(--accent)" />
+                      <span>{t('sec_category_dirs')}</span>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-dark)', marginBottom: '10px' }}>
+                      {t('sec_category_dirs_desc')}
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {[
+                        { id: 'Video', label: t('cat_Video') || 'Videolar' },
+                        { id: 'Music', label: t('cat_Music') || 'Müzik' },
+                        { id: 'Compressed', label: t('cat_Compressed') || 'Sıkıştırılmış' },
+                        { id: 'Documents', label: t('cat_Documents') || 'Belgeler' },
+                        { id: 'Programs', label: t('cat_Programs') || 'Programlar' },
+                        { id: 'Images', label: t('cat_Images') || 'Görseller' },
+                        { id: 'General', label: t('cat_General') || 'Genel' }
+                      ].map((cat) => (
+                        <div key={cat.id} style={{ display: 'grid', gridTemplateColumns: '110px 1fr auto', gap: '8px', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-muted)' }}>{cat.label}</span>
+                          <input
+                            type="text"
+                            className="form-input"
+                            style={{ fontSize: '0.8rem', padding: '5px 8px' }}
+                            placeholder={downloadDir ? `${downloadDir}\\${cat.id}` : cat.id}
+                            value={categoryDirs?.[cat.id] || ''}
+                            onChange={(e) => setCategoryDirs((prev) => ({ ...prev, [cat.id]: e.target.value }))}
+                          />
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-accent-outline"
+                              style={{ fontSize: '0.75rem', padding: '5px 10px', whiteSpace: 'nowrap' }}
+                              onClick={() => browseCategoryDir(cat.id)}
+                            >
+                              {t('btn_browse')}
+                            </button>
+                            {categoryDirs?.[cat.id] && (
+                              <button
+                                type="button"
+                                className="btn btn-ghost"
+                                style={{ fontSize: '0.75rem', padding: '4px 6px' }}
+                                title="Varsayılana Sıfırla"
+                                onClick={() => setCategoryDirs((prev) => ({ ...prev, [cat.id]: '' }))}
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div className="form-group">
@@ -443,8 +544,9 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                   <label className="form-label">{t('lbl_after_all')}</label>
                   <select className="form-select" value={afterAllComplete} onChange={(e) => setAfterAllComplete(e.target.value)}>
                     <option value="nothing">{t('after_nothing')}</option>
-                    <option value="exit">{t('after_exit')}</option>
+                    <option value="sleep">{t('after_sleep')}</option>
                     <option value="shutdown">{t('after_shutdown')}</option>
+                    <option value="exit">{t('after_exit')}</option>
                   </select>
                 </div>
 
@@ -452,6 +554,39 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                   <input type="checkbox" checked={autoUpdateYtDlp} onChange={(e) => setAutoUpdateYtDlp(e.target.checked)} />
                   <span>{t('chk_ytdlp_update')}</span>
                 </label>
+
+                {/* --- Antivirüs / Güvenlik Taraması --- */}
+                <div className="section-sep" />
+                <div className="form-label section-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Shield size={15} color="var(--accent)" />
+                  <span>{t('sec_antivirus')}</span>
+                </div>
+                <label className="dn-check">
+                  <input
+                    type="checkbox"
+                    checked={virusScanEnabled}
+                    onChange={(e) => setVirusScanEnabled(e.target.checked)}
+                  />
+                  <span>{t('chk_antivirus_enable')}</span>
+                </label>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-dark)', marginLeft: '25px', marginBottom: '8px' }}>
+                  {t('antivirus_note')}
+                </div>
+                {virusScanEnabled && (
+                  <div className="form-group" style={{ marginLeft: '25px', marginTop: '6px' }}>
+                    <label className="form-label" style={{ fontSize: '0.78rem' }}>
+                      {t('lbl_antivirus_path')}
+                    </label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Varsayılan: Windows Defender (MpCmdRun.exe)"
+                      value={virusScannerPath}
+                      onChange={(e) => setVirusScannerPath(e.target.value)}
+                      style={{ fontSize: '0.8rem' }}
+                    />
+                  </div>
+                )}
               </>
             )}
 

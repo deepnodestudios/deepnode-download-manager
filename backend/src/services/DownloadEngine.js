@@ -92,7 +92,7 @@ export class DownloadEngine extends EventEmitter {
     this.filename = item.filename;
     this.saveDir = item.saveDir || path.join(storageService.settings.downloadDir, item.category || 'General');
     this.segmentsCount = item.segmentsCount || storageService.settings.defaultSegments || 8;
-    this.speedLimitKbps = item.speedLimitKbps || storageService.settings.globalSpeedLimitKbps || 0;
+    this.speedLimitKbps = item.speedLimitKbps || 0;
 
     this.savePath = path.join(this.saveDir, this.filename);
     this.tempDir = path.join(this.saveDir, `.tmp_${this.id}`);
@@ -104,7 +104,8 @@ export class DownloadEngine extends EventEmitter {
     // Browser session headers (cookies / referer / UA) so protected links work
     this.headers = item.headers || {};
     this.priority = item.priority || 'normal'; // high | normal | low
-    this.preflight = item.preflight || false; // IDM ön indirmesi: onaylanana dek gizli
+    this.queueId = item.queueId || 'main';
+    this.preflight = item.preflight || false; // Arka plan ön indirmesi: onaylanana dek gizli
 
     // Restore segments. Older snapshots (and crashes) may lack tempFilePath, so
     // rebuild it deterministically and trust the bytes actually present on disk.
@@ -550,6 +551,7 @@ export class DownloadEngine extends EventEmitter {
         }
 
         bwConsume(data.length, res);
+        this.engineConsume(data.length, res);
 
         // Segment doldu: sunucu göndermeye devam etse de bağlantıyı bırak
         if (reachedEnd) {
@@ -789,6 +791,52 @@ export class DownloadEngine extends EventEmitter {
     }
   }
 
+  engineConsume(bytes, res) {
+    if (!this.speedLimitKbps || this.speedLimitKbps <= 0) return;
+    const limit = this.speedLimitKbps * 1024;
+    const now = Date.now();
+    if (!this._bw) {
+      this._bw = { bytes: 0, windowStart: now, paused: new Set(), timer: null };
+    }
+    const bw = this._bw;
+    if (now - bw.windowStart >= 1000) {
+      bw.bytes = Math.max(0, bw.bytes - limit);
+      bw.windowStart = now;
+      bw.paused.forEach((s) => { try { s.resume(); } catch (e) {} });
+      bw.paused.clear();
+    }
+    bw.bytes += bytes;
+    if (bw.bytes >= limit) {
+      if (!bw.paused.has(res)) {
+        try { res.pause(); } catch (e) {}
+        bw.paused.add(res);
+      }
+      if (!bw.timer) {
+        const delay = Math.max(5, 1000 - (now - bw.windowStart) + 5);
+        bw.timer = setTimeout(() => {
+          bw.timer = null;
+          bw.bytes = Math.max(0, bw.bytes - (this.speedLimitKbps * 1024));
+          bw.windowStart = Date.now();
+          bw.paused.forEach((s) => { try { s.resume(); } catch (e) {} });
+          bw.paused.clear();
+        }, delay);
+      }
+    }
+  }
+
+  setSpeedLimit(kbps) {
+    this.speedLimitKbps = Math.max(0, parseInt(kbps, 10) || 0);
+    if (this._bw && this._bw.paused) {
+      this._bw.paused.forEach((s) => { try { s.resume(); } catch (e) {} });
+      this._bw.paused.clear();
+      if (this._bw.timer) {
+        clearTimeout(this._bw.timer);
+        this._bw.timer = null;
+      }
+    }
+    this.emit('meta');
+  }
+
   /**
    * @param {object} opts
    *   - secrets: true ise tarayıcı oturum başlıkları (çerezler) da eklenir.
@@ -812,6 +860,8 @@ export class DownloadEngine extends EventEmitter {
       segmentsCount: this.segmentsCount,
       checksum: this.checksum,
       priority: this.priority,
+      queueId: this.queueId || 'main',
+      speedLimitKbps: this.speedLimitKbps || 0,
       // Arayüzdeki "Özellikler" penceresi hata sebebini gösterebilsin
       // (VideoDownloader zaten gönderiyordu, dosya motoru göndermiyordu).
       errorMsg: this.errorMsg || undefined,

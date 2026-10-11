@@ -1,6 +1,6 @@
 import React, { useLayoutEffect, useRef, useEffect } from 'react';
 import {
-  Plus, Play, Pause, Globe, FolderOpen, Settings, Info, Search, X
+  Plus, Play, Pause, Globe, FolderOpen, Settings, Info, Search, X, Clock, Layers, Download, Upload
 } from 'lucide-react';
 import { useT } from '../i18n';
 import { openExternal } from '../native';
@@ -8,9 +8,14 @@ import { openExternal } from '../native';
 export default function Navbar({
   sidebarWidth,
   onOpenAddModal,
+  onOpenBatchModal,
   onStartAll,
   onPauseAll,
+  onOpenSchedulerModal,
+  schedulerEnabled = false,
   onOpenSnifferModal,
+  onExportDownloads,
+  onImportDownloads,
   onOpenSettingsModal,
   onOpenAboutModal,
   onOpenDownloadRootDir,
@@ -87,6 +92,11 @@ export default function Navbar({
           <span className="btn-label">{t('nav_add')}</span>
         </button>
 
+        <button className="btn-batch" onClick={onOpenBatchModal} title={t('nav_batch') || 'Toplu İndirme'}>
+          <Layers size={15} />
+          <span className="btn-label">{t('nav_batch') || 'Toplu İndirme'}</span>
+        </button>
+
         <button className="btn-sniff" onClick={onOpenSnifferModal} title={`${t('nav_sniffer')} (Ctrl+L)`}>
           <Globe size={16} /> <span className="btn-label">{t('nav_sniffer')}</span>
         </button>
@@ -100,6 +110,31 @@ export default function Navbar({
           <span className="seg-divider" />
           <button className="seg-action seg-pause" onClick={onPauseAll} title={t('nav_pause_all')}>
             <Pause size={15} /> <span className="btn-label">{t('nav_pause_all')}</span>
+          </button>
+          <span className="seg-divider" />
+          <button
+            className={`seg-action ${schedulerEnabled ? 'seg-active' : ''}`}
+            onClick={onOpenSchedulerModal}
+            title={t('net_scheduler')}
+            style={{ position: 'relative' }}
+          >
+            <Clock size={15} />
+            <span className="btn-label">{t('net_scheduler')}</span>
+            {schedulerEnabled && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '6px',
+                  right: '6px',
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  background: '#22c55e',
+                  boxShadow: '0 0 6px #22c55e'
+                }}
+                title={t('chk_scheduler')}
+              />
+            )}
           </button>
         </div>
 
@@ -158,6 +193,14 @@ export default function Navbar({
             </button>
           )}
         </div>
+
+        <button className="tb-btn" onClick={onImportDownloads} title={t('nav_import') || 'İndirme Listesini İçe Aktar (.txt / .json)'}>
+          <Upload size={18} />
+        </button>
+
+        <button className="tb-btn" onClick={onExportDownloads} title={t('nav_export') || 'İndirme Listesini Dışa Aktar (.txt)'}>
+          <Download size={18} />
+        </button>
 
         <button className="tb-btn" onClick={onOpenDownloadRootDir} title={t('nav_open_download_folder')}>
           <FolderOpen size={18} />

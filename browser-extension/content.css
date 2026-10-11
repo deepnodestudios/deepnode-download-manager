@@ -4,35 +4,57 @@
   display:none;
   align-items:center;
   gap:6px;
-  padding:6px 10px;
-  background:linear-gradient(#3a8fd8,#1f6fc4);
+  padding:5px 9px;
+  background:linear-gradient(180deg, #2b7cd3 0%, #175aa6 100%);
   color:#fff;
-  font:600 12px/1 "Segoe UI",Tahoma,sans-serif;
-  border:1px solid #17579c;
-  border-radius:5px;
+  font:600 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  border:1px solid #124682;
+  border-radius:6px;
   cursor:pointer;
-  box-shadow:0 2px 8px rgba(0,0,0,.35);
+  box-shadow:0 3px 12px rgba(0,0,0,.4);
   user-select:none;
+  transition:box-shadow .15s ease, opacity .15s ease;
 }
-.dn-dl-btn:hover{background:linear-gradient(#4a9fe8,#2472c8);}
-.dn-dl-btn .dn-ic{font-size:14px;line-height:1;}
+.dn-dl-btn:hover{
+  background:linear-gradient(180deg, #378de8 0%, #1c66bc 100%);
+  box-shadow:0 4px 15px rgba(0,0,0,.45);
+}
+.dn-dl-btn.dn-dragging{
+  cursor:grabbing !important;
+  opacity:0.92;
+  box-shadow:0 8px 24px rgba(0,0,0,.6);
+}
+.dn-dl-btn .dn-drag{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  cursor:grab;
+  padding:0 2px;
+  color:rgba(255,255,255,.65);
+  font-size:12px;
+  line-height:1;
+}
+.dn-dl-btn .dn-drag:hover{color:#fff;}
+.dn-dl-btn.dn-dragging .dn-drag{cursor:grabbing !important;}
+.dn-dl-btn .dn-ic{font-size:13px;line-height:1;}
+.dn-dl-btn .dn-txt{white-space:nowrap;font-weight:600;text-shadow:0 1px 2px rgba(0,0,0,.3);}
 .dn-dl-btn .dn-close{
-  position:absolute;
-  top:-7px;
-  right:-7px;
+  position:relative;
+  margin-left:2px;
   width:16px;
   height:16px;
   display:flex;
   align-items:center;
   justify-content:center;
-  background:#2b3440;
+  background:rgba(0,0,0,.25);
   color:#cfd6df;
   font-size:12px;
   line-height:1;
-  border:1px solid #17579c;
+  border:1px solid rgba(255,255,255,.2);
   border-radius:50%;
   cursor:pointer;
   box-shadow:0 1px 4px rgba(0,0,0,.35);
+  transition:background .15s ease, color .15s ease;
 }
 .dn-dl-btn .dn-close:hover{background:#d13438;color:#fff;border-color:#a02226;}
 

@@ -79,13 +79,14 @@ function joinPath(base, sub) {
   return base.replace(/[\\/]+$/, '') + sep + sub.replace(/^[\\/]+/, '');
 }
 
-export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAddBatch, settings, initialUrl = '', initialQuality = '', initialReferer = '', initialIsVideo = false, initialFilename = '', isStandalone = false }) {
+export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAddBatch, settings, queues = [], initialUrl = '', initialQuality = '', initialReferer = '', initialIsVideo = false, initialFilename = '', isStandalone = false }) {
   const { t } = useT();
   const boxRef = useRef(null); // standalone: içerik yüksekliğini ölçüp pencereyi ona göre boyutlandır
   const submittingRef = useRef(false); // gönderim sürüyor — pencere kapanmadan ikinci tıklamayı engelle
   const [activeTab, setActiveTab] = useState('single');
   const [url, setUrl] = useState(initialUrl || '');
   const [batchUrls, setBatchUrls] = useState('');
+  const [selectedQueue, setSelectedQueue] = useState('main');
   const [filename, setFilename] = useState('');
   const [category, setCategory] = useState('General');
   const [saveDir, setSaveDir] = useState(settings?.downloadDir || '');
@@ -132,7 +133,8 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
     if (manualDir) return;
     if (settings?.downloadDir) {
       const useCats = settings.useCategoryFolders !== false;
-      setSaveDir(useCats && category ? joinPath(settings.downloadDir, category) : settings.downloadDir);
+      const customCatDir = settings?.categoryDirs?.[category];
+      setSaveDir(useCats && category ? (customCatDir || joinPath(settings.downloadDir, category)) : settings.downloadDir);
     }
   }, [settings, category, manualDir]);
 
@@ -236,7 +238,8 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
             isVideo: true,
             quality,
             referer: initialReferer || undefined,
-            autoStart
+            autoStart,
+            queueId: selectedQueue
           });
         } else {
           await onAddDownload({
@@ -245,13 +248,14 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
             category,
             saveDir: saveDir.trim() || undefined,
             segmentsCount: Number(segmentsCount),
-            autoStart
+            autoStart,
+            queueId: selectedQueue
           });
         }
       } else {
         const urls = batchUrls.split('\n').map(u => u.trim()).filter(u => u.length > 0);
         if (urls.length === 0) return;
-        await onAddBatch(urls);
+        await onAddBatch(urls, undefined, autoStart, selectedQueue);
       }
       setUrl('');
       setBatchUrls('');
@@ -529,6 +533,25 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
                     <Archive size={12} /> {t('qf_compressed')}
                   </button>
                 </div>
+
+                {/* Queue Selection */}
+                {queues && queues.length > 0 && (
+                  <div style={{ marginTop: '12px' }}>
+                    <label className="form-label" style={{ marginBottom: '4px' }}>{t('lbl_queue') || 'Kuyruk'}</label>
+                    <select
+                      className="form-select"
+                      value={selectedQueue}
+                      onChange={(e) => setSelectedQueue(e.target.value)}
+                      style={{ width: '100%', fontSize: '0.82rem' }}
+                    >
+                      {queues.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             </>
           ) : (
@@ -543,6 +566,23 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
                 style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}
                 required
               />
+              {queues && queues.length > 0 && (
+                <div style={{ marginTop: '10px' }}>
+                  <label className="form-label" style={{ marginBottom: '4px' }}>{t('lbl_queue') || 'Kuyruk'}</label>
+                  <select
+                    className="form-select"
+                    value={selectedQueue}
+                    onChange={(e) => setSelectedQueue(e.target.value)}
+                    style={{ width: '100%', fontSize: '0.82rem' }}
+                  >
+                    {queues.map((q) => (
+                      <option key={q.id} value={q.id}>
+                        {q.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           )}
         </div>

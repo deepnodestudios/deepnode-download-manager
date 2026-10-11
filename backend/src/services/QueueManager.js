@@ -5,6 +5,7 @@ import { LinkSniffer } from './LinkSniffer.js';
 import { safeName } from '../utils/paths.js';
 import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
 
 class QueueManager {
   constructor() {
@@ -64,6 +65,9 @@ class QueueManager {
       this.saveState();
       this.checkQueue();
       this.broadcast({ type: 'COMPLETED', payload: { id, savePath, checksum } });
+      if (storageService.settings.virusScanEnabled && savePath && fs.existsSync(savePath)) {
+        this.runVirusScan(id, savePath);
+      }
     });
 
     engine.on('error', ({ id, error }) => {
@@ -106,7 +110,7 @@ class QueueManager {
     storageService.saveDownloads(snapshots);
   }
 
-  async addDownload(url, customFilename = null, customCategory = null, segmentsCount = 8, forceVideo = false, quality = 'best', customSaveDir = null, headers = null, preflight = false, referer = null) {
+  async addDownload(url, customFilename = null, customCategory = null, segmentsCount = 8, forceVideo = false, quality = 'best', customSaveDir = null, headers = null, preflight = false, referer = null, queueId = 'main') {
     // NOTE: file-type filtering (capturedExtensions/ignoredExtensions) is applied
     // only to AUTOMATIC browser captures before prompting (see server /api/download/add).
     // An explicit/confirmed add must never be blocked here.
@@ -138,13 +142,14 @@ class QueueManager {
         referer: videoReferer,
         saveDir,
         status: 'queued',
-        preflight // IDM ön indirmesi: onaylanana dek arayüzde gizli
+        queueId: queueId || 'main',
+        preflight // Arka plan ön indirmesi: onaylanana dek arayüzde gizli
       });
       this.attachEngineListeners(engine);
       this.engines.set(id, engine);
       this.saveState();
       this.broadcast({ type: 'DOWNLOAD_ADDED', payload: engine.toSnapshot() });
-      this.checkQueue();
+      this.checkQueue(queueId);
       return engine.toSnapshot();
     }
 
@@ -170,8 +175,9 @@ class QueueManager {
       totalSize: info.totalSize,
       downloadedBytes: 0,
       status: 'queued',
+      queueId: queueId || 'main',
       segmentsCount: segmentsCount || storageService.settings.defaultSegments,
-      preflight // IDM ön indirmesi: onaylanana dek arayüzde gizli
+      preflight // Arka plan ön indirmesi: onaylanana dek arayüzde gizli
     };
 
     const engine = new DownloadEngine(item);
@@ -181,16 +187,21 @@ class QueueManager {
 
     this.broadcast({ type: 'DOWNLOAD_ADDED', payload: engine.toSnapshot() });
 
-    this.checkQueue();
+    this.checkQueue(queueId);
     return engine.toSnapshot();
   }
 
   // Ayara göre kategori alt klasörü kullan ya da hepsini kök klasöre indir
   categoryDir(category) {
     const root = storageService.settings.downloadDir;
+    const cat = safeName(category || 'General', 'General');
     if (storageService.settings.useCategoryFolders === false) return root;
+    const customDirs = storageService.settings.categoryDirs || {};
+    if (customDirs[cat] && typeof customDirs[cat] === 'string' && customDirs[cat].trim()) {
+      return customDirs[cat].trim();
+    }
     // AI_Guidelines §5: yol birleştirmede string toplama değil path.join
-    return path.join(root, safeName(category || 'General', 'General'));
+    return path.join(root, cat);
   }
 
   // "dosya.zip" varsa "dosya (1).zip", "dosya (2).zip" ... döndürür
@@ -214,11 +225,14 @@ class QueueManager {
     }
   }
 
-  async addBatchDownloads(urls) {
+  async addBatchDownloads(urls, saveDir = null, autoStart = true, queueId = 'main') {
     const results = [];
     for (const url of urls) {
-      if (url.trim()) {
-        const item = await this.addDownload(url.trim());
+      if (url && url.trim()) {
+        const item = await this.addDownload(url.trim(), null, null, null, false, null, saveDir || null, null, false, null, queueId || 'main');
+        if (autoStart === false && item && item.id) {
+          this.pauseDownload(item.id);
+        }
         results.push(item);
       }
     }
@@ -308,6 +322,15 @@ class QueueManager {
       engine.errorMsg = null;
     }
 
+    // Süresi dolmuş token sebebiyle hata veren parçaları sıfırla ki yeni link ile sorunsuz devam etsin
+    if (Array.isArray(engine.chunks)) {
+      engine.chunks.forEach((c) => {
+        if (c.status === 'error') {
+          c.status = 'paused';
+        }
+      });
+    }
+
     this.saveState();
     this.broadcast({ type: 'DOWNLOAD_ADDED', payload: engine.toSnapshot() });
     return engine.toSnapshot();
@@ -376,38 +399,94 @@ class QueueManager {
     this.broadcast({ type: 'DOWNLOAD_DELETED', payload: { id } });
   }
 
-  checkQueue() {
+  checkQueue(targetQueueId = null) {
     // "Eklenince otomatik başlat" kapalıysa kuyruktakiler kullanıcı başlatana kadar bekler
     if (storageService.settings.autoStartDownloads === false) return;
-    this._fillSlots();
+    this._fillSlots(targetQueueId);
   }
 
-  // Boş slotları (maxConcurrentDownloads - aktif) önceliğe göre kuyruktakilerle
-  // doldurur. `checkQueue` (otomatik başlat) ve `startAll` (buton/zamanlayıcı) bunu
-  // ortak kullanır; böylece eşzamanlılık sınırı HER iki yolda da uygulanır.
-  _fillSlots() {
-    const maxActive = storageService.settings.maxConcurrentDownloads || 3;
-    let activeCount = 0;
+  // Boş slotları önceliğe göre kuyruktakilerle doldurur.
+  // Her bağımsız kuyruk kendi eşzamanlı indirme sınırına (maxConcurrent) göre yönetilir.
+  _fillSlots(targetQueueId = null) {
+    const queues = storageService.getQueues();
+    const targetQueues = targetQueueId ? queues.filter(q => q.id === targetQueueId) : queues;
 
-    this.engines.forEach((engine) => {
-      if (engine.status === 'downloading' || engine.status === 'merging') {
-        activeCount++;
+    targetQueues.forEach((q) => {
+      const qId = q.id;
+      const maxActive = q.id === 'main'
+        ? (storageService.settings.maxConcurrentDownloads || q.maxConcurrent || 3)
+        : (q.maxConcurrent || storageService.settings.maxConcurrentDownloads || 3);
+      let activeCount = 0;
+
+      this.engines.forEach((engine) => {
+        if ((engine.queueId || 'main') === qId && (engine.status === 'downloading' || engine.status === 'merging')) {
+          activeCount++;
+        }
+      });
+
+      if (activeCount < maxActive) {
+        const rank = { high: 0, normal: 1, low: 2 };
+        const queued = Array.from(this.engines.values())
+          .filter((e) => (e.queueId || 'main') === qId && e.status === 'queued')
+          .sort((a, b) => (rank[a.priority || 'normal'] ?? 1) - (rank[b.priority || 'normal'] ?? 1));
+
+        for (const engine of queued) {
+          engine.start();
+          activeCount++;
+          if (activeCount >= maxActive) break;
+        }
       }
     });
+  }
 
-    if (activeCount < maxActive) {
-      // Yüksek öncelikli indirmeler önce başlar
-      const rank = { high: 0, normal: 1, low: 2 };
-      const queued = Array.from(this.engines.values())
-        .filter((e) => e.status === 'queued')
-        .sort((a, b) => (rank[a.priority || 'normal'] ?? 1) - (rank[b.priority || 'normal'] ?? 1));
-
-      for (const engine of queued) {
-        engine.start();
-        activeCount++;
-        if (activeCount >= maxActive) break;
+  startQueue(queueId) {
+    const qId = queueId || 'main';
+    this.engines.forEach((engine) => {
+      if ((engine.queueId || 'main') === qId && (engine.status === 'paused' || engine.status === 'error')) {
+        engine.status = 'queued';
+        this.broadcast({ type: 'STATUS_CHANGE', payload: { id: engine.id, status: 'queued' } });
       }
-    }
+    });
+    this.saveState();
+    this._fillSlots(qId);
+  }
+
+  pauseQueue(queueId) {
+    const qId = queueId || 'main';
+    this.engines.forEach((engine) => {
+      if ((engine.queueId || 'main') === qId && (engine.status === 'downloading' || engine.status === 'merging' || engine.status === 'queued')) {
+        engine.pause();
+        this.broadcast({ type: 'STATUS_CHANGE', payload: { id: engine.id, status: 'paused' } });
+      }
+    });
+    this.saveState();
+  }
+
+  moveDownloadToQueue(id, targetQueueId) {
+    const engine = this.engines.get(id);
+    if (!engine) return null;
+    engine.queueId = targetQueueId || 'main';
+    this.saveState();
+    const snap = engine.toSnapshot();
+    this.broadcast({ type: 'DOWNLOAD_ADDED', payload: snap });
+    this.checkQueue(targetQueueId);
+    return snap;
+  }
+
+  onQueueDeleted(deletedQueueId) {
+    this.engines.forEach((engine) => {
+      if (engine.queueId === deletedQueueId) {
+        engine.queueId = 'main';
+      }
+    });
+    this.saveState();
+    this.broadcast({
+      type: 'INIT_STATE',
+      payload: {
+        downloads: this.getAllDownloads(),
+        settings: storageService.settings
+      }
+    });
   }
 
   getAllDownloads() {
@@ -419,7 +498,7 @@ class QueueManager {
     return e ? e.toSnapshot() : null;
   }
 
-  // IDM ön indirmesi onaylandı: kullanıcının seçtiği ad/klasörü uygula ve aynı
+  // Ön indirme onaylandı: kullanıcının seçtiği ad/klasörü uygula ve aynı
   // motorla KALDIĞI YERDEN devam et. Klasör değiştiyse geçici parçalar taşınır
   // (attemptSegment diskteki gerçek bayttan sürdüğü için veri kaybı olmaz).
   async confirmPreflight(id, opts = {}) {
@@ -498,6 +577,7 @@ class QueueManager {
     if (this.engines.get(id) !== engine) { engine.pause(); return null; }
 
     engine.preflight = false;
+    if (opts.queueId) engine.queueId = opts.queueId;
 
     if (opts.autoStart === false) {
       // "Daha Sonra İndir": inen baytlar korunur, duraklatılmış olarak listelenir
@@ -532,6 +612,7 @@ class QueueManager {
 
     // Kalite aynı: gizlilikten çıkar, kaldığı yerden devam et.
     engine.preflight = false;
+    if (opts.queueId) engine.queueId = opts.queueId;
     if (opts.autoStart === false) {
       if (engine.status === 'downloading') engine.pause();
       else if (engine.status === 'queued') engine.status = 'paused';
@@ -609,6 +690,125 @@ class QueueManager {
     const snap = engine.toSnapshot();
     this.broadcast({ type: 'DOWNLOAD_ADDED', payload: snap });
     return snap;
+  }
+
+  // Sağ tık > Özel Hız Sınırı (Per-download speed limit)
+  setSpeedLimit(id, kbps) {
+    const engine = this.engines.get(id);
+    if (!engine) return null;
+    if (typeof engine.setSpeedLimit === 'function') {
+      engine.setSpeedLimit(kbps);
+    } else {
+      engine.speedLimitKbps = Math.max(0, parseInt(kbps, 10) || 0);
+    }
+    this.saveState();
+    const snap = engine.toSnapshot();
+    this.broadcast({ type: 'DOWNLOAD_ADDED', payload: snap });
+    return snap;
+  }
+
+  // Kuyruk Sıralaması: Tüm listeyi verilen ID sırasına göre yeniden dizer
+  reorderDownloads(orderedIds) {
+    if (!Array.isArray(orderedIds)) return;
+    const newMap = new Map();
+    for (const id of orderedIds) {
+      if (this.engines.has(id)) {
+        newMap.set(id, this.engines.get(id));
+      }
+    }
+    // Listede yer almayan kalanlar varsa sonuna ekle
+    for (const [id, eng] of this.engines.entries()) {
+      if (!newMap.has(id)) {
+        newMap.set(id, eng);
+      }
+    }
+    this.engines = newMap;
+    this.saveState();
+    this.broadcast({
+      type: 'INIT_STATE',
+      payload: {
+        downloads: this.getAllDownloads(),
+        settings: storageService.settings
+      }
+    });
+  }
+
+  // Kuyrukta Yukarı / Aşağı / Başa / Sona Taşı
+  moveDownload(id, direction) {
+    const keys = Array.from(this.engines.keys());
+    const idx = keys.indexOf(id);
+    if (idx === -1) return null;
+
+    if (direction === 'up' && idx > 0) {
+      [keys[idx - 1], keys[idx]] = [keys[idx], keys[idx - 1]];
+    } else if (direction === 'down' && idx < keys.length - 1) {
+      [keys[idx], keys[idx + 1]] = [keys[idx + 1], keys[idx]];
+    } else if (direction === 'top') {
+      keys.splice(idx, 1);
+      keys.unshift(id);
+    } else if (direction === 'bottom') {
+      keys.splice(idx, 1);
+      keys.push(id);
+    }
+    this.reorderDownloads(keys);
+    return this.getAllDownloads();
+  }
+
+  // Otomatik Antivirüs / Güvenlik Taraması
+  findDefaultVirusScanner() {
+    if (process.platform !== 'win32') return null;
+    const std = 'C:\\Program Files\\Windows Defender\\MpCmdRun.exe';
+    if (fs.existsSync(std)) return std;
+    const plat = 'C:\\ProgramData\\Microsoft\\Windows Defender\\Platform';
+    if (fs.existsSync(plat)) {
+      try {
+        const subdirs = fs.readdirSync(plat).sort().reverse();
+        for (const d of subdirs) {
+          const c = path.join(plat, d, 'MpCmdRun.exe');
+          if (fs.existsSync(c)) return c;
+        }
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  runVirusScan(id, filePath) {
+    const scannerPath = storageService.settings.virusScannerPath || this.findDefaultVirusScanner();
+    if (!scannerPath || !fs.existsSync(scannerPath)) {
+      console.log(`[QueueManager] Virus scanner path not found: ${scannerPath}`);
+      return;
+    }
+    console.log(`[QueueManager] Scanning completed download with antivirus: ${filePath}`);
+    try {
+      const isDefender = /mpcmdrun/i.test(scannerPath);
+      const args = isDefender
+        ? ['-Scan', '-ScanType', '3', '-File', filePath]
+        : [filePath];
+
+      const child = spawn(scannerPath, args, { windowsHide: true });
+      child.on('close', (code) => {
+        if (code === 0) {
+          console.log(`[QueueManager] Antivirus scan clean: ${filePath}`);
+        } else if (code === 2) {
+          console.warn(`[QueueManager] THREAT DETECTED in ${filePath} (exit code 2)`);
+          const eng = this.engines.get(id);
+          if (eng) {
+            eng.virusAlert = true;
+            this.broadcast({
+              type: 'VIRUS_ALERT',
+              payload: { id, filename: eng.filename, filePath }
+            });
+          }
+        } else {
+          console.log(`[QueueManager] Antivirus scan exit code: ${code}`);
+        }
+      });
+      child.on('error', (err) => {
+        console.warn(`[QueueManager] Antivirus execution error:`, err.message);
+      });
+    } catch (e) {
+      console.error(`[QueueManager] Failed to launch virus scan:`, e.message);
+    }
   }
 }
 
