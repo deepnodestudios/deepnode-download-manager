@@ -12,6 +12,7 @@ import SettingsModal from './components/SettingsModal';
 import AboutModal from './components/AboutModal';
 import { I18nProvider, translate, resolveLanguage } from './i18n';
 import { closeWindow, bringToFront, openExternal } from './native';
+import { setAnonymousUser } from './sentry';
 
 export default function App() {
   const [downloads, setDownloads] = useState([]);
@@ -101,7 +102,12 @@ export default function App() {
 
       fetch('/api/settings')
         .then(res => res.json())
-        .then(data => setSettings(data || {}))
+        .then(data => {
+          setSettings(data || {});
+          if (data?.anonymousId) {
+            setAnonymousUser(data.anonymousId);
+          }
+        })
         .catch(err => console.error('Failed to fetch settings:', err));
     };
     refreshState();
@@ -148,6 +154,9 @@ export default function App() {
         if (type === 'INIT_STATE') {
           setDownloads(payload.downloads || []);
           setSettings(payload.settings || {});
+          if (payload.settings?.anonymousId) {
+            setAnonymousUser(payload.settings.anonymousId);
+          }
         } else if (type === 'PROGRESS') {
           setDownloads(prev => prev.map(item => {
             if (item.id === payload.id) {
@@ -362,25 +371,34 @@ export default function App() {
   const handleStart = (id) => fetch(`/api/download/${id}/start`, { method: 'POST' });
   const handlePause = (id) => fetch(`/api/download/${id}/pause`, { method: 'POST' });
 
-  const doDelete = (id, deleteFile) =>
-    fetch(`/api/download/${id}?deleteFile=${deleteFile ? 'true' : 'false'}`, { method: 'DELETE' });
+  const doDelete = (id, deleteFile) => {
+    if (!id) return;
+    return fetch(`/api/download/${id}?deleteFile=${deleteFile ? 'true' : 'false'}`, { method: 'DELETE' }).catch(() => {});
+  };
 
   // Silme isteği: "diskten de silinsin mi?" onay penceresini açar
-  const handleDelete = (id, deleteFile, skipConfirm) => {
-    const item = downloads.find(d => d.id === id);
+  const handleDelete = (target, deleteFile, skipConfirm) => {
+    const rawId = typeof target === 'object' && target !== null ? target.id : target;
+    if (!rawId) return;
+    const item = typeof target === 'object' && target !== null && target.filename
+      ? target
+      : (downloads.find(d => d.id === rawId) || null);
+
     if (skipConfirm || settings?.confirmOnDelete === false) {
-      return doDelete(id, deleteFile === true);
+      return doDelete(rawId, deleteFile === true);
     }
     setDeleteAlsoFile(deleteFile === true);
-    setDeleteTarget({ item, preferFile: deleteFile === true });
+    setDeleteTarget({ item, id: rawId, preferFile: deleteFile === true });
   };
 
   const handleBulkDelete = (ids) => {
+    const validIds = Array.isArray(ids) ? ids.filter(Boolean) : [];
+    if (validIds.length === 0) return;
     if (settings?.confirmOnDelete === false) {
-      ids.forEach(id => doDelete(id, false));
+      validIds.forEach(id => doDelete(id, false));
     } else {
       setDeleteAlsoFile(false);
-      setDeleteTarget({ ids, count: ids.length });
+      setDeleteTarget({ ids: validIds, count: validIds.length });
     }
   };
 
@@ -699,10 +717,15 @@ export default function App() {
                 <button
                   className="btn btn-danger"
                   onClick={() => {
-                    if (deleteTarget.ids) {
-                      deleteTarget.ids.forEach(id => doDelete(id, deleteAlsoFile));
+                    if (deleteTarget?.ids && Array.isArray(deleteTarget.ids)) {
+                      deleteTarget.ids.forEach(id => {
+                        if (id) doDelete(id, deleteAlsoFile);
+                      });
                     } else {
-                      doDelete(deleteTarget.item.id, deleteAlsoFile);
+                      const idToDelete = deleteTarget?.id || deleteTarget?.item?.id;
+                      if (idToDelete) {
+                        doDelete(idToDelete, deleteAlsoFile);
+                      }
                     }
                     setDeleteTarget(null);
                   }}

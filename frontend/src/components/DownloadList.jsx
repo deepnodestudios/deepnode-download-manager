@@ -214,14 +214,13 @@ export default function DownloadList({
     }
   }, [toggleSelect, selectRange]);
 
-  // --- Bulk actions ---
   const bulkDelete = useCallback(() => {
-    const ids = [...selectedIds];
+    const ids = [...selectedIds].filter(Boolean);
     if (ids.length === 0) return;
     if (ids.length > 1) {
-      onBulkDelete(ids);
+      onBulkDelete && onBulkDelete(ids);
     } else {
-      ids.forEach(id => onDelete(id));
+      onDelete && onDelete(ids[0]);
     }
     clearSelection();
   }, [selectedIds, onDelete, onBulkDelete, clearSelection]);
@@ -465,6 +464,7 @@ export default function DownloadList({
   };
 
   const runCommand = (cmd, item) => {
+    if (!item) return;
     switch (cmd) {
       case 'open': onOpenFile && onOpenFile(item.id); break;
       case 'reveal': onRevealFolder && onRevealFolder(item.id); break;
@@ -486,6 +486,7 @@ export default function DownloadList({
   };
 
   const showMenu = (e, item) => {
+    if (!item) return;
     const native = isElectron();
     if (!native) { openMenu(e, item); return; } // tarayıcı/dev: DOM menüsü
     e.preventDefault();

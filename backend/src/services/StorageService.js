@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 
 const DATA_DIR = path.join(os.homedir(), '.deepnode');
 // Eski markanın veri klasörü; ilk çalıştırmada .deepnode'a taşınır (bir kez).
@@ -141,6 +142,7 @@ class StorageService {
 
   loadSettings() {
     const defaultSettings = {
+      anonymousId: null,
       downloadDir: DEFAULT_DOWNLOAD_DIR,
       maxConcurrentDownloads: 3,
       defaultSegments: 8,
@@ -203,14 +205,34 @@ class StorageService {
       if (merged.captureBypassKey === 'Alt') {
         merged.captureBypassKey = 'Shift';
       }
+      if (!merged.anonymousId) {
+        merged.anonymousId = crypto.randomUUID();
+        try {
+          atomicWriteJsonSync(SETTINGS_FILE, merged);
+        } catch (e) {}
+      }
       return merged;
     }
+    defaultSettings.anonymousId = crypto.randomUUID();
+    try {
+      atomicWriteJsonSync(SETTINGS_FILE, defaultSettings);
+    } catch (e) {}
     return defaultSettings;
+  }
+
+  getAnonymousId() {
+    return this.settings?.anonymousId || null;
   }
 
   saveSettings(newSettings) {
     try {
+      const currentAnonymousId = this.settings?.anonymousId;
       this.settings = { ...this.settings, ...newSettings };
+      if (!this.settings.anonymousId && currentAnonymousId) {
+        this.settings.anonymousId = currentAnonymousId;
+      } else if (!this.settings.anonymousId) {
+        this.settings.anonymousId = crypto.randomUUID();
+      }
       atomicWriteJsonSync(SETTINGS_FILE, this.settings);
       return this.settings;
     } catch (err) {

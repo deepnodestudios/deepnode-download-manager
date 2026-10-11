@@ -15,7 +15,7 @@ export function initFrontendSentry() {
   try {
     Sentry.init({
       dsn,
-      release: 'deepnode-download-manager@1.5.5',
+      release: 'deepnode-download-manager@1.5.6',
       environment: import.meta.env.MODE || 'production',
       tracesSampleRate: 0.1,
       integrations: [
@@ -28,12 +28,29 @@ export function initFrontendSentry() {
     });
 
     Sentry.setTag('process', 'renderer');
+
+    // Restore cached anonymous ID from localStorage if available
+    try {
+      const cachedId = localStorage.getItem('ddm_anonymous_id');
+      if (cachedId) {
+        Sentry.setUser({ id: cachedId });
+      }
+    } catch (e) {}
+
     initialized = true;
   } catch (err) {
     console.error('Failed to initialize Frontend Sentry:', err);
   }
 
   return Sentry;
+}
+
+export function setAnonymousUser(anonymousId) {
+  if (!anonymousId) return;
+  try {
+    localStorage.setItem('ddm_anonymous_id', anonymousId);
+  } catch (e) {}
+  Sentry.setUser({ id: anonymousId });
 }
 
 export { Sentry };

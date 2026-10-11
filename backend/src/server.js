@@ -20,7 +20,7 @@ import { createUpdateRouter } from './routes/update.js';
 import { showItemInFolder, openPath } from './utils/shell.js';
 import { initSentry, Sentry } from './sentry.js';
 
-initSentry({ processName: 'backend' });
+initSentry({ processName: 'backend', anonymousId: storageService.getAnonymousId() });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

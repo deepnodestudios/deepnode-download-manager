@@ -4,10 +4,15 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import { setLanguage, getLanguage, t as et } from './i18n.js';
+import storageService from '../backend/src/services/StorageService.js';
 import { initSentry, Sentry } from '../backend/src/sentry.js';
 
 // Initialize Sentry for Electron main process error & crash tracking
-initSentry({ processName: 'electron-main', appVersion: app.getVersion ? app.getVersion() : '1.5.5' });
+initSentry({
+  processName: 'electron-main',
+  appVersion: app.getVersion ? app.getVersion() : '1.5.6',
+  anonymousId: storageService.getAnonymousId()
+});
 
 // DİKKAT: Bunlar dosyanın EN BAŞINDA tanımlı kalmalı. `SECURE_WEB_PREFERENCES`
 // gibi ÜST DÜZEY (top-level) sabitler `__dirname`'i modül yüklenirken kullanır;

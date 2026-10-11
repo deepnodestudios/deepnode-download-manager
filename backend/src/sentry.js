@@ -8,11 +8,15 @@ let initialized = false;
  * Initializes Sentry for Node / Electron Main / Backend environments.
  * @param {Object} options
  * @param {string} [options.processName='backend'] - e.g. 'electron-main' or 'backend'
- * @param {string} [options.appVersion='1.5.5']
+ * @param {string} [options.appVersion='1.5.6']
+ * @param {string|null} [options.anonymousId=null]
  */
-export function initSentry({ processName = 'backend', appVersion = '1.5.5' } = {}) {
+export function initSentry({ processName = 'backend', appVersion = '1.5.6', anonymousId = null } = {}) {
   if (initialized || Sentry.isInitialized()) {
     Sentry.setTag('process', processName);
+    if (anonymousId) {
+      Sentry.setUser({ id: anonymousId });
+    }
     return Sentry;
   }
 
@@ -42,12 +46,21 @@ export function initSentry({ processName = 'backend', appVersion = '1.5.5' } = {
     Sentry.setTag('process', processName);
     Sentry.setTag('platform', process.platform);
     Sentry.setTag('arch', process.arch);
+    if (anonymousId) {
+      Sentry.setUser({ id: anonymousId });
+    }
     initialized = true;
   } catch (err) {
     console.error('Failed to initialize Sentry:', err);
   }
 
   return Sentry;
+}
+
+export function setAnonymousUser(anonymousId) {
+  if (anonymousId) {
+    Sentry.setUser({ id: anonymousId });
+  }
 }
 
 export { Sentry };
