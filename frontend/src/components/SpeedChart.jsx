@@ -34,11 +34,19 @@ function fmtSpeed(bytesPerSec) {
 export default function SpeedChart({ currentSpeed }) {
   const { t } = useT();
   const [speedHistory, setSpeedHistory] = useState(new Array(24).fill(0));
+  const currentSpeedRef = useRef(currentSpeed || 0);
 
   useEffect(() => {
-    const speedInMB = currentSpeed / (1024 * 1024); // Convert Bytes/s to MB/s
-    setSpeedHistory((prev) => [...prev.slice(1), parseFloat(speedInMB.toFixed(2))]);
+    currentSpeedRef.current = currentSpeed || 0;
   }, [currentSpeed]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const speedInMB = (currentSpeedRef.current || 0) / (1024 * 1024);
+      setSpeedHistory((prev) => [...prev.slice(1), parseFloat(speedInMB.toFixed(2))]);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const data = {
     labels: new Array(24).fill(''),

@@ -254,7 +254,7 @@ export default {
   opt_file_2: '2 arquivos',
   opt_file_3: '3 arquivos (recomendado)',
   opt_file_5: '5 arquivos',
-  lbl_segments: 'Segmentos padrão (threads)',
+  lbl_default_segments: 'Segmentos padrão (threads)',
   opt_seg_4: '4 segmentos',
   opt_seg_8: '8 segmentos (padrão)',
   opt_seg_16: '16 segmentos (velocidade máxima)',
@@ -432,4 +432,7 @@ export default {
   btn_start_queue: "Iniciar fila",
   btn_pause_queue: "Pausar fila",
   confirm_delete_queue: "Tem certeza de que deseja excluir esta fila? Os downloads serão movidos para a fila principal.",
+  st_scanning: "Escaneando...",
+  ph_search: "Buscar...",
+  site_grabber: "Capturador de Sites",
 };

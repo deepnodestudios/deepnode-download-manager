@@ -254,7 +254,7 @@ export default {
   opt_file_2: '2 tệp',
   opt_file_3: '3 tệp (khuyến nghị)',
   opt_file_5: '5 tệp',
-  lbl_segments: 'Phân đoạn mặc định (luồng)',
+  lbl_default_segments: 'Phân đoạn mặc định (luồng)',
   opt_seg_4: '4 phân đoạn',
   opt_seg_8: '8 phân đoạn (chuẩn)',
   opt_seg_16: '16 phân đoạn (tốc độ tối đa)',
@@ -432,4 +432,7 @@ export default {
   btn_start_queue: "Bắt đầu hàng đợi",
   btn_pause_queue: "Tạm dừng hàng đợi",
   confirm_delete_queue: "Bạn có chắc chắn muốn xóa hàng đợi này không? Các tệp tải xuống sẽ được chuyển sang Hàng đợi chính.",
+  st_scanning: "Đang quét...",
+  ph_search: "Tìm kiếm...",
+  site_grabber: "Công cụ bắt trang web",
 };

@@ -254,7 +254,7 @@ export default {
   opt_file_2: '2개 파일',
   opt_file_3: '3개 파일 (권장)',
   opt_file_5: '5개 파일',
-  lbl_segments: '기본 세그먼트 (스레드)',
+  lbl_default_segments: '기본 세그먼트 (스레드)',
   opt_seg_4: '4개 세그먼트',
   opt_seg_8: '8개 세그먼트 (표준)',
   opt_seg_16: '16개 세그먼트 (최고 속도)',
@@ -432,4 +432,7 @@ export default {
   btn_start_queue: "대기열 시작",
   btn_pause_queue: "대기열 일시 중지",
   confirm_delete_queue: "이 대기열을 삭제하시겠습니까? 대기열의 다운로드는 기본 대기열로 이동됩니다.",
+  st_scanning: "검사 중...",
+  ph_search: "검색...",
+  site_grabber: "사이트 그래버",
 };

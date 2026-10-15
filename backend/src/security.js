@@ -26,7 +26,7 @@ const EXTENSION_ORIGIN_RE = /^(chrome|moz|edge|safari-web)-extension:\/\/[a-z0-9
 // Uygulamanın kendi arayüzü (ana pencere + ekleme/ilerleme pencereleri).
 // Firefox `localhost`'u bazen IPv6 `[::1]` olarak çözdüğü için üç loopback
 // biçimi de kabul edilir — LAN adresi değil, yalnız geri döngü.
-function isAppOrigin(origin, port) {
+export function isAppOrigin(origin, port) {
   return origin === `http://localhost:${port}`
     || origin === `http://127.0.0.1:${port}`
     || origin === `http://[::1]:${port}`;
@@ -39,6 +39,27 @@ export function isExtensionOrigin(origin) {
 export function isAllowedOrigin(origin, port) {
   if (!origin) return true; // başlık yok = tarayıcı sayfası değil (Electron/CLI)
   return isExtensionOrigin(origin) || isAppOrigin(origin, port);
+}
+
+/**
+ * WebSocket ve API yayınlarında proxy ve site şifrelerini maskeler.
+ * Dışarıya düz metin şifre sızmasını önler.
+ */
+export function sanitizeSettingsForBroadcast(settings) {
+  if (!settings || typeof settings !== 'object') return {};
+  const safe = { ...settings };
+  if (safe.proxyPass !== undefined) {
+    safe.proxyPassSet = !!safe.proxyPass;
+    safe.proxyPass = '';
+  }
+  if (Array.isArray(safe.siteLogins)) {
+    safe.siteLogins = safe.siteLogins.map((l) => ({
+      ...l,
+      hasPass: !!l.pass,
+      pass: ''
+    }));
+  }
+  return safe;
 }
 
 /**

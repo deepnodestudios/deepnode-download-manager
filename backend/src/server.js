@@ -15,12 +15,19 @@ import { LinkSniffer } from './services/LinkSniffer.js';
 import { DownloadEngine } from './services/DownloadEngine.js';
 import { getVideoInfo, autoUpdateYtDlp, isVideoSiteUrl } from './services/VideoDownloader.js';
 import { startScheduler, schedulerStatus } from './services/Scheduler.js';
-import { corsOptions, originGuard, appOnly, isExtensionOrigin, settingsForExtension } from './security.js';
+import { corsOptions, originGuard, appOnly, isExtensionOrigin, isAppOrigin, settingsForExtension, sanitizeSettingsForBroadcast } from './security.js';
 import { createUpdateRouter } from './routes/update.js';
 import { showItemInFolder, openPath } from './utils/shell.js';
 import { initSentry, Sentry } from './sentry.js';
 
 initSentry({ processName: 'backend', anonymousId: storageService.getAnonymousId() });
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Process] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[Process] Uncaught Exception:', err);
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -255,7 +262,23 @@ if (fs.existsSync(distPath)) {
 const clients = new Set();
 
 function attachWebSocket(httpServer) {
-  const wss = new WebSocketServer({ server: httpServer });
+  const wss = new WebSocketServer({
+    server: httpServer,
+    verifyClient: (info) => {
+      const origin = info.origin || (info.req && info.req.headers && info.req.headers.origin);
+      // Sadece uygulamanın kendi arayüzü (localhost / 127.0.0.1 / [::1]) bağlanabilir!
+      if (origin && !isAppOrigin(origin, getPort())) {
+        console.warn(`[WebSocket] Unauthorized origin rejected: ${origin}`);
+        return false;
+      }
+      const ip = info.req && info.req.socket && info.req.socket.remoteAddress;
+      if (ip && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip)) {
+        console.warn(`[WebSocket] Non-loopback IP rejected: ${ip}`);
+        return false;
+      }
+      return true;
+    }
+  });
   wss.on('connection', (ws) => {
     clients.add(ws);
     ws.isAlive = true;
@@ -267,12 +290,13 @@ function attachWebSocket(httpServer) {
       clients.delete(ws);
     });
 
-    // Send initial state upon connection
+    // Send initial state upon connection (şifreler sanitize edilmiş olarak gönderilir)
     ws.send(JSON.stringify({
       type: 'INIT_STATE',
       payload: {
         downloads: queueManager.getAllDownloads(),
-        settings: storageService.settings
+        settings: sanitizeSettingsForBroadcast(storageService.settings),
+        queues: storageService.getQueues()
       }
     }));
 
@@ -364,8 +388,8 @@ app.get('/api/downloads', appOnly(getPort), (req, res) => {
   res.json(queueManager.getAllDownloads());
 });
 
-// 2. Inspect URL metadata before adding
-app.post('/api/download/inspect', async (req, res) => {
+// 2. Inspect URL metadata before adding (yalnızca yerel uygulama arayüzü çağırabilir)
+app.post('/api/download/inspect', appOnly(getPort), async (req, res) => {
   const { url, headers } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
   try {
@@ -434,16 +458,16 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
       fs.writeFileSync(tmpPs1, script, { encoding: 'utf8' });
       const p = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpPs1], { windowsHide: false });
       let output = '';
-      p.stdout.on('data', d => { output += d.toString('utf-8'); });
-      p.on('close', () => {
+      let responded = false;
+      const sendResult = (folderPath) => {
+        if (responded) return;
+        responded = true;
         try { fs.unlinkSync(tmpPs1); } catch (e) {}
-        const folderPath = output.trim();
         res.json({ folderPath: folderPath || null });
-      });
-      p.on('error', () => {
-        try { fs.unlinkSync(tmpPs1); } catch (e) {}
-        res.json({ folderPath: null });
-      });
+      };
+      p.stdout.on('data', d => { output += d.toString('utf-8'); });
+      p.on('close', () => sendResult(output.trim()));
+      p.on('error', () => sendResult(null));
     } catch (e) {
       res.json({ folderPath: null });
     }
@@ -457,8 +481,13 @@ app.post('/api/download/add', async (req, res) => {
   const { url, filename, category, saveDir, segmentsCount, forceVideo, quality, autoStart, confirmedByUser, headers, explicit, queueId } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
+  // Tarayıcı eklentisinden gelen istekler kullanıcı onayını atlayamaz ve keyfi saveDir seçemez
+  const isExt = isExtensionOrigin(req.headers.origin);
+  const effectiveConfirmed = isExt ? false : Boolean(confirmedByUser);
+  const effectiveSaveDir = isExt ? null : saveDir;
+
   // STRICT USER GUARD: If user has not confirmed in the Save Location Dialog, DO NOT add or start download!
-  if (!confirmedByUser) {
+  if (!effectiveConfirmed) {
     // Automatic capture: honor the file-type filter BEFORE prompting, so ignored
     // types (css/js/images/…) don't pop a dialog. Explicit adds (context menu,
     // grabber, in-page button) skip the filter — the user asked for that file.
@@ -499,7 +528,7 @@ app.post('/api/download/add', async (req, res) => {
     // Onay penceresi açıkken arka planda inen ön indirme varsa
     // yeni kayıt AÇMA — aynı motor, kullanıcının seçtiği ad/klasörle devam eder.
     if (!forceVideo) {
-      const pf = await confirmPreflightForUrl(url, { filename, saveDir, segmentsCount, autoStart, queueId });
+      const pf = await confirmPreflightForUrl(url, { filename, saveDir: effectiveSaveDir, segmentsCount, autoStart, queueId });
       if (pf) {
         // open-progress zaten confirmPreflightForUrl içinde erken emit edildi
         return res.json(pf);
@@ -510,7 +539,7 @@ app.post('/api/download/add', async (req, res) => {
       if (entry) dropPreflight(url, entry);
     }
 
-    const item = await queueManager.addDownload(url, filename, category, segmentsCount, forceVideo, quality, saveDir, sessionHeaders, false, null, queueId || 'main');
+    const item = await queueManager.addDownload(url, filename, category, segmentsCount, forceVideo, quality, effectiveSaveDir, sessionHeaders, false, null, queueId || 'main');
     if (autoStart === false && item && item.id) {
       queueManager.pauseDownload(item.id);
     } else if (item && item.id) {
@@ -545,41 +574,45 @@ app.post('/api/download/cancel-preflight', appOnly(getPort), (req, res) => {
 
 // 6. Add video download (STRICT RULE: Requires confirmedByUser: true from Download Dialog)
 app.post('/api/download/video', async (req, res) => {
-  const { url, filename, saveDir, quality, referer, autoStart, confirmedByUser } = req.body;
+  const { url, filename, saveDir, quality, referer, autoStart, confirmedByUser, queueId } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
-  // OTOMATİK SESSİZ REFRESH: Duraklatılmış/hatalı aynı video listede varsa
-  // onay penceresi açmadan adresi sessizce güncelle ve %25'ten devam ettir!
+  // Tarayıcı eklentisinden gelen istekler kullanıcı onayını atlayamaz ve keyfi saveDir seçemez
+  const isExt = isExtensionOrigin(req.headers.origin);
+  const effectiveConfirmed = isExt ? false : Boolean(confirmedByUser);
+  const effectiveSaveDir = isExt ? null : saveDir;
+
+  // STRICT USER GUARD: If user has not confirmed in the Save Location Dialog, DO NOT add or start download!
+  if (!effectiveConfirmed) {
+    // Eklentide seçilen kaliteyi ve referer'ı onay penceresine taşı (yoksa "en yüksek"e düşerdi)
+    // video: true -> onay penceresi bunu daima video/manifest sayar (uzantıya bakmadan).
+    // Uzantıdan gelen akış manifesti .txt gibi uzantısız olabilir; URL'den anlaşılmaz.
+    // Onay penceresi açılırken arka planda seçilen kaliteyle indirmeye başla.
+    startVideoPreflight(url, quality || null, referer || null, filename || null);
+    serverEvents.emit('prompt-add', { url, quality: quality || null, referer: referer || null, video: true, filename: filename || null, queueId: queueId || 'main' });
+    return res.json({ status: 'prompted', message: 'Folder & download confirmation window opened.' });
+  }
+
+  // OTOMATİK SESSİZ REFRESH: Yalnızca kullanıcı onayladığında (dialog/app) duraklatılmış/hatalı aynı video varsa adresi güncelle
   const existing = queueManager.findIncompleteDownloadByContext({ url, referer, filename });
   if (existing) {
-    console.log(`[Server] Silent auto-refresh for #${existing.id}: updating expired stream URL with fresh token`);
+    console.log(`[Server] Auto-refresh for #${existing.id}: updating expired stream URL with fresh token`);
     const updated = queueManager.updateDownloadUrl(existing.id, url, referer);
     queueManager.startDownload(existing.id);
     serverEvents.emit('open-progress', existing.id);
     return res.json({ status: 'auto_refreshed', id: existing.id, download: updated });
   }
 
-  // STRICT USER GUARD: If user has not confirmed in the Save Location Dialog, DO NOT add or start download!
-  if (!confirmedByUser) {
-    // Eklentide seçilen kaliteyi ve referer'ı onay penceresine taşı (yoksa "en yüksek"e düşerdi)
-    // video: true -> onay penceresi bunu daima video/manifest sayar (uzantıya bakmadan).
-    // Uzantıdan gelen akış manifesti .txt gibi uzantısız olabilir; URL'den anlaşılmaz.
-    // Onay penceresi açılırken arka planda seçilen kaliteyle indirmeye başla.
-    startVideoPreflight(url, quality || null, referer || null, filename || null);
-    serverEvents.emit('prompt-add', { url, quality: quality || null, referer: referer || null, video: true, filename: filename || null });
-    return res.json({ status: 'prompted', message: 'Folder & download confirmation window opened.' });
-  }
-
   try {
     // Onay penceresi açıkken arka planda inen video ön indirmesi varsa
     // (kalite/klasör/ad aynıysa) yeni kayıt AÇMA — aynı motor kaldığı baytlardan devam eder.
-    const pf = await confirmVideoPreflightForUrl(url, { quality, filename, saveDir, autoStart });
+    const pf = await confirmVideoPreflightForUrl(url, { quality, filename, saveDir: effectiveSaveDir, autoStart, queueId });
     if (pf) {
       // open-progress zaten confirmVideoPreflightForUrl içinde emit edildi
       return res.json(pf);
     }
 
-    const item = await queueManager.addDownload(url, filename, 'Video', 1, true, quality, saveDir, null, false, referer || null);
+    const item = await queueManager.addDownload(url, filename, 'Video', 1, true, quality, effectiveSaveDir, null, false, referer || null, queueId || 'main');
     if (autoStart === false && item && item.id) {
       queueManager.pauseDownload(item.id);
     } else if (item && item.id) {
@@ -806,24 +839,28 @@ app.get('/api/downloads/export', appOnly(getPort), (req, res) => {
 
 // İndirmeleri İçe Aktar (Import - URL dizisi veya öğeler)
 app.post('/api/downloads/import', appOnly(getPort), async (req, res) => {
-  const { urls, items } = req.body || {};
-  let count = 0;
-  if (Array.isArray(items) && items.length > 0) {
-    for (const item of items) {
-      if (item && item.url) {
-        await queueManager.addDownload(item.url, item.filename, item.category, item.segmentsCount, false, 'best', item.saveDir);
-        count++;
+  try {
+    const { urls, items } = req.body || {};
+    let count = 0;
+    if (Array.isArray(items) && items.length > 0) {
+      for (const item of items) {
+        if (item && item.url) {
+          await queueManager.addDownload(item.url, item.filename, item.category, item.segmentsCount, false, 'best', item.saveDir);
+          count++;
+        }
+      }
+    } else if (Array.isArray(urls) && urls.length > 0) {
+      for (const u of urls) {
+        if (typeof u === 'string' && u.trim().startsWith('http')) {
+          await queueManager.addDownload(u.trim());
+          count++;
+        }
       }
     }
-  } else if (Array.isArray(urls) && urls.length > 0) {
-    for (const u of urls) {
-      if (typeof u === 'string' && u.trim().startsWith('http')) {
-        await queueManager.addDownload(u.trim());
-        count++;
-      }
-    }
+    res.json({ success: true, count });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json({ success: true, count });
 });
 
 // Tarayıcı eklentisinden / uygulamadan toplu ekleme istemi (Prompt Batch)
@@ -1047,11 +1084,11 @@ app.post('/api/settings', appOnly(getPort), (req, res) => {
 });
 
 // 14. Built-in Local Test File Generator
-app.get('/api/test-file', (req, res) => {
+app.get('/api/test-file', appOnly(getPort), (req, res) => {
   // Sınırsız `mb` değeri bitmeyen bir akış üretiyordu; NaN ise Content-Length de
-  // bozuluyordu. 1..4096 MB aralığına sabitlenir.
+  // bozuluyordu. 1..500 MB aralığına sabitlenir.
   const requested = parseInt(req.query.mb || '50', 10);
-  const megabytes = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 4096) : 50;
+  const megabytes = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 500) : 50;
   const totalSizeBytes = megabytes * 1024 * 1024;
   const fileName = `Test_Sample_${megabytes}MB.bin`;
 
@@ -1064,6 +1101,12 @@ app.get('/api/test-file', (req, res) => {
     const parts = range.replace(/bytes=/, "").split("-");
     const start = parseInt(parts[0], 10);
     const end = parts[1] ? parseInt(parts[1], 10) : totalSizeBytes - 1;
+
+    if (isNaN(start) || isNaN(end) || start < 0 || end < start || start >= totalSizeBytes) {
+      res.setHeader('Content-Range', `bytes */${totalSizeBytes}`);
+      return res.status(416).end();
+    }
+
     const chunksize = (end - start) + 1;
 
     res.status(206);

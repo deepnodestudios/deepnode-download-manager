@@ -254,7 +254,7 @@ export default {
   opt_file_2: '2 archivos',
   opt_file_3: '3 archivos (recomendado)',
   opt_file_5: '5 archivos',
-  lbl_segments: 'Segmentos predeterminados (hilos)',
+  lbl_default_segments: 'Segmentos predeterminados (hilos)',
   opt_seg_4: '4 segmentos',
   opt_seg_8: '8 segmentos (estándar)',
   opt_seg_16: '16 segmentos (velocidad máxima)',
@@ -432,4 +432,7 @@ export default {
   btn_start_queue: "Iniciar cola",
   btn_pause_queue: "Pausar cola",
   confirm_delete_queue: "¿Seguro que deseas eliminar esta cola? Las descargas se moverán a la cola principal.",
+  st_scanning: "Escaneando...",
+  ph_search: "Buscar...",
+  site_grabber: "Capturador de sitio",
 };

@@ -254,7 +254,7 @@ export default {
   opt_file_2: '2 个文件',
   opt_file_3: '3 个文件（推荐）',
   opt_file_5: '5 个文件',
-  lbl_segments: '默认分段数（线程）',
+  lbl_default_segments: '默认分段数（线程）',
   opt_seg_4: '4 个分段',
   opt_seg_8: '8 个分段（标准）',
   opt_seg_16: '16 个分段（最高速度）',
@@ -432,4 +432,7 @@ export default {
   btn_start_queue: "启动队列",
   btn_pause_queue: "暂停队列",
   confirm_delete_queue: "确定要删除此队列吗？队列中的下载项将被移动到主要队列。",
+  st_scanning: "正在扫描...",
+  ph_search: "搜索...",
+  site_grabber: "网站抓取工具",
 };

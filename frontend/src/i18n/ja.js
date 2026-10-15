@@ -254,7 +254,7 @@ export default {
   opt_file_2: '2 ファイル',
   opt_file_3: '3 ファイル（推奨）',
   opt_file_5: '5 ファイル',
-  lbl_segments: '既定のセグメント数（スレッド）',
+  lbl_default_segments: '既定のセグメント数（スレッド）',
   opt_seg_4: '4 セグメント',
   opt_seg_8: '8 セグメント（標準）',
   opt_seg_16: '16 セグメント（最高速度）',
@@ -432,4 +432,7 @@ export default {
   btn_start_queue: "キューを開始",
   btn_pause_queue: "キューを一時停止",
   confirm_delete_queue: "このキューを削除してもよろしいですか？含まれるダウンロードはメインキューに移動されます。",
+  st_scanning: "スキャン中...",
+  ph_search: "検索...",
+  site_grabber: "サイトグラバー",
 };

@@ -248,7 +248,7 @@ export default {
   opt_file_2: '2 Dosya',
   opt_file_3: '3 Dosya (Önerilen)',
   opt_file_5: '5 Dosya',
-  lbl_segments: 'Varsayılan Parça Sayısı (Threads)',
+  lbl_default_segments: 'Varsayılan Parça Sayısı (Threads)',
   opt_seg_4: '4 Parça',
   opt_seg_8: '8 Parça (Standart)',
   opt_seg_16: '16 Parça (Maks Hız)',
@@ -428,4 +428,7 @@ export default {
   btn_start_queue: "Kuyruğu Başlat",
   btn_pause_queue: "Kuyruğu Durdur",
   confirm_delete_queue: "Bu kuyruğu silmek istediğinize emin misiniz? Kuyruktaki indirmeler Ana Kuyruğa taşınacaktır.",
+  st_scanning: "Taranıyor...",
+  ph_search: "Ara...",
+  site_grabber: "Site Yakalayıcı",
 };

@@ -202,15 +202,37 @@ export default function App() {
             }
             return item;
           }));
+        } else if (type === 'ERROR') {
+          setDownloads(prev => prev.map(item => {
+            if (item.id === payload.id) {
+              return { ...item, status: 'error', errorMsg: payload.error };
+            }
+            return item;
+          }));
         } else if (type === 'COMPLETED') {
           setDownloads(prev => prev.map(item => {
             if (item.id === payload.id) {
-              return { ...item, status: 'completed', checksum: payload.checksum, speed: 0, eta: 0 };
+              return {
+                ...item,
+                status: 'completed',
+                checksum: payload.checksum,
+                savePath: payload.savePath || item.savePath,
+                speed: 0,
+                eta: 0
+              };
             }
             return item;
           }));
         } else if (type === 'DOWNLOAD_ADDED') {
-          setDownloads(prev => [...prev.filter(d => d.id !== payload.id), payload]);
+          setDownloads(prev => {
+            const index = prev.findIndex(d => d.id === payload.id);
+            if (index !== -1) {
+              const updated = [...prev];
+              updated[index] = { ...updated[index], ...payload };
+              return updated;
+            }
+            return [...prev, payload];
+          });
         } else if (type === 'DOWNLOAD_DELETED') {
           setDownloads(prev => prev.filter(d => d.id !== payload.id));
         } else if (type === 'PROMPT_ADD_DOWNLOAD') {
@@ -224,6 +246,14 @@ export default function App() {
             bringToFront();
           }
         } else if (type === 'VIRUS_ALERT') {
+          if (payload && payload.id) {
+            setDownloads(prev => prev.map(item => {
+              if (item.id === payload.id) {
+                return { ...item, virusAlert: true };
+              }
+              return item;
+            }));
+          }
           if (payload && payload.threat) {
             alert(tt('virus_alert_detected', { file: payload.filename || 'Dosya', threat: payload.threat }));
           }
@@ -413,6 +443,7 @@ export default function App() {
       // onu sunucu tarafında devralıp KALDIĞI YERDEN devam ettirir (yeni kayıt açmaz).
     } catch (err) {
       alert(tt('alert_add_error', { msg: err.message }));
+      throw err;
     }
   };
 
@@ -427,6 +458,7 @@ export default function App() {
       if (!res.ok) throw new Error(data.error);
     } catch (err) {
       alert(tt('alert_batch_error', { msg: err.message }));
+      throw err;
     }
   };
 
@@ -473,8 +505,13 @@ export default function App() {
     }
   };
 
-  const handleStart = (id) => fetch(`/api/download/${id}/start`, { method: 'POST' });
-  const handlePause = (id) => fetch(`/api/download/${id}/pause`, { method: 'POST' });
+  const handleStart = (id) => fetch(`/api/download/${id}/start`, { method: 'POST' }).then(async res => {
+    if (!res.ok) { const d = await res.json(); console.error('Start error:', d.error); }
+  }).catch(err => console.error('Start request failed:', err));
+
+  const handlePause = (id) => fetch(`/api/download/${id}/pause`, { method: 'POST' }).then(async res => {
+    if (!res.ok) { const d = await res.json(); console.error('Pause error:', d.error); }
+  }).catch(err => console.error('Pause request failed:', err));
 
   const doDelete = (id, deleteFile) => {
     if (!id) return;
@@ -585,8 +622,8 @@ export default function App() {
     }
   };
 
-  const handleStartAll = () => fetch('/api/download/start-all', { method: 'POST' });
-  const handlePauseAll = () => fetch('/api/download/pause-all', { method: 'POST' });
+  const handleStartAll = () => fetch('/api/download/start-all', { method: 'POST' }).catch(err => console.error('Start-all error:', err));
+  const handlePauseAll = () => fetch('/api/download/pause-all', { method: 'POST' }).catch(err => console.error('Pause-all error:', err));
 
   const handleSaveSettings = async (newSettings) => {
     try {
@@ -596,6 +633,7 @@ export default function App() {
         body: JSON.stringify(newSettings)
       });
       const updated = await res.json();
+      if (!res.ok) throw new Error(updated.error || 'Failed to save settings');
       setSettings(updated);
     } catch (err) {
       alert(tt('alert_settings_failed', { msg: err.message }));

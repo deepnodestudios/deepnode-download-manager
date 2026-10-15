@@ -12,34 +12,68 @@ export default function UpdateModal({ isOpen, onClose, updateData, currentVersio
   const wsRef = useRef(null);
   const installTriggeredRef = useRef(false);
 
-  // WebSocket üzerinden canlı indirme ilerlemesini dinle
+  // WebSocket ve Polling ile indirme ilerlemesini dinle
   useEffect(() => {
     if (!isOpen) return;
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${protocol}://${window.location.host}`);
-    wsRef.current = ws;
 
-    ws.onmessage = (evt) => {
+    // 1. İlk durumu ve periyodik durumu yokla
+    const checkStatus = async () => {
       try {
-        const msg = JSON.parse(evt.data);
-        if (msg.type === 'UPDATE_PROGRESS' && msg.payload) {
-          const p = msg.payload;
-          setDlStatus(p.status);
-          setDlProgress(p.progress || 0);
-          if (p.error) setDlError(p.error);
-          if (p.status === 'ready' && !installTriggeredRef.current) {
-            installTriggeredRef.current = true;
-            triggerInstall();
+        const res = await fetch('/api/update/status');
+        if (res.ok) {
+          const p = await res.json();
+          if (p.status && p.status !== 'idle') {
+            setDlStatus(p.status);
+            setDlProgress(p.progress || 0);
+            if (p.error) setDlError(p.error);
+            if (p.status === 'ready' && !installTriggeredRef.current) {
+              installTriggeredRef.current = true;
+              triggerInstall();
+            }
           }
         }
-      } catch (e) { /* ignore */ }
+      } catch (e) {}
     };
 
+    checkStatus();
+    const pollInterval = setInterval(() => {
+      if (dlStatus === 'downloading') {
+        checkStatus();
+      }
+    }, 1000);
+
+    // 2. Canlı WebSocket dinleyicisi
+    let ws = null;
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${protocol}://${window.location.host}`);
+      wsRef.current = ws;
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === 'UPDATE_PROGRESS' && msg.payload) {
+            const p = msg.payload;
+            setDlStatus(p.status);
+            setDlProgress(p.progress || 0);
+            if (p.error) setDlError(p.error);
+            if (p.status === 'ready' && !installTriggeredRef.current) {
+              installTriggeredRef.current = true;
+              triggerInstall();
+            }
+          }
+        } catch (e) { /* ignore */ }
+      };
+    } catch (e) {}
+
     return () => {
-      ws.close();
+      clearInterval(pollInterval);
+      if (ws) {
+        try { ws.close(); } catch (e) {}
+      }
       wsRef.current = null;
     };
-  }, [isOpen]);
+  }, [isOpen, dlStatus]);
 
   const startDownload = async () => {
     if (!updateData?.downloadUrl) return;
@@ -78,7 +112,7 @@ export default function UpdateModal({ isOpen, onClose, updateData, currentVersio
   const notes = formatReleaseNotes(rawNotes, lang);
 
   return (
-    <div className="modal-overlay" onClick={dlStatus === 'downloading' || installing ? undefined : onClose}>
+    <div className="modal-overlay" onClick={installing ? undefined : onClose}>
       <div
         className="modal-box update-modal-box"
         onClick={(e) => e.stopPropagation()}
@@ -89,7 +123,7 @@ export default function UpdateModal({ isOpen, onClose, updateData, currentVersio
             <Sparkles size={20} className="text-accent" color="var(--primary)" />
             <span>{t('update_modal_title') || 'DeepNode Download Manager Güncellemesi'}</span>
           </div>
-          {dlStatus !== 'downloading' && !installing && (
+          {!installing && (
             <button className="btn btn-ghost btn-icon" onClick={onClose} title={t('btn_close')}>
               <X size={18} />
             </button>

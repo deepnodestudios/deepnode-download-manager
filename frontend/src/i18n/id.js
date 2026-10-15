@@ -254,7 +254,7 @@ export default {
   opt_file_2: '2 Berkas',
   opt_file_3: '3 Berkas (Disarankan)',
   opt_file_5: '5 Berkas',
-  lbl_segments: 'Segmen Bawaan (Thread)',
+  lbl_default_segments: 'Segmen Bawaan (Thread)',
   opt_seg_4: '4 Segmen',
   opt_seg_8: '8 Segmen (Standar)',
   opt_seg_16: '16 Segmen (Kecepatan Maks.)',
@@ -432,4 +432,7 @@ export default {
   btn_start_queue: "Mulai Antrean",
   btn_pause_queue: "Jeda Antrean",
   confirm_delete_queue: "Yakin ingin menghapus antrean ini? Unduhan akan dipindahkan ke Antrean Utama.",
+  st_scanning: "Memindai...",
+  ph_search: "Cari...",
+  site_grabber: "Perayap Situs",
 };

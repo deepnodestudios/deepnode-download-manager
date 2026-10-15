@@ -163,6 +163,12 @@ function safeReadJsonSync(targetPath, fallbackValue = null) {
           console.error(`Backup ${path.basename(bakPath)} also corrupted:`, bakErr.message);
         }
       }
+      // Bozuk dosya varsa ve yedekten kurtarılamadıysa, üzerine yazılmadan önce .corrupted_<timestamp> olarak kopyala
+      try {
+        const corruptBackup = `${targetPath}.corrupted_${Date.now()}`;
+        fs.copyFileSync(targetPath, corruptBackup);
+        console.warn(`Preserved corrupted file to ${path.basename(corruptBackup)} for recovery`);
+      } catch (e) {}
     }
   }
   return fallbackValue;
@@ -466,7 +472,7 @@ class StorageService {
   getCategoryForFilename(filename, mimeType = '') {
     const ext = path.extname(filename).toLowerCase();
     
-    if (['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v', '.3gp', '.3gpp', '.asf', '.f4m', '.f4f', '.mpd', '.m3u8', '.ts', '.tsv'].includes(ext) || mimeType.startsWith('video/') || /mpegurl|dash\+xml|f4m\+xml/.test(mimeType)) {
+    if (['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v', '.3gp', '.3gpp', '.asf', '.f4m', '.f4f', '.mpd', '.m3u8', '.ts'].includes(ext) || mimeType.startsWith('video/') || /mpegurl|dash\+xml|f4m\+xml/.test(mimeType)) {
       return 'Video';
     }
     if (['.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma', '.opus', '.aiff', '.mid', '.midi'].includes(ext) || mimeType.startsWith('audio/')) {
@@ -475,7 +481,7 @@ class StorageService {
     if (['.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.iso', '.xz', '.tgz', '.dmg'].includes(ext)) {
       return 'Compressed';
     }
-    if (['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt', '.txt', '.epub', '.csv', '.rtf', '.odt'].includes(ext) || mimeType.includes('pdf') || mimeType.includes('document') || mimeType.includes('spreadsheet') || mimeType.includes('presentation')) {
+    if (['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt', '.txt', '.epub', '.csv', '.tsv', '.rtf', '.odt'].includes(ext) || mimeType.includes('pdf') || mimeType.includes('document') || mimeType.includes('spreadsheet') || mimeType.includes('presentation')) {
       return 'Documents';
     }
     if (['.exe', '.msi', '.bat', '.cmd', '.apk', '.sh', '.deb', '.rpm', '.appimage'].includes(ext)) {

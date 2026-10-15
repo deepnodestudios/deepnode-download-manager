@@ -249,7 +249,7 @@ export default {
   opt_file_2: '2 Files',
   opt_file_3: '3 Files (Recommended)',
   opt_file_5: '5 Files',
-  lbl_segments: 'Default Segments (Threads)',
+  lbl_default_segments: 'Default Segments (Threads)',
   opt_seg_4: '4 Segments',
   opt_seg_8: '8 Segments (Standard)',
   opt_seg_16: '16 Segments (Max Speed)',
@@ -429,4 +429,7 @@ export default {
   btn_start_queue: "Start Queue",
   btn_pause_queue: "Pause Queue",
   confirm_delete_queue: "Are you sure you want to delete this queue? Downloads will be moved to the Main Queue.",
+  st_scanning: "Scanning...",
+  ph_search: "Search...",
+  site_grabber: "Site Grabber",
 };

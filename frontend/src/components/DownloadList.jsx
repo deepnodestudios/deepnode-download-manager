@@ -197,15 +197,15 @@ export default function DownloadList({
     setSelectedIds(() => {
       const next = new Set();
       for (let i = start; i <= end; i++) {
-        if (downloads[i]) next.add(downloads[i].id);
+        if (sortedDownloads[i]) next.add(sortedDownloads[i].id);
       }
       return next;
     });
-  }, [downloads]);
+  }, [sortedDownloads]);
 
   const selectAll = useCallback(() => {
     setSelectedIds(new Set(sortedDownloads.map(d => d.id)));
-  }, [downloads]);
+  }, [sortedDownloads]);
 
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
@@ -264,17 +264,17 @@ export default function DownloadList({
       const editable = tag === 'textarea' || tag === 'select' || e.target.isContentEditable ||
         (tag === 'input' && !['checkbox', 'radio', 'button', 'range'].includes(type));
       if (editable) return;
-      if (downloads.length === 0) return;
+      if (sortedDownloads.length === 0) return;
 
       switch (e.key) {
         case 'ArrowDown': {
           e.preventDefault();
-          const next = Math.min(focusedIndex + 1, downloads.length - 1);
+          const next = Math.min(focusedIndex + 1, sortedDownloads.length - 1);
           setFocusedIndex(next);
           if (e.shiftKey) {
             selectRange(lastClickedIndex.current >= 0 ? lastClickedIndex.current : next, next);
           } else if (!e.ctrlKey) {
-            setSelectedIds(new Set([downloads[next].id]));
+            setSelectedIds(new Set([sortedDownloads[next].id]));
             lastClickedIndex.current = next;
           }
           break;
@@ -286,7 +286,7 @@ export default function DownloadList({
           if (e.shiftKey) {
             selectRange(lastClickedIndex.current >= 0 ? lastClickedIndex.current : prev, prev);
           } else if (!e.ctrlKey) {
-            setSelectedIds(new Set([downloads[prev].id]));
+            setSelectedIds(new Set([sortedDownloads[prev].id]));
             lastClickedIndex.current = prev;
           }
           break;
@@ -294,8 +294,8 @@ export default function DownloadList({
         case ' ':
         case 'Spacebar': {
           e.preventDefault();
-          if (focusedIndex >= 0 && focusedIndex < downloads.length) {
-            toggleSelect(downloads[focusedIndex].id);
+          if (focusedIndex >= 0 && focusedIndex < sortedDownloads.length) {
+            toggleSelect(sortedDownloads[focusedIndex].id);
           }
           break;
         }
@@ -317,7 +317,7 @@ export default function DownloadList({
         case 'Enter': {
           if (selectedIds.size === 1 && focusedIndex >= 0) {
             e.preventDefault();
-            const item = downloads[focusedIndex];
+            const item = sortedDownloads[focusedIndex];
             if (item && item.status === 'completed') onOpenFile && onOpenFile(item.id);
             else if (item) onShowProperties && onShowProperties(item);
           }
@@ -334,7 +334,7 @@ export default function DownloadList({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [downloads, focusedIndex, selectedIds, toggleSelect, selectAll, selectRange, bulkDelete, clearSelection, onOpenFile, onShowProperties]);
+  }, [sortedDownloads, focusedIndex, selectedIds, toggleSelect, selectAll, selectRange, bulkDelete, clearSelection, onOpenFile, onShowProperties]);
 
   // Scroll focused row into view
   useEffect(() => {
@@ -369,7 +369,7 @@ export default function DownloadList({
         const ry2 = ry1 + rr.height;
         // Check vertical overlap
         if (ry2 >= by1 && ry1 <= by2) {
-          if (downloads[i]) ids.add(downloads[i].id);
+          if (sortedDownloads[i]) ids.add(sortedDownloads[i].id);
         }
       });
       return ids;
@@ -542,8 +542,8 @@ export default function DownloadList({
   const formatBytes = (bytes) => {
     if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 

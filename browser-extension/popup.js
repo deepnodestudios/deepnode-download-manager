@@ -111,7 +111,7 @@ function save() {
     enabled: els.enabled.checked,
     captureDownloads: els.captureDownloads.checked,
     showButton: els.showButton.checked,
-    port: parseInt(els.port.value, 10) || 5000
+    port: Math.max(1, Math.min(65535, parseInt(els.port.value, 10) || 5000))
   });
 }
 
@@ -120,7 +120,7 @@ Object.values(els).forEach((el) => el.addEventListener('change', () => { save();
 function ping() {
   const dot = document.getElementById('dot');
   const txt = document.getElementById('statusText');
-  const port = parseInt(els.port.value, 10) || 5000;
+  const port = Math.max(1, Math.min(65535, parseInt(els.port.value, 10) || 5000));
   let finished = false;
   const done = (ok, shownPort) => {
     if (finished) return;

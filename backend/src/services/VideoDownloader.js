@@ -10,6 +10,18 @@ import storageService from './StorageService.js';
 import { proxyUrl, siteLoginFor } from './NetworkConfig.js';
 
 // Proxy / site girişi ayarlarını yt-dlp argümanlarına çevirir
+export function isValidVideoUrl(url) {
+  if (typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!trimmed || trimmed.startsWith('-')) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch (e) {
+    return false;
+  }
+}
+
 function networkArgs(url) {
   const args = [];
   const px = proxyUrl();
@@ -336,7 +348,11 @@ export async function ensureYtDlp() {
 
 function runYtDlpJson(bin, url, extraArgs, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const args = [url, '-J', '--no-playlist', '--no-warnings', '--encoding', 'utf-8', '--socket-timeout', '20', ...networkArgs(url), ...extraArgs];
+    if (!isValidVideoUrl(url)) {
+      return reject(new Error('Invalid video URL'));
+    }
+    const cleanUrl = url.trim();
+    const args = ['-J', '--no-playlist', '--no-warnings', '--encoding', 'utf-8', '--socket-timeout', '20', ...networkArgs(cleanUrl), ...extraArgs, '--', cleanUrl];
     const p = spawn(bin, args, { windowsHide: true, env: YTDLP_ENV });
     const stdoutDecoder = new StringDecoder('utf-8');
     const stderrDecoder = new StringDecoder('utf-8');
@@ -381,6 +397,7 @@ function cacheFresh(cached) {
 }
 
 export function getVideoInfo(url, referer = null) {
+  if (!isValidVideoUrl(url)) return Promise.reject(new Error('Invalid video URL'));
   const cacheKey = url + '|' + (referer || '') + '|q2';
   const cached = infoCache.get(cacheKey);
   if (cacheFresh(cached)) return Promise.resolve(cached.info);
@@ -672,6 +689,7 @@ export class VideoDownloader extends EventEmitter {
     this.checksum = null;
     this.segmentsCount = 1;
     this.preflight = item.preflight || false; // Arka plan ön indirmesi: onaylanana dek arayüzde gizli
+    this.virusAlert = Boolean(item.virusAlert);
     this.proc = null;
     this.errorMsg = item.errorMsg || null;
     this.createdFiles = new Set();
@@ -716,7 +734,15 @@ export class VideoDownloader extends EventEmitter {
   }
 
   async start() {
-    if (this.status === 'downloading') return;
+    if (this.status === 'downloading' || this.status === 'completed') return;
+    if (!isValidVideoUrl(this.url)) {
+      this.status = 'error';
+      this.errorMsg = 'Invalid video URL';
+      this.emit('error', { id: this.id, error: this.errorMsg });
+      return;
+    }
+    this._ytRetried = false;
+    this._cookieRetried = false;
     this.status = 'downloading';
     this.emit('status-change', { id: this.id, status: this.status });
 
@@ -771,7 +797,14 @@ export class VideoDownloader extends EventEmitter {
       return;
     }
 
-    if (!fs.existsSync(this.saveDir)) fs.mkdirSync(this.saveDir, { recursive: true });
+    try {
+      if (!fs.existsSync(this.saveDir)) fs.mkdirSync(this.saveDir, { recursive: true });
+    } catch (err) {
+      this.status = 'error';
+      this.errorMsg = `Could not create save directory: ${err.message}`;
+      this.emit('error', { id: this.id, error: this.errorMsg });
+      return;
+    }
 
     const ffmpegLoc = await ensureFfmpeg();
     const merge = ffmpegLoc !== null;
@@ -825,7 +858,6 @@ export class VideoDownloader extends EventEmitter {
     const outTemplate = path.join(this.saveDir, outName);
 
     const args = [
-      this.url,
       '--encoding', 'utf-8',
       '-f', format,
       '-o', outTemplate,
@@ -876,12 +908,13 @@ export class VideoDownloader extends EventEmitter {
     this._launch(bin, [...this._cookieArgs, ...args]);
   }
 
-  _launch(bin, fullArgs) {
+  _launch(bin, optionsArgs) {
     // Her indirme denemesi (ilk deneme + yeniden denemeler) sıfırdan başlar; çok
     // akışlı (bv*+ba) boyut birikimini sıfırla ki toplam yanlış hesaplanmasın.
     this._doneStreamsBytes = 0;
     this._curStreamPath = null;
     this._curStreamTotal = 0;
+    const fullArgs = [...optionsArgs, '--', this.url.trim()];
     try {
       this.proc = spawn(bin, fullArgs, { windowsHide: true, env: YTDLP_ENV });
     } catch (err) {
@@ -950,6 +983,7 @@ export class VideoDownloader extends EventEmitter {
       if (this.status === 'paused' || this.status === 'canceled') return;
       if (code === 0) {
         this.status = 'completed';
+        this.errorMsg = null;
         this.percent = 100;
         this.speed = 0;
         this.eta = 0;
@@ -1185,7 +1219,7 @@ export class VideoDownloader extends EventEmitter {
   }
 
   pause() {
-    if (this.status !== 'downloading') return;
+    if (this.status !== 'downloading' && this.status !== 'queued') return;
     this.status = 'paused';
     this.speed = 0;
     this.eta = 0;
@@ -1247,6 +1281,7 @@ export class VideoDownloader extends EventEmitter {
       checksum: null,
       errorMsg: this.errorMsg,
       preflight: this.preflight ? true : undefined,
+      virusAlert: Boolean(this.virusAlert),
       segments: []
     };
   }

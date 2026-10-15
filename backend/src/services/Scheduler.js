@@ -13,6 +13,25 @@ function stamp(d, time) {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()} ${time}`;
 }
 
+function minutesSinceMidnight(d) {
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+function parseHHMM(timeStr) {
+  if (!timeStr || typeof timeStr !== 'string') return -1;
+  const parts = timeStr.split(':').map(Number);
+  if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return -1;
+  return parts[0] * 60 + parts[1];
+}
+
+function isTimeToTrigger(targetTimeStr, now) {
+  const targetMin = parseHHMM(targetTimeStr);
+  if (targetMin < 0) return false;
+  const currentMin = minutesSinceMidnight(now);
+  const diff = currentMin - targetMin;
+  return diff >= 0 && diff <= 2;
+}
+
 function isTodayEnabled(s, now) {
   const days = Array.isArray(s.days || s.scheduleDays) ? (s.days || s.scheduleDays) : [0, 1, 2, 3, 4, 5, 6];
   return days.map(Number).includes(now.getDay());
@@ -22,12 +41,11 @@ function tick(onEvent) {
   const s = storageService.settings;
   const queues = storageService.getQueues();
   const now = new Date();
-  const cur = hhmm(now);
 
   // 1. Global / Legacy Scheduler
   if (s.schedulerEnabled && isTodayEnabled(s, now)) {
-    if (s.scheduleStartTime && cur === s.scheduleStartTime) {
-      const st = stamp(now, cur);
+    if (s.scheduleStartTime && isTimeToTrigger(s.scheduleStartTime, now)) {
+      const st = stamp(now, s.scheduleStartTime);
       if (lastFired.start !== st) {
         lastFired.start = st;
         try { queueManager.startAll(); } catch (e) { /* ignore */ }
@@ -35,8 +53,8 @@ function tick(onEvent) {
       }
     }
 
-    if (s.scheduleStopTime && cur === s.scheduleStopTime) {
-      const st = stamp(now, cur);
+    if (s.scheduleStopTime && isTimeToTrigger(s.scheduleStopTime, now)) {
+      const st = stamp(now, s.scheduleStopTime);
       if (lastFired.stop !== st) {
         lastFired.stop = st;
         try { queueManager.pauseAll(); } catch (e) { /* ignore */ }
@@ -55,8 +73,8 @@ function tick(onEvent) {
       const qKey = `queue_${q.id}`;
       if (!lastFired[qKey]) lastFired[qKey] = { start: '', stop: '' };
 
-      if (q.startTime && cur === q.startTime) {
-        const st = stamp(now, cur);
+      if (q.startTime && isTimeToTrigger(q.startTime, now)) {
+        const st = stamp(now, q.startTime);
         if (lastFired[qKey].start !== st) {
           lastFired[qKey].start = st;
           try { queueManager.startQueue(q.id); } catch (e) { /* ignore */ }
@@ -64,8 +82,8 @@ function tick(onEvent) {
         }
       }
 
-      if (q.stopTime && cur === q.stopTime) {
-        const st = stamp(now, cur);
+      if (q.stopTime && isTimeToTrigger(q.stopTime, now)) {
+        const st = stamp(now, q.stopTime);
         if (lastFired[qKey].stop !== st) {
           lastFired[qKey].stop = st;
           try { queueManager.pauseQueue(q.id); } catch (e) { /* ignore */ }

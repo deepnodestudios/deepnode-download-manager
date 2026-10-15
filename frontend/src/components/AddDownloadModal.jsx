@@ -27,8 +27,8 @@ function isStreamManifestUrl(raw) {
 function formatBytes(bytes) {
   if (!bytes || bytes <= 0) return '';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
@@ -83,6 +83,7 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
   const { t } = useT();
   const boxRef = useRef(null); // standalone: içerik yüksekliğini ölçüp pencereyi ona göre boyutlandır
   const submittingRef = useRef(false); // gönderim sürüyor — pencere kapanmadan ikinci tıklamayı engelle
+  const userEditedFilenameRef = useRef(false); // kullanıcının elle girdiği adın ezilmesini önle
   const [activeTab, setActiveTab] = useState('single');
   const [url, setUrl] = useState(initialUrl || '');
   const [batchUrls, setBatchUrls] = useState('');
@@ -105,7 +106,10 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
 
   // Auto-read clipboard URL when modal opens if empty
   useEffect(() => {
-    if (isOpen) setManualDir(false); // her yeni pencerede otomatik klasör seçimi
+    if (isOpen) {
+      setManualDir(false); // her yeni pencerede otomatik klasör seçimi
+      userEditedFilenameRef.current = false;
+    }
     if (isOpen && !url && !initialUrl) {
       navigator.clipboard?.readText().then(text => {
         if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
@@ -147,8 +151,11 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
       setQualities([]);
       setVariants([]);
       setFormatError('');
+      userEditedFilenameRef.current = false;
       return;
     }
+
+    userEditedFilenameRef.current = false;
 
     // initialIsVideo: eklentiden gelen video/manifest indirmesi (uzantısız .txt manifest de
     // URL'den anlaşılmaz; eklenti Content-Type ile doğruladı). Bu bayrak varsa daima video say.
@@ -186,8 +193,8 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
             setVideoTitle(data.title || '');
             // Sayfa başlığını (initialFilename) yt-dlp'nin "master" gibi metadata başlığına
             // tercih et — HLS/.txt kaynaklarında anlamlı tek isim sayfa başlığıdır.
-            if (!filename) {
-              setFilename(initialFilename || data.title || '');
+            if (!userEditedFilenameRef.current) {
+              setFilename(prev => (userEditedFilenameRef.current ? prev : (initialFilename || data.title || prev || '')));
             }
             // Eklentide/kullanıcı tarafından seçilmiş kaliteyi EZME.
             // Yalnızca hiç seçim yoksa "en yüksek"e düş.
@@ -199,7 +206,9 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
             setVariants([]);
             setFormatError(t('fmt_error'));
             // Format alınamasa da (ör. oturum korumalı HLS 404) sayfa başlığını ad olarak koy
-            if (!filename) setFilename(initialFilename || '');
+            if (!userEditedFilenameRef.current) {
+              setFilename(prev => (userEditedFilenameRef.current ? prev : (initialFilename || prev || '')));
+            }
           })
           .finally(() => setLoadingMetadata(false));
       } else {
@@ -212,7 +221,9 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
         })
           .then(res => res.json())
           .then(data => {
-            if (data.filename && !filename) setFilename(data.filename);
+            if (data.filename && !userEditedFilenameRef.current) {
+              setFilename(prev => (userEditedFilenameRef.current ? prev : (data.filename || prev || '')));
+            }
             if (data.category) setCategory(data.category);
             if (data.totalSize) setFileSizeStr(formatBytes(data.totalSize));
           })
@@ -264,6 +275,8 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
       // ÖNEMLİ: pencere ancak istek TAMAMLANINCA kapanır — erken kapanış,
       // Electron'un cancel-preflight'ını sunucudaki onayla yarıştırıyordu
       onClose();
+    } catch (err) {
+      console.error('Download creation failed:', err);
     } finally {
       submittingRef.current = false;
     }
@@ -448,7 +461,7 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
                     className="form-input"
                     placeholder={t('ph_filename')}
                     value={filename}
-                    onChange={(e) => setFilename(e.target.value)}
+                    onChange={(e) => { userEditedFilenameRef.current = true; setFilename(e.target.value); }}
                   />
                 </div>
 

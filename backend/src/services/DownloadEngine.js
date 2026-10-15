@@ -116,7 +116,9 @@ export class DownloadEngine extends EventEmitter {
     this.segments.forEach((s) => {
       let onDisk = 0;
       try { onDisk = fs.statSync(s.tempFilePath).size; } catch (e) { onDisk = 0; }
-      if (s.total > 0 && onDisk > s.total) onDisk = s.total;
+      if (s.total > 0 && onDisk > s.total) {
+        try { fs.truncateSync(s.tempFilePath, s.total); onDisk = s.total; } catch (e) { onDisk = s.total; }
+      }
       s.downloaded = onDisk;
       s.completed = s.total > 0 ? onDisk >= s.total : Boolean(s.completed);
     });
@@ -127,6 +129,7 @@ export class DownloadEngine extends EventEmitter {
     this.speed = 0;
     this.eta = 0;
     this.checksum = item.checksum || null;
+    this.virusAlert = Boolean(item.virusAlert);
 
     this.activeRequests = [];
     this.intervalTimer = null;
@@ -240,6 +243,7 @@ export class DownloadEngine extends EventEmitter {
     // 1) HEAD — en ucuz yol.
     try {
       const { res, finalUrl } = await requestFollowingRedirects(downloadUrl, { ...common, method: 'HEAD' });
+      res.on('error', () => {});
       res.resume();
       if (res.statusCode && res.statusCode < 400) return describe(res, finalUrl);
     } catch (err) {
@@ -255,6 +259,7 @@ export class DownloadEngine extends EventEmitter {
         headers: { ...baseHeaders, Range: 'bytes=0-0' }
       });
       const info = describe(res, finalUrl);
+      res.on('error', () => {});
       res.destroy(); // gövdeyi indirmeye gerek yok
       if (res.statusCode && res.statusCode < 400) return info;
     } catch (err) {
@@ -274,11 +279,10 @@ export class DownloadEngine extends EventEmitter {
     if (this.status === 'downloading' || this.status === 'merging' || this.status === 'completed') return;
     let epoch = ++this._epoch;
     this.status = 'downloading';
-    this.ensureTempDir();
-
     this.emit('status-change', { id: this.id, status: this.status });
 
     try {
+      this.ensureTempDir();
       // If total size unknown or segments not set up, initialize
       if (this.totalSize === 0 || this.segments.length === 0) {
         const info = await DownloadEngine.inspectUrl(this.url, this.headers);
@@ -465,6 +469,9 @@ export class DownloadEngine extends EventEmitter {
     if (this.resolvedUrl !== finalUrl && finalUrl !== this.url) this.resolvedUrl = finalUrl;
 
     if (res.statusCode !== 200 && res.statusCode !== 206) {
+      const idx = this.activeRequests.indexOf(controller);
+      if (idx !== -1) this.activeRequests.splice(idx, 1);
+      res.on('error', () => {});
       res.resume();
       throw new Error(`Server responded with status code ${res.statusCode}`);
     }
@@ -609,6 +616,9 @@ export class DownloadEngine extends EventEmitter {
     // Segmentleri sırayla stream ile birleştir (belleğe tümünü okumadan)
     try {
       for (const segment of this.segments) {
+        if (epoch !== this._epoch || this.status === 'canceled') {
+          throw new Error('Merge canceled');
+        }
         if (writeErr) throw writeErr;
         if (!fs.existsSync(segment.tempFilePath)) {
           throw new Error(`Missing segment file (part ${segment.id})`);
@@ -631,6 +641,9 @@ export class DownloadEngine extends EventEmitter {
       });
     } catch (err) {
       try { finalStream.destroy(); } catch (e) { /* zaten kapalı */ }
+      if (this.status === 'canceled') {
+        try { if (fs.existsSync(this.savePath)) fs.unlinkSync(this.savePath); } catch (e) {}
+      }
       throw err;
     }
 
@@ -648,6 +661,10 @@ export class DownloadEngine extends EventEmitter {
       }
     } catch (e) {
       console.error('Failed to cleanup temp dir:', e.message);
+    }
+
+    if (epoch !== this._epoch || this.status !== 'merging') {
+      return;
     }
 
     // Compute checksum
@@ -692,7 +709,7 @@ export class DownloadEngine extends EventEmitter {
   }
 
   pause() {
-    if (this.status !== 'downloading') return;
+    if (this.status !== 'downloading' && this.status !== 'queued') return;
     this._epoch++; // uçuştaki çalışmayı geçersiz kıl (bkz. start())
     this.status = 'paused';
     this.speed = 0;
@@ -866,6 +883,7 @@ export class DownloadEngine extends EventEmitter {
       // (VideoDownloader zaten gönderiyordu, dosya motoru göndermiyordu).
       errorMsg: this.errorMsg || undefined,
       preflight: this.preflight ? true : undefined, // JSON'da yalnızca aktifken görünsün
+      virusAlert: Boolean(this.virusAlert),
       segments: this.segments.map((s) => ({
         id: s.id,
         startByte: s.startByte,

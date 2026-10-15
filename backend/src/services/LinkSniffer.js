@@ -6,7 +6,7 @@ import { proxyUrl, authHeaderFor } from './NetworkConfig.js';
 // Dosya türü kategorileri: tarama filtresi bu gruplar üzerinden çalışır.
 // Frontend'deki filtre seçenekleriyle (video/audio/image/document/archive/program) birebir aynıdır.
 export const FILE_TYPE_GROUPS = {
-  video: ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v'],
+  video: ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v', '.m3u8', '.mpd', '.ts'],
   audio: ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg'],
   image: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'],
   document: ['.pdf', '.docx', '.xlsx', '.pptx', '.epub'],
@@ -42,7 +42,7 @@ function requestConfig(url) {
 function extractHrefs(html, baseUrl) {
   const out = new Set();
   const attrRe = /(?:href|src|source|data-src)\s*=\s*["']([^"']+)["']/gi;
-  const bareRe = /https?:\/\/[^\s"'<>()]+\.(?:mp4|mkv|avi|mp3|wav|flac|zip|rar|7z|pdf|docx|xlsx|exe|msi|iso|apk|jpg|png|webm|m3u8)/gi;
+  const bareRe = /https?:\/\/[^\s"'<>()]+\.(?:mp4|mkv|avi|mp3|wav|flac|zip|rar|7z|pdf|docx|xlsx|exe|msi|iso|apk|jpg|png|webm|m3u8|mpd|ts)/gi;
 
   let m;
   while ((m = attrRe.exec(html)) !== null) {

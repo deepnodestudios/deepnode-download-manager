@@ -10,7 +10,7 @@ import { initSentry, Sentry } from '../backend/src/sentry.js';
 // Initialize Sentry for Electron main process error & crash tracking
 initSentry({
   processName: 'electron-main',
-  appVersion: app.getVersion ? app.getVersion() : '1.5.7',
+  appVersion: app.getVersion ? app.getVersion() : '1.5.8',
   anonymousId: storageService.getAnonymousId()
 });
 
@@ -122,9 +122,15 @@ function hardenWindow(win) {
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith(appUrl())) {
+    try {
+      const targetOrigin = new URL(url).origin;
+      const expectedOrigin = new URL(appUrl()).origin;
+      if (targetOrigin !== expectedOrigin) {
+        event.preventDefault();
+        if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+      }
+    } catch (e) {
       event.preventDefault();
-      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     }
   });
   win.webContents.on('will-attach-webview', (event) => event.preventDefault());
@@ -132,8 +138,10 @@ function hardenWindow(win) {
 
 // Support MANY simultaneous add windows (one per captured link).
 const addWindows = new Set();
+const completeWindows = new Set();
 // Kötü niyetli bir sayfa `deepnode://add?url=...` ile sınırsız pencere açtırabilirdi.
 const MAX_ADD_WINDOWS = 12;
+const MAX_COMPLETE_WINDOWS = 12;
 
 function createAddDownloadWindow(url, quality, referer, video, filename) {
   if (addWindows.size >= MAX_ADD_WINDOWS) {
@@ -369,6 +377,10 @@ serverEvents.on('download-completed', (item) => {
 // İlerleme pencereleriyle aynı frameless desen ve resize IPC'sini kullanır.
 function createCompleteWindow(downloadId) {
   if (!downloadId) return;
+  if (completeWindows.size >= MAX_COMPLETE_WINDOWS) {
+    console.warn('Açık tamamlama penceresi sınırına ulaşıldı; yeni pencere açılmadı.');
+    return;
+  }
   const win = new BrowserWindow({
     width: 560,
     height: 320,
@@ -389,6 +401,8 @@ function createCompleteWindow(downloadId) {
   win.loadURL(appUrl('/?mode=complete&id=') + encodeURIComponent(downloadId));
   // Açıldıktan sonra kalıcı "her zaman üstte" davranışı bırakılır
   win.once('ready-to-show', () => setTimeout(() => { try { win.setAlwaysOnTop(false); } catch (e) {} }, 1500));
+  completeWindows.add(win);
+  win.on('closed', () => { completeWindows.delete(win); });
 }
 
 function executePostAction(action) {
@@ -488,6 +502,9 @@ function createWindow(showWindow = true) {
           body: et('notif_tray_hint')
         }).show();
       }
+    } else if (!isQuitting && appSettings.minimizeToTrayOnClose === false) {
+      isQuitting = true;
+      app.quit();
     }
   });
 
@@ -647,7 +664,17 @@ function startClipboardWatcher() {
 
       const lower = text.toLowerCase();
       const mediaExtensions = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.zip', '.rar', '.7z', '.tar', '.gz', '.pdf', '.exe', '.msi', '.iso', '.mp3', '.flac', '.wav', '.apk', '.dmg', '.docx', '.xlsx', '.pptx', '.png', '.jpg', '.jpeg'];
-      const isDownloadable = (lower.startsWith('http://') || lower.startsWith('https://')) && mediaExtensions.some(ext => lower.includes(ext));
+      let isDownloadable = false;
+      if (lower.startsWith('http://') || lower.startsWith('https://')) {
+        try {
+          const u = new URL(text.trim());
+          const pathname = u.pathname.toLowerCase();
+          const cleanExt = path.extname(pathname);
+          isDownloadable = mediaExtensions.includes(cleanExt);
+        } catch (e) {
+          isDownloadable = false;
+        }
+      }
 
       if (!isDownloadable) return;
 
@@ -781,8 +808,10 @@ if (!gotTheLock) {
   });
 
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin' && isQuitting) {
-      app.quit();
+    if (process.platform !== 'darwin') {
+      if (isQuitting || appSettings.minimizeToTrayOnClose === false) {
+        app.quit();
+      }
     }
   });
 }

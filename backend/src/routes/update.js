@@ -123,13 +123,16 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
     if (!isAllowedUpdateUrl(url)) {
       return res.status(400).json({ error: 'Update source is not allowed' });
     }
-    if (state.status === 'downloading') {
+    if (state.status === 'downloading' || state.status === 'checking') {
       return res.status(409).json({ error: 'A download is already in progress' });
     }
+
+    state = { status: 'checking', progress: 0, file: null, error: null, verified: false };
 
     if (!fs.existsSync(UPDATE_DIR)) fs.mkdirSync(UPDATE_DIR, { recursive: true });
     const filePath = path.join(UPDATE_DIR, installerNameFrom(url));
     if (!isInsideDir(UPDATE_DIR, filePath)) {
+      state = { status: 'idle', progress: 0, file: null, error: null, verified: false };
       return res.status(400).json({ error: 'Invalid installer name' });
     }
     const partPath = filePath + '.part';
@@ -142,7 +145,8 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
         const head = await fetch(url, {
           method: 'HEAD',
           headers: { 'User-Agent': `DeepNode/${appVersion()}` },
-          redirect: 'follow'
+          redirect: 'follow',
+          signal: AbortSignal.timeout(10000)
         });
         const remoteSize = parseInt(head.headers.get('content-length') || '0', 10);
         const localSize = fs.statSync(filePath).size;
@@ -161,15 +165,20 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
     emit();
     res.json({ started: true, file: filePath });
 
+    let fileStream = null;
     try {
+      const controller = new AbortController();
+      const downloadTimeout = setTimeout(() => controller.abort(), 10 * 60 * 1000);
+
       const response = await fetch(url, {
         headers: { 'User-Agent': `DeepNode/${appVersion()}` },
-        redirect: 'follow'
+        redirect: 'follow',
+        signal: controller.signal
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const totalSize = parseInt(response.headers.get('content-length') || '0', 10);
-      const fileStream = fs.createWriteStream(partPath);
+      fileStream = fs.createWriteStream(partPath);
       let downloaded = 0;
       let lastBroadcast = 0;
 
@@ -187,6 +196,7 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
           lastBroadcast = now;
         }
       }
+      clearTimeout(downloadTimeout);
 
       await new Promise((resolve, reject) => {
         fileStream.on('finish', resolve);
@@ -202,6 +212,9 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
       state = { status: 'ready', progress: 100, file: filePath, error: null, verified: true };
       emit();
     } catch (err) {
+      if (fileStream && !fileStream.destroyed) {
+        try { fileStream.destroy(); } catch (e) {}
+      }
       try { if (fs.existsSync(partPath)) fs.unlinkSync(partPath); } catch (e) { /* zaten yok */ }
       state = { status: 'error', progress: 0, file: null, error: err.message, verified: false };
       emit();
@@ -223,6 +236,9 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
     res.json({ installing: true });
 
     const installer = spawn(filePath, ['/S'], { detached: true, stdio: 'ignore', shell: false });
+    installer.on('error', (spawnErr) => {
+      console.error('[Update] Failed to spawn installer:', spawnErr);
+    });
     installer.unref();
 
     setTimeout(() => serverEvents.emit('quit-and-install'), 1500);

@@ -254,7 +254,7 @@ export default {
   opt_file_2: '2 Dateien',
   opt_file_3: '3 Dateien (empfohlen)',
   opt_file_5: '5 Dateien',
-  lbl_segments: 'Standard-Segmente (Threads)',
+  lbl_default_segments: 'Standard-Segmente (Threads)',
   opt_seg_4: '4 Segmente',
   opt_seg_8: '8 Segmente (Standard)',
   opt_seg_16: '16 Segmente (max. Geschwindigkeit)',
@@ -432,4 +432,7 @@ export default {
   btn_start_queue: "Warteschlange starten",
   btn_pause_queue: "Warteschlange anhalten",
   confirm_delete_queue: "Möchten Sie diese Warteschlange wirklich löschen? Downloads werden in die Haupt-Warteschlange verschoben.",
+  st_scanning: "Wird gescannt...",
+  ph_search: "Suchen...",
+  site_grabber: "Site Grabber",
 };

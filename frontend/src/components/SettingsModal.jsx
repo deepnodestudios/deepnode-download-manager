@@ -389,7 +389,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">{t('lbl_segments')}</label>
+                    <label className="form-label">{t('lbl_default_segments') || t('lbl_segments')}</label>
                     <select
                       className="form-select"
                       value={defaultSegments}

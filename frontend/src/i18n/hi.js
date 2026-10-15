@@ -254,7 +254,7 @@ export default {
   opt_file_2: '2 फ़ाइलें',
   opt_file_3: '3 फ़ाइलें (अनुशंसित)',
   opt_file_5: '5 फ़ाइलें',
-  lbl_segments: 'डिफ़ॉल्ट सेगमेंट (थ्रेड)',
+  lbl_default_segments: 'डिफ़ॉल्ट सेगमेंट (थ्रेड)',
   opt_seg_4: '4 सेगमेंट',
   opt_seg_8: '8 सेगमेंट (मानक)',
   opt_seg_16: '16 सेगमेंट (अधिकतम गति)',
@@ -432,4 +432,7 @@ export default {
   btn_start_queue: "कतार शुरू करें",
   btn_pause_queue: "कतार रोकें",
   confirm_delete_queue: "क्या आप वाकई इस कतार को हटाना चाहते हैं? डाउनलोड मुख्य कतार में ले जाए जाएंगे।",
+  st_scanning: "स्कैन कर रहा है...",
+  ph_search: "खोजें...",
+  site_grabber: "साइट ग्रैबर",
 };

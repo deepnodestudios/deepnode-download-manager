@@ -144,14 +144,10 @@ function fetchWithTimeout(url, opts = {}, ms = 1500) {
 function rememberApp(host, port) {
   resolvedHost = host;
   resolvedPort = port;
-  if (cfg.port !== port) {
-    cfg.port = port;
-    try { chrome.storage.local.set({ port }); } catch (e) { /* ignore */ }
-  }
 }
 
 async function probeApp() {
-  const ports = [resolvedPort, cfg.port, 5000, 5001, 5002, 5003].filter((p, i, a) => p && a.indexOf(p) === i);
+  const ports = [resolvedPort, cfg.port, 5000, 5001, 5002, 5003, 5004, 5005, 5006, 5007, 5008, 5009, 5010].filter((p, i, a) => p && a.indexOf(p) === i);
   const hosts = [resolvedHost, ...APP_HOSTS].filter((h, i, a) => h && a.indexOf(h) === i);
   for (const port of ports) {
     for (const host of hosts) {
@@ -449,9 +445,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       }
       if (urls.length > 0) {
         try {
-          await fetch(`http://localhost:${cfg.appPort || 5000}/api/download/prompt-batch`, {
+          await fetchApp('/api/download/prompt-batch', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ urls, referer: tab.url })
           });
         } catch (err) {
@@ -565,7 +560,7 @@ async function handleDownloadItem(item, suggest) {
     const u = new URL(url);
     if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
       const p = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
-      const appPorts = [cfg.port, resolvedPort, 5000, 5001, 5002, 5003].filter(Boolean);
+      const appPorts = [cfg.port, resolvedPort, 5000, 5001, 5002, 5003, 5004, 5005, 5006, 5007, 5008, 5009, 5010].filter(Boolean);
       if (appPorts.includes(p)) { if (suggest) suggest(); return; }
     }
   } catch (e) { }

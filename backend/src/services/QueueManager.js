@@ -242,7 +242,9 @@ class QueueManager {
   startDownload(id) {
     const engine = this.engines.get(id);
     if (engine) {
-      engine.start();
+      Promise.resolve(engine.start()).catch((err) => {
+        console.error(`[QueueManager] Error starting engine ${id}:`, err);
+      });
     }
   }
 
@@ -313,6 +315,7 @@ class QueueManager {
     }
 
     engine.url = newUrl;
+    engine.resolvedUrl = null;
     if (newReferer !== undefined && newReferer !== null) {
       engine.referer = newReferer;
     }
@@ -323,10 +326,10 @@ class QueueManager {
     }
 
     // Süresi dolmuş token sebebiyle hata veren parçaları sıfırla ki yeni link ile sorunsuz devam etsin
-    if (Array.isArray(engine.chunks)) {
-      engine.chunks.forEach((c) => {
-        if (c.status === 'error') {
-          c.status = 'paused';
+    if (Array.isArray(engine.segments)) {
+      engine.segments.forEach((s) => {
+        if (s.status === 'error') {
+          s.status = 'paused';
         }
       });
     }
@@ -340,28 +343,23 @@ class QueueManager {
     for (const engine of this.engines.values()) {
       if (engine.status !== 'paused' && engine.status !== 'error') continue;
 
-      // 1. Eşleşme 1: Referer (sayfa URL'si) aynı mı?
-      if (referer && engine.referer) {
+      // 1. Eşleşme 1: Referer ve Dosya Adı birlikte tam eşleşmeli (sadece referer eşleşmesi çok gevşek)
+      if (referer && engine.referer && filename && engine.filename) {
         try {
           const r1 = referer.split('?')[0].toLowerCase();
           const r2 = engine.referer.split('?')[0].toLowerCase();
-          if (r1 === r2) return engine;
+          const clean1 = filename.replace(/\.(mp4|mkv|webm|txt|m3u8)$/i, '').replace(/\s*\[\d+p\]\s*$/i, '').trim().toLowerCase();
+          const clean2 = engine.filename.replace(/\.(mp4|mkv|webm|txt|m3u8)$/i, '').replace(/\s*\[\d+p\]\s*$/i, '').trim().toLowerCase();
+          if (r1 === r2 && clean1 && clean2 && clean1 === clean2) return engine;
         } catch (e) {}
       }
 
-      // 2. Eşleşme 2: Dosya adı / video başlığı aynı mı?
-      if (filename && engine.filename) {
-        const clean1 = filename.replace(/\.(mp4|mkv|webm|txt|m3u8)$/i, '').replace(/\s*\[\d+p\]\s*$/i, '').trim().toLowerCase();
-        const clean2 = engine.filename.replace(/\.(mp4|mkv|webm|txt|m3u8)$/i, '').replace(/\s*\[\d+p\]\s*$/i, '').trim().toLowerCase();
-        if (clean1 && clean2 && (clean1 === clean2 || clean1.includes(clean2) || clean2.includes(clean1))) return engine;
-      }
-
-      // 3. Eşleşme 3: URL yol bileşeni aynı mı? (token parametreleri hariç)
+      // 2. Eşleşme 2: URL origin ve path bileşeni tam aynı mı? (query tokenleri hariç)
       if (url && engine.url) {
         try {
-          const u1 = new URL(url).pathname.toLowerCase();
-          const u2 = new URL(engine.url).pathname.toLowerCase();
-          if (u1 && u2 && u1 === u2 && u1 !== '/') return engine;
+          const u1 = new URL(url);
+          const u2 = new URL(engine.url);
+          if (u1.origin === u2.origin && u1.pathname === u2.pathname && u1.pathname !== '/') return engine;
         } catch (e) {}
       }
     }
@@ -431,7 +429,9 @@ class QueueManager {
           .sort((a, b) => (rank[a.priority || 'normal'] ?? 1) - (rank[b.priority || 'normal'] ?? 1));
 
         for (const engine of queued) {
-          engine.start();
+          Promise.resolve(engine.start()).catch((err) => {
+            console.error(`[QueueManager] Error starting engine ${engine.id}:`, err);
+          });
           activeCount++;
           if (activeCount >= maxActive) break;
         }
@@ -456,7 +456,7 @@ class QueueManager {
     this.engines.forEach((engine) => {
       if ((engine.queueId || 'main') === qId && (engine.status === 'downloading' || engine.status === 'merging' || engine.status === 'queued')) {
         engine.pause();
-        this.broadcast({ type: 'STATUS_CHANGE', payload: { id: engine.id, status: 'paused' } });
+        this.broadcast({ type: 'STATUS_CHANGE', payload: { id: engine.id, status: engine.status } });
       }
     });
     this.saveState();
@@ -584,7 +584,9 @@ class QueueManager {
       if (engine.status === 'downloading') engine.pause();
       else if (engine.status === 'queued') engine.status = 'paused';
     } else if (['paused', 'queued', 'error'].includes(engine.status)) {
-      engine.start(); // kaldığı yerden devam
+      Promise.resolve(engine.start()).catch((err) => {
+        console.error(`[QueueManager] Error starting engine ${engine.id}:`, err);
+      }); // kaldığı yerden devam
     }
 
     this.saveState();
@@ -617,7 +619,9 @@ class QueueManager {
       if (engine.status === 'downloading') engine.pause();
       else if (engine.status === 'queued') engine.status = 'paused';
     } else if (['paused', 'queued', 'error'].includes(engine.status)) {
-      engine.start(); // kaldığı baytlardan devam
+      Promise.resolve(engine.start()).catch((err) => {
+        console.error(`[QueueManager] Error starting engine ${engine.id}:`, err);
+      }); // kaldığı baytlardan devam
     }
 
     this.saveState();
@@ -644,16 +648,22 @@ class QueueManager {
     this.engines.delete(id);
     this.broadcast({ type: 'DOWNLOAD_DELETED', payload: { id } });
 
+    let newItem;
     if (snap.kind === 'video') {
-      return this.addDownload(
+      newItem = await this.addDownload(
         snap.url, snap.filename, 'Video', 1, true, snap.quality || 'best',
-        snap.saveDir, null, false, snap.referer || null
+        snap.saveDir, null, false, snap.referer || null, snap.queueId || 'main'
+      );
+    } else {
+      newItem = await this.addDownload(
+        snap.url, snap.filename, snap.category, snap.segmentsCount,
+        false, 'best', snap.saveDir, snap.headers || {}, false, snap.referer || null, snap.queueId || 'main'
       );
     }
-    return this.addDownload(
-      snap.url, snap.filename, snap.category, snap.segmentsCount,
-      false, 'best', snap.saveDir, snap.headers || {}
-    );
+    if (newItem && snap.priority) {
+      this.setPriority(newItem.id, snap.priority);
+    }
+    return newItem;
   }
 
   // Sağ tık > Öncelik (high | normal | low)
@@ -794,9 +804,10 @@ class QueueManager {
           const eng = this.engines.get(id);
           if (eng) {
             eng.virusAlert = true;
+            this.saveState();
             this.broadcast({
               type: 'VIRUS_ALERT',
-              payload: { id, filename: eng.filename, filePath }
+              payload: { id, filename: eng.filename, filePath, threat: 'Malware detected (exit code 2)' }
             });
           }
         } else {

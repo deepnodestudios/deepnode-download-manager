@@ -254,7 +254,7 @@ export default {
   opt_file_2: 'ملفان',
   opt_file_3: '3 ملفات (موصى به)',
   opt_file_5: '5 ملفات',
-  lbl_segments: 'المقاطع الافتراضية (الخيوط)',
+  lbl_default_segments: 'المقاطع الافتراضية (الخيوط)',
   opt_seg_4: '4 مقاطع',
   opt_seg_8: '8 مقاطع (قياسي)',
   opt_seg_16: '16 مقطعًا (أقصى سرعة)',
@@ -432,4 +432,7 @@ export default {
   btn_start_queue: "بدء قائمة الانتظار",
   btn_pause_queue: "إيقاف قائمة الانتظار مؤقتًا",
   confirm_delete_queue: "هل أنت متأكد من حذف قائمة الانتظار هذه؟ سيتم نقل التنزيلات إلى القائمة الرئيسية.",
+  st_scanning: "جارٍ الفحص...",
+  ph_search: "بحث...",
+  site_grabber: "ملتقط المواقع",
 };

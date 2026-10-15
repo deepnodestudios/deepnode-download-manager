@@ -32,10 +32,19 @@ export function proxyUrl() {
   const raw = String(s.proxyHost).trim();
   const schemeMatch = raw.match(/^([a-z0-9+.-]+):\/\//i);
   const scheme = schemeMatch ? schemeMatch[1].toLowerCase() : 'http';
-  const host = raw.replace(/^[a-z0-9+.-]+:\/\//i, '').replace(/\/.*$/, '');
+  let host = raw.replace(/^[a-z0-9+.-]+:\/\//i, '').replace(/\/.*$/, '');
   if (!host) return null;
 
-  const port = parseInt(s.proxyPort, 10) || 8080;
+  let port = parseInt(s.proxyPort, 10);
+  // Eğer kullanıcı proxyHost içine "host:port" yazmışsa ayır
+  if (host.includes(':') && !host.startsWith('[')) {
+    const parts = host.split(':');
+    host = parts[0];
+    const extractedPort = parseInt(parts[1], 10);
+    if (extractedPort) port = extractedPort;
+  }
+  if (!port || isNaN(port)) port = 8080;
+
   const auth = s.proxyUser
     ? `${encodeURIComponent(s.proxyUser)}:${encodeURIComponent(s.proxyPass || '')}@`
     : '';

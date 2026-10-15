@@ -514,7 +514,8 @@ const dnMasters = []; // #EXT-X-STREAM-INF içeren (tüm kaliteleri barındıran
 window.addEventListener('message', (e) => {
   if (e.source !== window) return;
   const d = e.data;
-  if (!(d && d.__dnHls && d.url)) return;
+  if (!(d && d.__dnHls && typeof d.url === 'string')) return;
+  if (!/^https?:\/\//i.test(d.url)) return;
   if (!dnSniffed.includes(d.url)) {
     dnSniffed.unshift(d.url);
     if (dnSniffed.length > 100) dnSniffed.length = 100; // uzun oturumda sınırsız büyümesin
