@@ -13,7 +13,7 @@ import storageService from './services/StorageService.js';
 import queueManager from './services/QueueManager.js';
 import { LinkSniffer } from './services/LinkSniffer.js';
 import { DownloadEngine } from './services/DownloadEngine.js';
-import { getVideoInfo, autoUpdateYtDlp, isVideoSiteUrl } from './services/VideoDownloader.js';
+import { getVideoInfo, autoUpdateYtDlp, isVideoSiteUrl, isValidVideoUrl } from './services/VideoDownloader.js';
 import { startScheduler, schedulerStatus } from './services/Scheduler.js';
 import { corsOptions, originGuard, appOnly, isExtensionOrigin, isAppOrigin, settingsForExtension, sanitizeSettingsForBroadcast } from './security.js';
 import { createUpdateRouter } from './routes/update.js';
@@ -415,7 +415,8 @@ app.post('/api/download/inspect', appOnly(getPort), async (req, res) => {
 // 3. Inspect video formats / qualities for video sites (YouTube, Vimeo, etc.)
 app.post('/api/video/formats', async (req, res) => {
   const { url, referer } = req.body;
-  if (!url) return res.status(400).json({ error: 'URL is required' });
+  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'URL is required' });
+  if (!isValidVideoUrl(url)) return res.status(400).json({ error: 'Invalid video URL' });
 
   try {
     const info = await getVideoInfo(url, referer || null);

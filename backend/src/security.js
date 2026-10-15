@@ -21,7 +21,7 @@
 // Origin başlığı olmayan istekler (Electron ana süreci, yerel betikler) da geçer:
 // tarayıcıdaki bir sayfa çapraz-kaynak istekte Origin göndermek ZORUNDADIR.
 
-const EXTENSION_ORIGIN_RE = /^(chrome|moz|edge|safari-web)-extension:\/\/[a-z0-9@._+-]+\/?$/i;
+const EXTENSION_ORIGIN_RE = /^(chrome|moz|edge|safari-web)-extension:\/\/[a-z0-9\-]{1,64}\/?$/i;
 
 // Uygulamanın kendi arayüzü (ana pencere + ekleme/ilerleme pencereleri).
 // Firefox `localhost`'u bazen IPv6 `[::1]` olarak çözdüğü için üç loopback

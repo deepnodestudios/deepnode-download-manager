@@ -709,7 +709,7 @@ export class DownloadEngine extends EventEmitter {
   }
 
   pause() {
-    if (this.status !== 'downloading' && this.status !== 'queued') return;
+    if (this.status !== 'downloading' && this.status !== 'queued' && this.status !== 'merging') return;
     this._epoch++; // uçuştaki çalışmayı geçersiz kıl (bkz. start())
     this.status = 'paused';
     this.speed = 0;
@@ -741,7 +741,7 @@ export class DownloadEngine extends EventEmitter {
   }
 
   cleanup() {
-    this.pause();
+    this.cancel();
     if (this.tempDir && fs.existsSync(this.tempDir)) {
       try {
         fs.rmSync(this.tempDir, { recursive: true, force: true });
