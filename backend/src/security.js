@@ -62,6 +62,20 @@ export function sanitizeSettingsForBroadcast(settings) {
   return safe;
 }
 
+export function isAllowedHost(host, port) {
+  if (!host) return true;
+  const h = String(host).toLowerCase().trim();
+  const allowed = [
+    `localhost:${port}`,
+    `127.0.0.1:${port}`,
+    `[::1]:${port}`,
+    'localhost',
+    '127.0.0.1',
+    '[::1]'
+  ];
+  return allowed.includes(h);
+}
+
 /**
  * `cors` paketine verilecek seçenekler. Port çalışma anında belli olduğu için
  * (5000 doluysa 5001'e düşülür) fonksiyonla okunur.
@@ -80,8 +94,16 @@ export function corsOptions(getPort) {
  */
 export function originGuard(getPort) {
   return function guard(req, res, next) {
+    const port = getPort();
+    const host = req.headers.host;
+    if (!isAllowedHost(host, port)) {
+      return res.status(403).json({
+        error: 'Forbidden host',
+        detail: 'This API only accepts requests targeted to loopback host.'
+      });
+    }
     const origin = req.headers.origin;
-    if (isAllowedOrigin(origin, getPort())) return next();
+    if (isAllowedOrigin(origin, port)) return next();
     return res.status(403).json({
       error: 'Forbidden origin',
       detail: 'This API only accepts requests from the DeepNode app and its browser extension.'
@@ -96,8 +118,16 @@ export function originGuard(getPort) {
  */
 export function appOnly(getPort) {
   return function guard(req, res, next) {
+    const port = getPort();
+    const host = req.headers.host;
+    if (!isAllowedHost(host, port)) {
+      return res.status(403).json({
+        error: 'Forbidden host',
+        detail: 'This endpoint is only available with loopback host.'
+      });
+    }
     const origin = req.headers.origin;
-    if (!origin || isAppOrigin(origin, getPort())) return next();
+    if (!origin || isAppOrigin(origin, port)) return next();
     return res.status(403).json({
       error: 'Forbidden',
       detail: 'This endpoint is only available to the DeepNode app window.'

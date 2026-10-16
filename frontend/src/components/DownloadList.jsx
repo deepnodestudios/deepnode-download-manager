@@ -57,8 +57,9 @@ export default function DownloadList({
         aVal = a.totalSize || 0;
         bVal = b.totalSize || 0;
       } else if (sortConfig.key === 'progress') {
-        aVal = a.totalSize > 0 ? a.downloadedBytes / a.totalSize : 0;
-        bVal = b.totalSize > 0 ? b.downloadedBytes / b.totalSize : 0;
+        const getPct = (x) => typeof x.percent === 'number' && !isNaN(x.percent) ? x.percent : (x.totalSize > 0 ? (x.downloadedBytes / x.totalSize) * 100 : 0);
+        aVal = getPct(a);
+        bVal = getPct(b);
       } else if (sortConfig.key === 'date') {
         aVal = parseInt(a.id.split('_')[1]) || 0;
         bVal = parseInt(b.id.split('_')[1]) || 0;
@@ -90,11 +91,17 @@ export default function DownloadList({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: newUrl })
       });
-      if (res.ok && onStart) {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      if (onStart) {
         onStart(id);
       }
     } catch (err) {
       console.error('Failed to update download URL:', err);
+      alert(err.message);
+      throw err;
     }
   };
 
@@ -180,7 +187,7 @@ export default function DownloadList({
     document.body.style.cursor = 'col-resize';
   }, [colWidths]);
 
-  const totalColWidth = Object.values(colWidths).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0) + (colWidths.name || 200);
+  const totalColWidth = Object.values(colWidths).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0) + (typeof colWidths.name === 'number' ? 0 : 200);
 
   // --- Selection helpers ---
   const toggleSelect = useCallback((id) => {
@@ -420,7 +427,7 @@ export default function DownloadList({
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [downloads]);
+  }, [sortedDownloads]);
 
   useEffect(() => {
     if (!menu) return;
@@ -632,7 +639,11 @@ export default function DownloadList({
         ctx.font = '600 13px "JetBrains Mono", ui-monospace, monospace, sans-serif';
         let maxRowW = 0;
         for (const item of downloads) {
-          const percent = item.status === 'completed' ? 100 : (item.totalSize > 0 ? Math.min(100, Math.round((item.downloadedBytes / item.totalSize) * 100)) : 0);
+          const percent = item.status === 'completed'
+            ? 100
+            : (typeof item.percent === 'number' && !isNaN(item.percent)
+                ? Math.min(100, Math.max(0, Math.round(item.percent)))
+                : (item.totalSize > 0 ? Math.min(100, Math.round((item.downloadedBytes / item.totalSize) * 100)) : 0));
           const str = (item.preflight && item.status === 'downloading' ? `${t('st_scanning')} ` : '') + t('pct', { n: percent });
           const w = ctx.measureText(str).width;
           if (w > maxRowW) maxRowW = w;
@@ -839,9 +850,11 @@ export default function DownloadList({
             const Icon = getCategoryIcon(item.category);
             const percent = item.status === 'completed'
               ? 100
-              : (item.totalSize > 0
-                  ? Math.min(100, Math.round((item.downloadedBytes / item.totalSize) * 100))
-                  : 0);
+              : (typeof item.percent === 'number' && !isNaN(item.percent)
+                  ? Math.min(100, Math.max(0, Math.round(item.percent)))
+                  : (item.totalSize > 0
+                      ? Math.min(100, Math.round((item.downloadedBytes / item.totalSize) * 100))
+                      : 0));
             const isSelected = selectedIds.has(item.id);
             const isFocused = focusedIndex === index;
 

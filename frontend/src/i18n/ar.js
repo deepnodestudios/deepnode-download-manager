@@ -398,6 +398,7 @@ export default {
   virus_alert_detected: "تحذير: تم اكتشاف برنامج ضار ({threat}) في \"{file}\"!",
   sec_antivirus: "حماية مكافح الفيروسات و Defender",
   chk_antivirus_enable: "فحص الملف بمكافح الفيروسات عند اكتمال التنزيل",
+  chk_telemetry_enable: "تقارير مجهولة عن الأخطاء والأعطال",
   antivirus_note: "يستخدم Windows Defender (MpCmdRun.exe) افتراضياً. يمكنك أيضاً تحديد مسار مكافح فيروسات آخر.",
   lbl_antivirus_path: "مسار مكافح الفيروسات المخصص (اتركه فارغاً لـ Windows Defender):",
   nav_batch: "تنزيل متعدد",

@@ -1,16 +1,27 @@
 import { app, BrowserWindow, Tray, Menu, clipboard, Notification, ipcMain, dialog, shell, screen, nativeImage } from 'electron';
+
+// Single-instance kilidi: Kaybeden ikinci süreç HEMEN sonlandırılır.
+// Statik ESM import yapılmaz; backend ve QueueManager yalnız kilidi ALAN süreçte başlatılır!
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.exit(0);
+  process.exit(0);
+}
+
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import { setLanguage, getLanguage, t as et } from './i18n.js';
-import storageService from '../backend/src/services/StorageService.js';
-import { initSentry, Sentry } from '../backend/src/sentry.js';
+
+const { default: storageService } = await import('../backend/src/services/StorageService.js');
+const { initSentry, Sentry } = await import('../backend/src/sentry.js');
+const { serverEvents, shutdownAllDownloads } = await import('../backend/src/server.js');
 
 // Initialize Sentry for Electron main process error & crash tracking
 initSentry({
   processName: 'electron-main',
-  appVersion: app.getVersion ? app.getVersion() : '1.5.8',
+  appVersion: app.getVersion ? app.getVersion() : '1.5.9',
   anonymousId: storageService.getAnonymousId()
 });
 
@@ -83,20 +94,25 @@ ipcMain.on('open-external', (e, url, browser) => {
   }
 });
 
-// Import backend server statically so it starts express & websocket server
-import '../backend/src/server.js';
-import { serverEvents } from '../backend/src/server.js';
-
 // Backend'in gerçekten dinlediği port. 5000 doluysa backend sıradakine düşer
 // (bkz. server.js) ve bu olayla haber verir — pencereler/istekler doğru adrese gider.
 let backendPort = Number(process.env.DN_PORT) || 5000;
 const appUrl = (suffix = '') => `http://localhost:${backendPort}${suffix}`;
 
+let serverReadyResolve;
+const serverReadyPromise = new Promise((resolve) => {
+  serverReadyResolve = resolve;
+  // 30 sn emniyet payı (yanlış varsayılan porta erken çözümlenmesin)
+  setTimeout(() => resolve(backendPort), 30000);
+});
+
 serverEvents.on('server-ready', (port) => {
   backendPort = port;
+  if (serverReadyResolve) serverReadyResolve(port);
 });
 
 serverEvents.on('server-error', (err) => {
+  if (serverReadyResolve) serverReadyResolve(backendPort);
   dialog.showErrorBox(
     'DeepNode Download Manager',
     `Yerel sunucu başlatılamadı (${err.message}).\n\n` +
@@ -110,7 +126,7 @@ serverEvents.on('server-error', (err) => {
 const SECURE_WEB_PREFERENCES = {
   nodeIntegration: false,
   contextIsolation: true,
-  sandbox: false, // preload'un require('electron') yapabilmesi için
+  sandbox: true,
   preload: path.join(__dirname, 'preload.cjs')
 };
 
@@ -134,6 +150,33 @@ function hardenWindow(win) {
     }
   });
   win.webContents.on('will-attach-webview', (event) => event.preventDefault());
+
+  let failAttempts = 0;
+  const MAX_FAIL_ATTEMPTS = 5;
+
+  // Yükleme geçici olarak başarısız olursa boş pencere kalmasını önle, en fazla 5 kez dene
+  win.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    if (errorCode === -3 || win.isDestroyed()) return;
+
+    failAttempts++;
+    if (failAttempts > MAX_FAIL_ATTEMPTS) {
+      console.warn(`[Window] Max load retries (${MAX_FAIL_ATTEMPTS}) reached for ${validatedURL}.`);
+      return;
+    }
+
+    console.warn(`[Window] did-fail-load (${errorCode}: ${errorDescription}) on ${validatedURL}, attempt ${failAttempts}/${MAX_FAIL_ATTEMPTS}. Retrying in 1s...`);
+    setTimeout(() => {
+      if (!win.isDestroyed() && validatedURL) {
+        try {
+          const parsed = new URL(validatedURL);
+          const freshUrl = appUrl(parsed.pathname + parsed.search + parsed.hash);
+          win.loadURL(freshUrl).catch(() => {});
+        } catch (e) {
+          win.loadURL(validatedURL).catch(() => {});
+        }
+      }
+    }, 1000);
+  });
 }
 
 // Support MANY simultaneous add windows (one per captured link).
@@ -141,7 +184,7 @@ const addWindows = new Set();
 const completeWindows = new Set();
 // Kötü niyetli bir sayfa `deepnode://add?url=...` ile sınırsız pencere açtırabilirdi.
 const MAX_ADD_WINDOWS = 12;
-const MAX_COMPLETE_WINDOWS = 12;
+const MAX_COMPLETE_WINDOWS = 3;
 
 function createAddDownloadWindow(url, quality, referer, video, filename) {
   if (addWindows.size >= MAX_ADD_WINDOWS) {
@@ -174,13 +217,17 @@ function createAddDownloadWindow(url, quality, referer, video, filename) {
     win.setBounds({ x: b.x + cascade, y: b.y + cascade, width: b.width, height: b.height });
   }
 
-  const targetUrl = appUrl('/?mode=add')
-    + (url ? '&url=' + encodeURIComponent(url) : '')
-    + (quality ? '&quality=' + encodeURIComponent(quality) : '')
-    + (referer ? '&referer=' + encodeURIComponent(referer) : '')
-    + (video ? '&video=1' : '')
-    + (filename ? '&filename=' + encodeURIComponent(filename) : '');
-  win.loadURL(targetUrl);
+  // Backend portu kesinleştiğinde doğru URL ile yükle
+  serverReadyPromise.then(() => {
+    if (win.isDestroyed()) return;
+    const targetUrl = appUrl('/?mode=add')
+      + (url ? '&url=' + encodeURIComponent(url) : '')
+      + (quality ? '&quality=' + encodeURIComponent(quality) : '')
+      + (referer ? '&referer=' + encodeURIComponent(referer) : '')
+      + (video ? '&video=1' : '')
+      + (filename ? '&filename=' + encodeURIComponent(filename) : '');
+    win.loadURL(targetUrl);
+  });
 
   addWindows.add(win);
   win.on('closed', () => {
@@ -247,7 +294,10 @@ function createProgressWindow(downloadId) {
     win.setBounds({ x: b.x + cascade, y: b.y + cascade, width: b.width, height: b.height });
   }
 
-  win.loadURL(appUrl('/?mode=progress&id=') + encodeURIComponent(downloadId));
+  serverReadyPromise.then(() => {
+    if (win.isDestroyed()) return;
+    win.loadURL(appUrl('/?mode=progress&id=') + encodeURIComponent(downloadId));
+  });
 
   progressWindows.add(win);
   win.on('closed', () => { progressWindows.delete(win); });
@@ -315,15 +365,30 @@ let mainWindow = null;
 let tray = null;
 let lastClipboardText = '';
 let isQuitting = false;
-let appSettings = {};
+let appSettings = {
+  minimizeToTrayOnClose: true,
+  launchOnStartup: false,
+  startMinimized: false,
+  showCompleteDialog: true,
+  notifyOnComplete: true,
+  soundNotifications: true
+};
 
 // ---- Ayarları uygula (Windows açılışı, tepsi davranışı, bildirimler) ----
 async function loadSettings() {
+  await serverReadyPromise;
   try {
     const res = await fetch(appUrl('/api/settings'));
-    appSettings = await res.json();
+    const data = await res.json();
+    if (data && typeof data === 'object') {
+      appSettings = { ...appSettings, ...data };
+    }
     setLanguage(appSettings.language, app.getLocale());
-  } catch (e) { /* backend henüz hazır değil */ }
+  } catch (e) {
+    if (storageService && storageService.settings) {
+      appSettings = { ...appSettings, ...storageService.settings };
+    }
+  }
   return appSettings;
 }
 
@@ -398,7 +463,10 @@ function createCompleteWindow(downloadId) {
     webPreferences: { ...SECURE_WEB_PREFERENCES }
   });
   hardenWindow(win);
-  win.loadURL(appUrl('/?mode=complete&id=') + encodeURIComponent(downloadId));
+  serverReadyPromise.then(() => {
+    if (win.isDestroyed()) return;
+    win.loadURL(appUrl('/?mode=complete&id=') + encodeURIComponent(downloadId));
+  });
   // Açıldıktan sonra kalıcı "her zaman üstte" davranışı bırakılır
   win.once('ready-to-show', () => setTimeout(() => { try { win.setAlwaysOnTop(false); } catch (e) {} }, 1500));
   completeWindows.add(win);
@@ -469,7 +537,8 @@ process.on('unhandledRejection', (reason) => {
   try { Sentry.captureException(reason); } catch (_) {}
 });
 
-function createWindow(showWindow = true) {
+async function createWindow(showWindow = true) {
+  await serverReadyPromise;
   mainWindow = new BrowserWindow({
     show: showWindow,
     width: 1200,
@@ -559,8 +628,10 @@ function createTray() {
 
       tray.on('double-click', () => {
         if (mainWindow) {
-          if (mainWindow.isVisible()) mainWindow.hide();
-          else { mainWindow.show(); mainWindow.focus(); }
+          mainWindow.show();
+          mainWindow.focus();
+        } else {
+          createWindow();
         }
       });
     }
@@ -650,16 +721,21 @@ function startClipboardWatcher() {
       lastClipboardText = text;
 
       // Çoklu URL tespiti (Panoya toplu link kopyalanmışsa)
-      const multiUrls = text.match(/https?:\/\/[^\s"'<>()]+/gi);
-      if (multiUrls && multiUrls.length >= 2) {
+      const rawUrls = text.match(/https?:\/\/[^\s"'<>()]+/gi);
+      if (rawUrls && rawUrls.length >= 2) {
         if (!(await isClipboardWatchEnabled())) return;
-        bringToFront();
-        await fetch(appUrl('/api/download/prompt-batch'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ urls: multiUrls })
-        }).catch(() => {});
-        return;
+        const multiUrls = rawUrls.filter(u => storageService.shouldCaptureUrl(u));
+        if (multiUrls.length >= 2) {
+          if (mainWindow && !mainWindow.isVisible()) {
+            mainWindow.show();
+          }
+          await fetch(appUrl('/api/download/prompt-batch'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls: multiUrls })
+          }).catch(() => {});
+          return;
+        }
       }
 
       const lower = text.toLowerCase();
@@ -733,88 +809,86 @@ function handleProtocolUrl(urlStr) {
   }
 }
 
-const gotTheLock = app.requestSingleInstanceLock();
-if (!gotTheLock) {
-  app.quit();
-} else {
-  app.on('second-instance', (event, commandLine, workingDirectory) => {
-    const protocolUrl = commandLine.find(arg => arg.startsWith('deepnode://'));
-    const httpUrl = commandLine.find(arg => /^https?:\/\//i.test(arg));
-    if (protocolUrl) {
-      handleProtocolUrl(protocolUrl);
-    } else if (httpUrl) {
-      createAddDownloadWindow(httpUrl);
-    } else if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+  const protocolUrl = commandLine.find(arg => arg.startsWith('deepnode://'));
+  const httpUrl = commandLine.find(arg => /^https?:\/\//i.test(arg));
+  if (protocolUrl) {
+    handleProtocolUrl(protocolUrl);
+  } else if (httpUrl) {
+    createAddDownloadWindow(httpUrl);
+  } else if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
+app.whenReady().then(async () => {
+  const protocolUrl = process.argv.find(arg => arg.startsWith('deepnode://'));
+  const initialHttpUrl = process.argv.find(arg => /^https?:\/\//i.test(arg));
+  
+  // Command line flags check (--hidden, --minimized, --opened-at-login, etc.)
+  const hasHiddenArg = process.argv.some(arg => 
+    arg === '--hidden' || 
+    arg === '--minimized' || 
+    arg === '--opened-at-login' || 
+    arg === '-m' ||
+    arg === '/hidden'
+  );
+
+  let wasOpenedAtLogin = false;
+  try {
+    if (typeof app.getLoginItemSettings === 'function') {
+      const loginSettings = app.getLoginItemSettings();
+      wasOpenedAtLogin = !!(loginSettings && (loginSettings.wasOpenedAtLogin || loginSettings.wasOpenedAsHidden));
     }
+  } catch (e) {
+    wasOpenedAtLogin = false;
+  }
+
+  await loadSettings();
+  applyStartupSetting();
+
+  // Otomatik açılışta veya gizli başlatma parametresinde:
+  // Eğer startMinimized ayarı açıksa veya --hidden ile açıldıysa pencereyi gizli başlat.
+  const isStartupLaunch = hasHiddenArg || wasOpenedAtLogin;
+  const shouldStartHidden = (isStartupLaunch && appSettings.startMinimized !== false) || (hasHiddenArg && appSettings.startMinimized);
+
+  const showWindow = !protocolUrl && !shouldStartHidden;
+  createWindow(showWindow);
+  if (initialHttpUrl && !protocolUrl) {
+    createAddDownloadWindow(initialHttpUrl);
+  }
+  createTray();
+  startClipboardWatcher();
+
+  // Update notification: startup (15s) + every 6 hours
+  setTimeout(checkUpdateNotify, 15000);
+  setInterval(checkUpdateNotify, 6 * 60 * 60 * 1000);
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
-  app.whenReady().then(async () => {
-    const protocolUrl = process.argv.find(arg => arg.startsWith('deepnode://'));
-    const initialHttpUrl = process.argv.find(arg => /^https?:\/\//i.test(arg));
-    
-    // Command line flags check (--hidden, --minimized, --opened-at-login, etc.)
-    const hasHiddenArg = process.argv.some(arg => 
-      arg === '--hidden' || 
-      arg === '--minimized' || 
-      arg === '--opened-at-login' || 
-      arg === '-m' ||
-      arg === '/hidden'
-    );
+  if (protocolUrl) {
+    serverReadyPromise.then(() => handleProtocolUrl(protocolUrl));
+  }
+});
 
-    let wasOpenedAtLogin = false;
-    try {
-      if (typeof app.getLoginItemSettings === 'function') {
-        const loginSettings = app.getLoginItemSettings();
-        wasOpenedAtLogin = !!(loginSettings && (loginSettings.wasOpenedAtLogin || loginSettings.wasOpenedAsHidden));
-      }
-    } catch (e) {
-      wasOpenedAtLogin = false;
+app.on('before-quit', () => {
+  isQuitting = true;
+  try {
+    shutdownAllDownloads();
+  } catch (e) {}
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    if (isQuitting || appSettings.minimizeToTrayOnClose === false) {
+      app.quit();
     }
-
-    await loadSettings();
-    applyStartupSetting();
-
-    // Otomatik açılışta veya gizli başlatma parametresinde:
-    // Eğer startMinimized ayarı açıksa veya --hidden ile açıldıysa pencereyi gizli başlat.
-    const isStartupLaunch = hasHiddenArg || wasOpenedAtLogin;
-    const shouldStartHidden = (isStartupLaunch && appSettings.startMinimized !== false) || (hasHiddenArg && appSettings.startMinimized);
-
-    const showWindow = !protocolUrl && !shouldStartHidden;
-    createWindow(showWindow);
-    if (initialHttpUrl && !protocolUrl) {
-      createAddDownloadWindow(initialHttpUrl);
-    }
-    createTray();
-    startClipboardWatcher();
-
-    // Update notification: startup (15s) + every 6 hours
-    setTimeout(checkUpdateNotify, 15000);
-    setInterval(checkUpdateNotify, 6 * 60 * 60 * 1000);
-
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    });
-
-    if (protocolUrl) {
-      setTimeout(() => handleProtocolUrl(protocolUrl), 500); // wait for express to initialize
-    }
-  });
-
-  app.on('before-quit', () => {
-    isQuitting = true;
-  });
-
-  app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-      if (isQuitting || appSettings.minimizeToTrayOnClose === false) {
-        app.quit();
-      }
-    }
-  });
-}
+  }
+});
 
 ipcMain.on('start-drag', (e, filePaths) => {
   try {

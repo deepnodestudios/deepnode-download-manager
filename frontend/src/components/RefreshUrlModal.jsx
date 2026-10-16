@@ -27,11 +27,15 @@ export default function RefreshUrlModal({ isOpen, onClose, download, onRefreshUr
 
   if (!isOpen || !download) return null;
 
-  const percent = download.totalSize > 0 
-    ? Math.min(100, Math.round((download.downloadedBytes / download.totalSize) * 100)) 
-    : 0;
+  const percent = download.status === 'completed'
+    ? 100
+    : (typeof download.percent === 'number' && !isNaN(download.percent)
+        ? Math.min(100, Math.max(0, Math.round(download.percent)))
+        : (download.totalSize > 0 
+            ? Math.min(100, Math.round((download.downloadedBytes / download.totalSize) * 100)) 
+            : 0));
 
-  const originUrl = download.referer || download.url;
+  const originUrl = download.referer || (download.headers && (download.headers.Referer || download.headers.referer)) || download.url;
 
   const handleOpenInBrowser = () => {
     if (originUrl) {

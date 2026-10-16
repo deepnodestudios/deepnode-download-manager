@@ -395,6 +395,7 @@ export default {
   virus_alert_detected: 'WARNING: Malware ({threat}) detected in "{file}"!',
   sec_antivirus: 'Antivirus & Defender Protection',
   chk_antivirus_enable: 'Scan downloaded files with antivirus upon completion',
+  chk_telemetry_enable: 'Anonymous Error & Crash Reporting',
   antivirus_note: 'Uses Windows Defender (MpCmdRun.exe) by default. You can also specify a custom scanner executable.',
   lbl_antivirus_path: 'Custom Antivirus Path (leave blank for Windows Defender):',
   nav_batch: 'Batch Download',

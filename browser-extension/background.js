@@ -9,6 +9,8 @@ if (typeof importScripts === 'function') {
 
 const DEFAULTS = { enabled: true, captureDownloads: true, showButton: true, port: 5000, disabledSites: [], appLanguage: 'auto' };
 let cfg = { ...DEFAULTS };
+let bypassKey = 'Shift';
+let captureEnabled = true;
 
 function applyLanguage() {
   let ui = 'en';
@@ -16,14 +18,52 @@ function applyLanguage() {
   DN_I18N.setLang(dnResolveLang(cfg.appLanguage, ui));
 }
 
-chrome.storage.local.get(DEFAULTS, (v) => { cfg = { ...DEFAULTS, ...v }; applyLanguage(); });
+let storageReadyResolve;
+const storageReady = new Promise((resolve) => { storageReadyResolve = resolve; });
+
+chrome.storage.local.get({
+  ...DEFAULTS,
+  captureBypassKey: 'Shift',
+  captureEnabled: true
+}, (res) => {
+  if (res) {
+    cfg = {
+      enabled: res.enabled !== undefined ? res.enabled : DEFAULTS.enabled,
+      captureDownloads: res.captureDownloads !== undefined ? res.captureDownloads : DEFAULTS.captureDownloads,
+      showButton: res.showButton !== undefined ? res.showButton : DEFAULTS.showButton,
+      port: res.port || DEFAULTS.port,
+      disabledSites: res.disabledSites || DEFAULTS.disabledSites,
+      appLanguage: res.appLanguage || DEFAULTS.appLanguage
+    };
+    if (typeof res.captureBypassKey === 'string') bypassKey = res.captureBypassKey;
+    if (typeof res.captureEnabled === 'boolean') captureEnabled = res.captureEnabled;
+    applyLanguage();
+  }
+  if (storageReadyResolve) storageReadyResolve();
+});
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   const prevLang = DN_I18N.lang;
-  chrome.storage.local.get(DEFAULTS, (v) => {
-    cfg = { ...DEFAULTS, ...v };
-    applyLanguage();
-    if (DN_I18N.lang !== prevLang) buildContextMenus();
+  chrome.storage.local.get({
+    ...DEFAULTS,
+    captureBypassKey: bypassKey,
+    captureEnabled: captureEnabled
+  }, (v) => {
+    if (v) {
+      cfg = {
+        enabled: v.enabled !== undefined ? v.enabled : cfg.enabled,
+        captureDownloads: v.captureDownloads !== undefined ? v.captureDownloads : cfg.captureDownloads,
+        showButton: v.showButton !== undefined ? v.showButton : cfg.showButton,
+        port: v.port || cfg.port,
+        disabledSites: v.disabledSites || cfg.disabledSites,
+        appLanguage: v.appLanguage || cfg.appLanguage
+      };
+      if (typeof v.captureBypassKey === 'string') bypassKey = v.captureBypassKey;
+      if (typeof v.captureEnabled === 'boolean') captureEnabled = v.captureEnabled;
+      applyLanguage();
+      if (DN_I18N.lang !== prevLang) buildContextMenus();
+    }
   });
 });
 
@@ -99,8 +139,7 @@ chrome.tabs.onRemoved.addListener((tabId) => clearTab(tabId));
 // "Bypass" key: while this modifier is held during a click, the
 // download is NOT captured (browser downloads it normally). Configured in the
 // app Settings; synced from /api/settings. 'None' disables the feature.
-let bypassKey = 'Shift';
-let captureEnabled = true;
+
 let heldMods = { Alt: false, Control: false, Shift: false };
 let lastBypassClickAt = 0; // last mousedown made while the bypass key was held
 function isBypassHeld() {
@@ -150,9 +189,10 @@ async function probeApp() {
   const ports = [resolvedPort, cfg.port, 5000, 5001, 5002, 5003, 5004, 5005, 5006, 5007, 5008, 5009, 5010].filter((p, i, a) => p && a.indexOf(p) === i);
   const hosts = [resolvedHost, ...APP_HOSTS].filter((h, i, a) => h && a.indexOf(h) === i);
   for (const port of ports) {
+    const ver = chrome.runtime.getManifest().version;
     for (const host of hosts) {
       try {
-        const r = await fetchWithTimeout(`http://${host}:${port}/api/settings`, {}, 800);
+        const r = await fetchWithTimeout(`http://${host}:${port}/api/settings?extVersion=${encodeURIComponent(ver)}`, {}, 800);
         if (r.ok) { rememberApp(host, port); return true; }
       } catch (e) { /* bu host:port'ta uygulama yok */ }
     }
@@ -166,13 +206,16 @@ async function fetchApp(path, opts = {}, timeoutMs = 2500) {
     const port = resolvedPort || cfg.port || 5000;
     return fetchWithTimeout(`http://${host}:${port}${path}`, opts, timeoutMs);
   };
+  const hadPort = !!resolvedPort;
   try {
     if (!resolvedPort && !(await probeApp())) throw new Error('app unreachable');
     return await attempt();
   } catch (e) {
     resolvedPort = null;
-    if (!(await probeApp())) throw e;
-    return attempt();
+    if (hadPort && (await probeApp())) {
+      return attempt();
+    }
+    throw e;
   }
 }
 
@@ -184,8 +227,14 @@ async function refreshRemoteSettings() {
     const r = await fetchApp(`/api/settings?extVersion=${encodeURIComponent(ver)}`, {}, 1500);
     if (!r.ok) { resolvedPort = null; return; }
     const s = await r.json();
-    if (s && typeof s.captureBypassKey === 'string') bypassKey = s.captureBypassKey;
-    if (s && typeof s.captureEnabled === 'boolean') captureEnabled = s.captureEnabled;
+    if (s && typeof s.captureBypassKey === 'string') {
+      bypassKey = s.captureBypassKey;
+      chrome.storage.local.set({ captureBypassKey: s.captureBypassKey });
+    }
+    if (s && typeof s.captureEnabled === 'boolean') {
+      captureEnabled = s.captureEnabled;
+      chrome.storage.local.set({ captureEnabled: s.captureEnabled });
+    }
     // Uygulamanın dil tercihi eklenti UI'ına da yansısın ('auto' ise tarayıcı dili)
     if (s && typeof s.language === 'string' && s.language !== cfg.appLanguage) {
       chrome.storage.local.set({ appLanguage: s.language });
@@ -260,12 +309,14 @@ async function sessionHeaders(url, referrer) {
   return headers;
 }
 
-// Returns 'accepted' | 'ignored' (file-type filter) | 'failed' (app unreachable)
+// Returns 'accepted' | 'prompted' | 'ignored' (file-type filter) | 'failed' (app unreachable)
 async function sendToApp(url, filename, referrer, explicit) {
   const headers = await sessionHeaders(url, referrer);
   const data = await postJson('/api/download/add', { url, filename, headers, explicit: !!explicit });
   if (!data) return 'failed';
-  return data.status === 'ignored' ? 'ignored' : 'accepted';
+  if (data.status === 'ignored') return 'ignored';
+  if (data.status === 'prompted') return 'prompted';
+  return 'accepted';
 }
 async function sendVideoToApp(url, quality, referer, filename) {
   return (await postJson('/api/download/video', { url, quality: quality || 'best', referer: referer || undefined, filename: filename || undefined })) !== null;
@@ -298,9 +349,12 @@ async function getVideoFormats(url, referer) {
 
 function wakeApp(url) {
   const customUrl = 'deepnode://add?url=' + encodeURIComponent(url);
-  chrome.tabs.create({ url: customUrl }, (tab) => {
-    // Leave tab open for the user to confirm the protocol prompt in Chrome
-    // They can close the blank tab manually after clicking "Open"
+  chrome.tabs.create({ url: customUrl, active: false }, (tab) => {
+    if (tab && tab.id) {
+      setTimeout(() => {
+        try { chrome.tabs.remove(tab.id); } catch (e) {}
+      }, 1500);
+    }
   });
 }
 
@@ -445,10 +499,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       }
       if (urls.length > 0) {
         try {
-          await fetchApp('/api/download/prompt-batch', {
-            method: 'POST',
-            body: JSON.stringify({ urls, referer: tab.url })
-          });
+          await postJson('/api/download/prompt-batch', { urls, referer: tab.url });
         } catch (err) {
           wakeApp(urls[0]);
         }
@@ -551,6 +602,7 @@ async function resolveItemFilename(item) {
 
 // ---- Capture browser-initiated downloads ----
 async function handleDownloadItem(item, suggest) {
+  await storageReady;
   if (!cfg.enabled || !cfg.captureDownloads) { if (suggest) suggest(); return; }
   if (!captureEnabled) { if (suggest) suggest(); return; }
   const url = item.finalUrl || item.url || '';
@@ -572,9 +624,7 @@ async function handleDownloadItem(item, suggest) {
     if (started && Date.now() - started > 60000) { if (suggest) suggest(); return; }
   } catch (e) { }
 
-  if (isBypassHeld()) {
-    lastBypassClickAt = 0;
-    try { chrome.storage.session.remove('bypassClickAt'); } catch(e){}
+  if (await isBypassActive()) {
     if (suggest) suggest();
     return;
   }
@@ -589,16 +639,6 @@ async function handleDownloadItem(item, suggest) {
   } catch (e) { }
 
   try {
-    let ts = lastBypassClickAt;
-    if (!ts) {
-      try { ts = (await chrome.storage.session.get('bypassClickAt')).bypassClickAt || 0; } catch (e) { ts = 0; }
-    }
-    if (ts && Date.now() - ts < BYPASS_GRACE_MS) {
-      lastBypassClickAt = 0;
-      try { chrome.storage.session.remove('bypassClickAt'); } catch (e) { }
-      if (suggest) suggest();
-      return;
-    }
 
     let name = item.filename ? item.filename.split(/[\\/]/).pop() : '';
     if (!name) name = guessName(url);
@@ -609,17 +649,30 @@ async function handleDownloadItem(item, suggest) {
     const result = await sendToApp(url, name, item.referrer);
     if (result === 'accepted') {
       try {
+        const finalizeInterception = () => {
+          chrome.downloads.search({ id: item.id }, (res) => {
+            let _ = chrome.runtime.lastError;
+            if (res && res[0] && res[0].state === 'complete') {
+              try { chrome.downloads.removeFile(item.id).catch(() => {}); } catch (e) {}
+            }
+            try { chrome.downloads.erase({ id: item.id }).catch(() => {}); } catch (e) {}
+          });
+        };
+
         if (item.state !== 'interrupted' && item.state !== 'complete') {
-          chrome.downloads.cancel(item.id).catch(() => {});
+          chrome.downloads.cancel(item.id, () => {
+            let _ = chrome.runtime.lastError;
+            setTimeout(finalizeInterception, 100);
+          });
+        } else {
+          finalizeInterception();
         }
-        chrome.downloads.search({ id: item.id }, (res) => {
-          let _ = chrome.runtime.lastError;
-          if (res && res[0] && res[0].state === 'complete') {
-            try { chrome.downloads.removeFile(item.id).catch(() => {}); } catch (e) {}
-          }
-          try { chrome.downloads.erase({ id: item.id }).catch(() => {}); } catch (e) {}
-        });
       } catch (e) { }
+      notify(DN_I18N.t('notif_captured'), name || url);
+      if (suggest) suggest();
+    } else if (result === 'prompted') {
+      // DDM onay penceresi açtı (ön indirme arka planda çalışıyor).
+      // Kullanıcı onay penceresini iptal edebileceğinden tarayıcı indirmesini erken silmiyoruz.
       notify(DN_I18N.t('notif_captured'), name || url);
       if (suggest) suggest();
     } else {

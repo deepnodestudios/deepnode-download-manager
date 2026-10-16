@@ -368,7 +368,8 @@ class StorageService {
       enableFileFiltering: true,
       capturedExtensions: 'ZIP RAR 7Z TAR GZ ISO EXE MSI APK PDF DOCX XLSX PPTX MP4 MKV AVI MOV WEBM MP3 FLAC WAV',
       // Torrent dosyaları tarayıcıya bırakılır (torrent istemcisi açsın diye)
-      ignoredExtensions: 'JS CSS HTML PHP TS JSON WOFF WOFF2 PNG JPG GIF SVG ICO XML TORRENT'
+      ignoredExtensions: 'JS CSS HTML PHP JSON WOFF WOFF2 PNG JPG GIF SVG ICO XML TORRENT',
+      telemetryEnabled: true
     };
 
     const parsed = safeReadJsonSync(SETTINGS_FILE, null);
@@ -402,7 +403,36 @@ class StorageService {
   saveSettings(newSettings) {
     try {
       const currentAnonymousId = this.settings?.anonymousId;
-      this.settings = { ...this.settings, ...newSettings };
+      const existingProxyPass = this.settings?.proxyPass;
+      const existingSiteLogins = this.settings?.siteLogins || [];
+
+      // Şifre koruması: frontend sanitize edilmiş boş şifre döndürdüğünde ve
+      // kullanıcı şifreyi açıkça değiştirmedikçe mevcut şifre ezilmez.
+      // Ancak kullanıcı şifreyi silmek istediyse (proxyPassEdited === true), boş string geçerli sayılır.
+      const sanitizedIncoming = { ...newSettings };
+      if (sanitizedIncoming.proxyPassEdited !== true && (sanitizedIncoming.proxyPass === '' || sanitizedIncoming.proxyPass === undefined)) {
+        if (existingProxyPass) {
+          sanitizedIncoming.proxyPass = existingProxyPass;
+        }
+      }
+      delete sanitizedIncoming.proxyPassEdited;
+
+      if (Array.isArray(sanitizedIncoming.siteLogins)) {
+        sanitizedIncoming.siteLogins = sanitizedIncoming.siteLogins.map(login => {
+          const l = { ...login };
+          if (l.passEdited !== true && !l.pass) {
+            const match = existingSiteLogins.find(el => (l.id && el.id === l.id) || (el.site && el.site === l.site) || (el.host && el.host === l.host));
+            if (match && match.pass) {
+              l.pass = match.pass;
+            }
+          }
+          delete l.hasPass;
+          delete l.passEdited;
+          return l;
+        });
+      }
+
+      this.settings = { ...this.settings, ...sanitizedIncoming };
       if (!this.settings.anonymousId && currentAnonymousId) {
         this.settings.anonymousId = currentAnonymousId;
       } else if (!this.settings.anonymousId) {

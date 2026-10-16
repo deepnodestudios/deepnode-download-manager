@@ -3,6 +3,11 @@ import * as Sentry from '@sentry/react';
 const DEFAULT_DSN = 'https://0539cc69af07f295b1a95145be9fab8a@o4512196697128960.ingest.de.sentry.io/4512196703420496';
 
 let initialized = false;
+let isTelemetryEnabled = true;
+
+export function setTelemetryEnabled(enabled) {
+  isTelemetryEnabled = !!enabled;
+}
 
 export function initFrontendSentry() {
   if (initialized || Sentry.isInitialized()) return Sentry;
@@ -13,16 +18,21 @@ export function initFrontendSentry() {
   if (disabled) return Sentry;
 
   try {
+    const appVer = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.5.9';
     Sentry.init({
       dsn,
-      release: 'deepnode-download-manager@1.5.8',
+      release: `deepnode-download-manager@${appVer}`,
       environment: import.meta.env.MODE || 'production',
       tracesSampleRate: 0.1,
       integrations: [
         Sentry.browserTracingIntegration(),
       ],
       beforeSend(event) {
-        // Sanitize breadcrumbs or sensitive data if any
+        if (!isTelemetryEnabled) return null;
+        return event;
+      },
+      beforeSendTransaction(event) {
+        if (!isTelemetryEnabled) return null;
         return event;
       }
     });

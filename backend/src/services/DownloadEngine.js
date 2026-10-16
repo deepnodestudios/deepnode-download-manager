@@ -91,7 +91,7 @@ export class DownloadEngine extends EventEmitter {
     this.resolvedUrl = item.resolvedUrl || null;
     this.filename = item.filename;
     this.saveDir = item.saveDir || path.join(storageService.settings.downloadDir, item.category || 'General');
-    this.segmentsCount = item.segmentsCount || storageService.settings.defaultSegments || 8;
+    this.segmentsCount = Math.max(1, Math.min(32, parseInt(item.segmentsCount, 10) || parseInt(storageService.settings.defaultSegments, 10) || 8));
     this.speedLimitKbps = item.speedLimitKbps || 0;
 
     this.savePath = path.join(this.saveDir, this.filename);
@@ -103,6 +103,7 @@ export class DownloadEngine extends EventEmitter {
 
     // Browser session headers (cookies / referer / UA) so protected links work
     this.headers = item.headers || {};
+    this.referer = item.referer || item.headers?.Referer || item.headers?.referer || null;
     this.priority = item.priority || 'normal'; // high | normal | low
     this.queueId = item.queueId || 'main';
     this.preflight = item.preflight || false; // Arka plan ön indirmesi: onaylanana dek gizli
@@ -149,11 +150,15 @@ export class DownloadEngine extends EventEmitter {
   // Request headers for this download: browser session (cookies/referer/UA) if
   // captured, otherwise a sane default UA.
   buildHeaders(extra = {}) {
-    return {
+    const headers = {
       'User-Agent': DEFAULT_UA,
       ...this.headers,
       ...extra
     };
+    if (this.referer && !headers['Referer'] && !headers['referer']) {
+      headers['Referer'] = this.referer;
+    }
+    return headers;
     // NOT: site girişi (Basic auth) artık her yönlendirme hop'unda hedef adrese
     // göre `authFor` ile eklenir — bkz. utils/http.js.
   }
@@ -235,7 +240,7 @@ export class DownloadEngine extends EventEmitter {
     const baseHeaders = { 'User-Agent': DEFAULT_UA, ...(extraHeaders || {}) };
     const common = {
       headers: baseHeaders,
-      agentFactory: () => proxyAgent(),
+      agentFactory: (u) => proxyAgent(u),
       authFor: (u) => authHeaderFor(u),
       timeoutMs: 8000
     };
@@ -455,7 +460,7 @@ export class DownloadEngine extends EventEmitter {
       ({ res, finalUrl } = await requestFollowingRedirects(this.resolvedUrl || this.url, {
         method: 'GET',
         headers,
-        agentFactory: () => proxyAgent(),
+        agentFactory: (u) => proxyAgent(u),
         authFor: (u) => authHeaderFor(u),
         timeoutMs: connectionTimeoutMs(),
         controller
@@ -473,6 +478,9 @@ export class DownloadEngine extends EventEmitter {
       if (idx !== -1) this.activeRequests.splice(idx, 1);
       res.on('error', () => {});
       res.resume();
+      if (res.statusCode === 403 || res.statusCode === 410) {
+        this.emit('link-expired', { id: this.id, referer: this.headers?.Referer || this.headers?.referer || this.referer });
+      }
       throw new Error(`Server responded with status code ${res.statusCode}`);
     }
 
@@ -808,9 +816,21 @@ export class DownloadEngine extends EventEmitter {
     }
   }
 
+  getEffectiveSpeedLimitKbps() {
+    if (this.speedLimitKbps > 0) return this.speedLimitKbps;
+    if (this.queueId) {
+      try {
+        const q = storageService.getQueues().find((x) => x.id === this.queueId);
+        if (q && q.speedLimitKbps > 0) return q.speedLimitKbps;
+      } catch (e) {}
+    }
+    return 0;
+  }
+
   engineConsume(bytes, res) {
-    if (!this.speedLimitKbps || this.speedLimitKbps <= 0) return;
-    const limit = this.speedLimitKbps * 1024;
+    const limitKbps = this.getEffectiveSpeedLimitKbps();
+    if (!limitKbps || limitKbps <= 0) return;
+    const limit = limitKbps * 1024;
     const now = Date.now();
     if (!this._bw) {
       this._bw = { bytes: 0, windowStart: now, paused: new Set(), timer: null };
@@ -832,7 +852,8 @@ export class DownloadEngine extends EventEmitter {
         const delay = Math.max(5, 1000 - (now - bw.windowStart) + 5);
         bw.timer = setTimeout(() => {
           bw.timer = null;
-          bw.bytes = Math.max(0, bw.bytes - (this.speedLimitKbps * 1024));
+          const curLimit = this.getEffectiveSpeedLimitKbps();
+          bw.bytes = Math.max(0, bw.bytes - (curLimit * 1024));
           bw.windowStart = Date.now();
           bw.paused.forEach((s) => { try { s.resume(); } catch (e) {} });
           bw.paused.clear();
@@ -869,6 +890,7 @@ export class DownloadEngine extends EventEmitter {
       saveDir: this.saveDir,
       savePath: this.savePath,
       category: storageService.getCategoryForFilename(this.filename),
+      referer: this.referer || (this.headers && (this.headers.Referer || this.headers.referer)) || null,
       totalSize: this.totalSize,
       downloadedBytes: this.totalSize > 0 ? Math.min(this.downloadedBytes, this.totalSize) : this.downloadedBytes,
       status: this.status,

@@ -394,6 +394,7 @@ export default {
   virus_alert_detected: 'DİKKAT: "{file}" dosyasında zararlı yazılım ({threat}) tespit edildi!',
   sec_antivirus: 'Antivirüs & Defender Koruması',
   chk_antivirus_enable: 'İndirme tamamlandığında dosyayı otomatik antivirüsle tara',
+  chk_telemetry_enable: 'Anonim Hata Raporlama ve Çökme Telemetrisi',
   antivirus_note: 'Varsayılan olarak sistemdeki Windows Defender (MpCmdRun.exe) kullanılır. Dilerseniz özel bir tarayıcı belirleyebilirsiniz.',
   lbl_antivirus_path: 'Özel Antivirüs Yolu (Boş bırakılırsa Windows Defender kullanılır):',
   nav_batch: 'Toplu İndirme',

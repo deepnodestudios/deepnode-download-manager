@@ -398,6 +398,7 @@ export default {
   virus_alert_detected: "CẢNH BÁO: Phát hiện mã độc ({threat}) trong \"{file}\"!",
   sec_antivirus: "Bảo vệ bằng diệt virus & Windows Defender",
   chk_antivirus_enable: "Tự động quét virus khi tải xong tập tin",
+  chk_telemetry_enable: "Báo cáo lỗi & sự cố ẩn danh",
   antivirus_note: "Mặc định sử dụng Windows Defender (MpCmdRun.exe). Bạn cũng có thể chỉ định chương trình quét virus khác.",
   lbl_antivirus_path: "Đường dẫn phần mềm diệt virus (để trống nếu dùng Windows Defender):",
   nav_batch: "Tải hàng loạt",

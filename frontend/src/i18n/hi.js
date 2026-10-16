@@ -398,6 +398,7 @@ export default {
   virus_alert_detected: "चेतावनी: \"{file}\" में मैलवेयर ({threat}) पाया गया!",
   sec_antivirus: "एंटीवायरस और Defender सुरक्षा",
   chk_antivirus_enable: "डाउनलोड पूरा होने पर एंटीवायरस से फ़ाइलों को स्कैन करें",
+  chk_telemetry_enable: "गुमनाम त्रुटि और क्रैश रिपोर्टिंग",
   antivirus_note: "डिफ़ॉल्ट रूप से Windows Defender (MpCmdRun.exe) का उपयोग करता है। आप कोई अन्य एंटीवायरस भी चुन सकते हैं।",
   lbl_antivirus_path: "कस्टम एंटीवायरस पथ (Windows Defender के लिए खाली छोड़ें):",
   nav_batch: "बैच डाउनलोड",

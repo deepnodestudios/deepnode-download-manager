@@ -14,9 +14,13 @@ export default function ChunkProgressModal({ download, onClose, onStart, onPause
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const percentTotal = download.totalSize > 0
-    ? Math.round((download.downloadedBytes / download.totalSize) * 100)
-    : 0;
+  const percentTotal = download.status === 'completed'
+    ? 100
+    : (typeof download.percent === 'number' && !isNaN(download.percent)
+        ? Math.min(100, Math.max(0, Math.round(download.percent)))
+        : (download.totalSize > 0
+            ? Math.round((download.downloadedBytes / download.totalSize) * 100)
+            : 0));
 
   return (
     <div className="modal-overlay">
@@ -117,11 +121,11 @@ export default function ChunkProgressModal({ download, onClose, onStart, onPause
             <button className="btn btn-warning" onClick={() => onPause(download.id)}>
               <Pause size={16} /> {t('ctx_pause')}
             </button>
-          ) : (
+          ) : (download.status === 'paused' || download.status === 'error') ? (
             <button className="btn btn-success" onClick={() => onStart(download.id)}>
               <Play size={16} /> {t('ctx_start')}
             </button>
-          )}
+          ) : null}
           <button className="btn btn-secondary" onClick={onClose}>{t('btn_close')}</button>
         </div>
       </div>

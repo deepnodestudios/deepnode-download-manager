@@ -51,7 +51,10 @@ export default function AboutModal({ isOpen, onClose }) {
           const p = msg.payload;
           setDlStatus(p.status);
           setDlProgress(p.progress || 0);
-          if (p.error) setDlError(p.error);
+          if (p.error) {
+            setDlError(p.error);
+            installTriggeredRef.current = false;
+          }
           // Auto-install when download completes (guard: only once per session,
           // "ready" birden fazla yayınlanırsa kurulum iki kez başlamasın)
           if (p.status === 'ready' && !installTriggeredRef.current) {
@@ -67,6 +70,7 @@ export default function AboutModal({ isOpen, onClose }) {
   const checkUpdate = async () => {
     setUpdateState('checking');
     setUpdateData(null);
+    installTriggeredRef.current = false;
     try {
       const res = await fetch('/api/update/check');
       const data = await res.json();
@@ -85,20 +89,23 @@ export default function AboutModal({ isOpen, onClose }) {
     setDlStatus('downloading');
     setDlProgress(0);
     setDlError(null);
+    installTriggeredRef.current = false;
     try {
       const res = await fetch('/api/update/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: updateData.downloadUrl })
+        body: JSON.stringify({ url: updateData.downloadUrl, sha256: updateData.sha256 || undefined })
       });
       const data = await res.json();
       if (data.error) {
         setDlStatus('error');
         setDlError(data.error);
+        installTriggeredRef.current = false;
       }
     } catch (e) {
       setDlStatus('error');
       setDlError(t('err_dl_start'));
+      installTriggeredRef.current = false;
     }
   };
 

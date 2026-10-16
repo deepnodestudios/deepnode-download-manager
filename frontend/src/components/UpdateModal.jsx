@@ -12,6 +12,9 @@ export default function UpdateModal({ isOpen, onClose, updateData, currentVersio
   const wsRef = useRef(null);
   const installTriggeredRef = useRef(false);
 
+  const dlStatusRef = useRef(dlStatus);
+  useEffect(() => { dlStatusRef.current = dlStatus; }, [dlStatus]);
+
   // WebSocket ve Polling ile indirme ilerlemesini dinle
   useEffect(() => {
     if (!isOpen) return;
@@ -25,7 +28,10 @@ export default function UpdateModal({ isOpen, onClose, updateData, currentVersio
           if (p.status && p.status !== 'idle') {
             setDlStatus(p.status);
             setDlProgress(p.progress || 0);
-            if (p.error) setDlError(p.error);
+            if (p.error) {
+              setDlError(p.error);
+              installTriggeredRef.current = false;
+            }
             if (p.status === 'ready' && !installTriggeredRef.current) {
               installTriggeredRef.current = true;
               triggerInstall();
@@ -37,7 +43,7 @@ export default function UpdateModal({ isOpen, onClose, updateData, currentVersio
 
     checkStatus();
     const pollInterval = setInterval(() => {
-      if (dlStatus === 'downloading') {
+      if (dlStatusRef.current === 'downloading') {
         checkStatus();
       }
     }, 1000);
@@ -56,7 +62,10 @@ export default function UpdateModal({ isOpen, onClose, updateData, currentVersio
             const p = msg.payload;
             setDlStatus(p.status);
             setDlProgress(p.progress || 0);
-            if (p.error) setDlError(p.error);
+            if (p.error) {
+              setDlError(p.error);
+              installTriggeredRef.current = false;
+            }
             if (p.status === 'ready' && !installTriggeredRef.current) {
               installTriggeredRef.current = true;
               triggerInstall();
@@ -73,27 +82,30 @@ export default function UpdateModal({ isOpen, onClose, updateData, currentVersio
       }
       wsRef.current = null;
     };
-  }, [isOpen, dlStatus]);
+  }, [isOpen]);
 
   const startDownload = async () => {
     if (!updateData?.downloadUrl) return;
     setDlStatus('downloading');
     setDlProgress(0);
     setDlError(null);
+    installTriggeredRef.current = false;
     try {
       const res = await fetch('/api/update/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: updateData.downloadUrl })
+        body: JSON.stringify({ url: updateData.downloadUrl, sha256: updateData.sha256 || undefined })
       });
       const data = await res.json();
       if (data.error) {
         setDlStatus('error');
         setDlError(data.error);
+        installTriggeredRef.current = false;
       }
     } catch (e) {
       setDlStatus('error');
       setDlError(t('err_download'));
+      installTriggeredRef.current = false;
     }
   };
 
@@ -149,7 +161,7 @@ export default function UpdateModal({ isOpen, onClose, updateData, currentVersio
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                 <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textDecoration: 'line-through' }}>
-                  v{currentVersion || updateData.current || '1.5.5'}
+                  v{currentVersion || updateData.current || '—'}
                 </span>
                 <ArrowRight size={14} color="var(--primary)" />
                 <span style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text-strong)' }}>
@@ -229,7 +241,7 @@ export default function UpdateModal({ isOpen, onClose, updateData, currentVersio
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text)' }}>
                 <span>{t('downloading_pct', { n: dlProgress }) || `İndiriliyor... %${dlProgress}`}</span>
-                <span>%{dlProgress}</span>
+                <span>{t('pct', { n: dlProgress }) || `${dlProgress}%`}</span>
               </div>
               <div className="progress-bar-wrap" style={{ height: '8px' }}>
                 <div

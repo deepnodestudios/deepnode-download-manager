@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/node';
+import storageService from './services/StorageService.js';
 
 const DEFAULT_DSN = 'https://0539cc69af07f295b1a95145be9fab8a@o4512196697128960.ingest.de.sentry.io/4512196703420496';
 
@@ -8,10 +9,10 @@ let initialized = false;
  * Initializes Sentry for Node / Electron Main / Backend environments.
  * @param {Object} options
  * @param {string} [options.processName='backend'] - e.g. 'electron-main' or 'backend'
- * @param {string} [options.appVersion='1.5.8']
+ * @param {string} [options.appVersion='1.5.9']
  * @param {string|null} [options.anonymousId=null]
  */
-export function initSentry({ processName = 'backend', appVersion = '1.5.8', anonymousId = null } = {}) {
+export function initSentry({ processName = 'backend', appVersion = '1.5.9', anonymousId = null } = {}) {
   if (initialized || Sentry.isInitialized()) {
     Sentry.setTag('process', processName);
     if (anonymousId) {
@@ -34,10 +35,19 @@ export function initSentry({ processName = 'backend', appVersion = '1.5.8', anon
       environment: process.env.NODE_ENV || 'production',
       tracesSampleRate: 0.1,
       beforeSend(event) {
+        if (storageService.settings && storageService.settings.telemetryEnabled === false) {
+          return null;
+        }
         // Sanitize sensitive fields if present in error context
         if (event.request?.headers) {
           delete event.request.headers['cookie'];
           delete event.request.headers['authorization'];
+        }
+        return event;
+      },
+      beforeSendTransaction(event) {
+        if (storageService.settings && storageService.settings.telemetryEnabled === false) {
+          return null;
         }
         return event;
       }

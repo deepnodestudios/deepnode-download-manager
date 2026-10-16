@@ -28,7 +28,7 @@
 - **Gerçek zamanlı istatistik** — canlı hız grafiği ve parça (chunk) bazında ilerleme göstergesi.
 - **Karanlık / aydınlık tema** — sistem tercihinizi takip eden modern arayüz.
 - **Yerleşik güncelleme kontrolü** — yeni sürüm çıktığında haberdar olun.
-- **Tasarımı gereği özel** — reklam yok, telemetri yok; tüm veriler bilgisayarınızda kalır.
+- **Tasarımı gereği özel** — reklam yok, kişisel veri takibi yok; anonim hata ve çökme telemetrisi Ayarlar'dan dilediğiniz zaman kapatılabilir. Tüm veriler bilgisayarınızda kalır.
 
 ## İndirme
 

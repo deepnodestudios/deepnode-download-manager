@@ -28,7 +28,7 @@
 - **Real-time statistics** — live speed graph and per-chunk progress indicators.
 - **Dark / light theme** — modern UI that follows your system preference.
 - **Built-in update checker** — always know when a new release is out.
-- **Private by design** — no ads, no telemetry; everything is stored locally.
+- **Private by design** — no ads, no personal data tracking; anonymous error & crash telemetry can be easily disabled in Settings. Everything is stored locally.
 
 ## Download
 

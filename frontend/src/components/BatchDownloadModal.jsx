@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Layers, Plus, Folder, Play, Pause, CheckSquare, Square, Wand2, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useT } from '../i18n';
 import { selectFolder } from '../native';
@@ -20,20 +20,27 @@ export default function BatchDownloadModal({ isOpen, onClose, onAddBatch, settin
   const [saveDir, setSaveDir] = useState('');
   const [autoStart, setAutoStart] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
-    if (!isOpen) return;
-    const defaultDir = settings?.downloadDir || '';
-    setSaveDir(defaultDir);
-    setAutoStart(settings?.autoStartDownloads ?? true);
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      return;
+    }
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = true;
+      const defaultDir = settings?.downloadDir || '';
+      setSaveDir(defaultDir);
+      setAutoStart(settings?.autoStartDownloads ?? true);
 
-    if (Array.isArray(initialUrls) && initialUrls.length > 0) {
-      setPasteText(initialUrls.join('\n'));
-      parseUrlsFromText(initialUrls.join('\n'));
-      setMode('paste');
-    } else {
-      setPasteText('');
-      setItems([]);
+      if (Array.isArray(initialUrls) && initialUrls.length > 0) {
+        setPasteText(initialUrls.join('\n'));
+        parseUrlsFromText(initialUrls.join('\n'));
+        setMode('paste');
+      } else {
+        setPasteText('');
+        setItems([]);
+      }
     }
   }, [isOpen, initialUrls, settings]);
 

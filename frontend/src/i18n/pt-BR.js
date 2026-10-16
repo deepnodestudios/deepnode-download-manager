@@ -398,6 +398,7 @@ export default {
   virus_alert_detected: "ATENÇÃO: Malware ({threat}) detectado em \"{file}\"!",
   sec_antivirus: "Proteção antivírus e Windows Defender",
   chk_antivirus_enable: "Verificar arquivos baixados com antivírus ao concluir",
+  chk_telemetry_enable: "Relatórios anônimos de erros e falhas",
   antivirus_note: "Utiliza o Windows Defender (MpCmdRun.exe) por padrão. Você também pode indicar um antivírus personalizado.",
   lbl_antivirus_path: "Caminho do antivírus personalizado (deixe em branco para o Windows Defender):",
   nav_batch: "Download em lote",

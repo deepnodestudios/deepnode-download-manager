@@ -22,6 +22,39 @@ export function isValidVideoUrl(url) {
   }
 }
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.join(os.homedir(), '.deepnode');
+const isWin = process.platform === 'win32';
+
+export function createTempConfigFile(url) {
+  const lines = [];
+  const px = proxyUrl();
+  if (px) {
+    lines.push('--proxy');
+    lines.push(px);
+  }
+  const login = siteLoginFor(url);
+  if (login) {
+    lines.push('--username');
+    lines.push(login.user);
+    if (login.pass) {
+      lines.push('--password');
+      lines.push(login.pass);
+    }
+  }
+  if (!lines.length) return null;
+
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    const confName = `.ytdlp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.conf`;
+    const confPath = path.join(DATA_DIR, confName);
+    fs.writeFileSync(confPath, lines.join('\n') + '\n', { encoding: 'utf8', mode: 0o600 });
+    return confPath;
+  } catch (err) {
+    return null;
+  }
+}
+
 function networkArgs(url) {
   const args = [];
   const px = proxyUrl();
@@ -41,10 +74,6 @@ function cookieBrowserArgs() {
   const b = (process.env.DDM_COOKIES_BROWSER ?? 'chrome').trim();
   return b ? ['--cookies-from-browser', b] : [];
 }
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(os.homedir(), '.deepnode');
-const isWin = process.platform === 'win32';
 
 // Force yt-dlp to emit UTF-8 so Turkish characters (ı, ş, ğ, ç...) aren't mangled
 const YTDLP_ENV = { 
@@ -214,28 +243,45 @@ function download(url, dest, redirects = 0) {
     } catch (err) {
       return reject(err);
     }
-    const cleanup = () => { try { file.close(); } catch (e) {} try { fs.unlinkSync(tmp); } catch (e) {} };
+    let isCleaned = false;
+    const cleanup = () => {
+      if (isCleaned) return;
+      isCleaned = true;
+      try { file.close(); } catch (e) {}
+      try { fs.unlinkSync(tmp); } catch (e) {}
+    };
 
     file.on('error', (err) => { cleanup(); reject(err); });
 
     const req = https.get(url, { headers: { 'User-Agent': 'DeepNode/1.0' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         cleanup();
-        return resolve(download(res.headers.location, dest, redirects + 1));
+        let nextUrl = res.headers.location;
+        try { nextUrl = new URL(res.headers.location, url).href; } catch (e) {}
+        return resolve(download(nextUrl, dest, redirects + 1));
       }
       if (res.statusCode !== 200) {
         cleanup();
         return reject(new Error('HTTP ' + res.statusCode));
       }
+      const totalSize = parseInt(res.headers['content-length'] || '0', 10);
+      let downloaded = 0;
+      res.on('data', (chunk) => { downloaded += chunk.length; });
+      res.on('error', (err) => { cleanup(); reject(err); });
+
       res.pipe(file);
       file.on('finish', () => {
         file.close(() => {
+          if (totalSize > 0 && downloaded < totalSize) {
+            cleanup();
+            return reject(new Error(`Truncated download (${downloaded}/${totalSize})`));
+          }
           try {
             try { fs.unlinkSync(dest); } catch (e) {}
             fs.renameSync(tmp, dest);
             resolve(dest);
           } catch (err) {
-            try { fs.unlinkSync(tmp); } catch (e) {}
+            cleanup();
             reject(err);
           }
         });
@@ -287,7 +333,11 @@ export async function autoUpdateYtDlp(force = false) {
   // Yazılabilir ikiliyi yerinde güncelle (-U). Başarısız olursa GitHub'dan taze indir.
   await new Promise((resolve) => {
     let done = false;
-    const finish = () => { if (!done) { done = true; resolve(); } };
+    let killTimer = null;
+    const finish = () => {
+      if (killTimer) { clearTimeout(killTimer); killTimer = null; }
+      if (!done) { done = true; resolve(); }
+    };
     try {
       const p = spawn(bin, ['-U'], { windowsHide: true, env: YTDLP_ENV });
       const decoder = new StringDecoder('utf-8');
@@ -308,7 +358,8 @@ export async function autoUpdateYtDlp(force = false) {
         }
         finish();
       });
-      setTimeout(() => { try { p.kill(); } catch (e) {} finish(); }, 90000);
+      killTimer = setTimeout(() => { try { p.kill(); } catch (e) {} finish(); }, 90000);
+      if (killTimer.unref) killTimer.unref();
     } catch (e) { finish(); }
   });
 }
@@ -352,8 +403,15 @@ function runYtDlpJson(bin, url, extraArgs, timeoutMs) {
       return reject(new Error('Invalid video URL'));
     }
     const cleanUrl = url.trim();
-    const args = ['-J', '--no-playlist', '--no-warnings', '--encoding', 'utf-8', '--socket-timeout', '20', ...networkArgs(cleanUrl), ...extraArgs, '--', cleanUrl];
+    const confPath = createTempConfigFile(cleanUrl);
+    const netArgs = confPath ? ['--config-locations', confPath] : networkArgs(cleanUrl);
+    const args = ['-J', '--no-playlist', '--no-warnings', '--encoding', 'utf-8', '--socket-timeout', '20', ...netArgs, ...extraArgs, '--', cleanUrl];
     const p = spawn(bin, args, { windowsHide: true, env: YTDLP_ENV });
+    const cleanupConf = () => {
+      if (confPath) {
+        try { if (fs.existsSync(confPath)) fs.unlinkSync(confPath); } catch (e) {}
+      }
+    };
     const stdoutDecoder = new StringDecoder('utf-8');
     const stderrDecoder = new StringDecoder('utf-8');
     let out = '';
@@ -363,13 +421,18 @@ function runYtDlpJson(bin, url, extraArgs, timeoutMs) {
     const timer = setTimeout(() => { try { p.kill(); } catch (e) {} }, timeoutMs);
     p.on('close', (code) => {
       clearTimeout(timer);
+      cleanupConf();
       if (code !== 0) {
         const line = err.split('\n').find((l) => /ERROR/i.test(l));
         return reject(new Error(line || ('yt-dlp exit code ' + code)));
       }
       try { resolve(JSON.parse(out)); } catch (e) { reject(new Error('Could not parse yt-dlp output')); }
     });
-    p.on('error', (e) => { clearTimeout(timer); reject(e); });
+    p.on('error', (e) => {
+      clearTimeout(timer);
+      cleanupConf();
+      reject(e);
+    });
   });
 }
 
@@ -655,8 +718,8 @@ export async function ensureFfmpeg(onProgress) {
     ffmpegReady = DATA_DIR;
     return ffmpegReady;
   } catch (err) {
-    ffmpegReady = null;
-    return ffmpegReady;
+    ffmpegReady = undefined;
+    return null;
   }
 }
 
@@ -674,6 +737,8 @@ export class VideoDownloader extends EventEmitter {
     this.id = item.id;
     this.url = item.url;
     this.filename = item.filename || null;
+    this.customFilename = Boolean(item.customFilename);
+    this._confPath = null;
     this.quality = item.quality || 'best';
     this.referer = item.referer || null; // akış yakalama: CDN Referer isteyebilir
     this.priority = item.priority || 'normal';
@@ -760,7 +825,7 @@ export class VideoDownloader extends EventEmitter {
       try { vinfo = await getVideoInfo(this.url, this.referer); } catch (e) {}
 
       // Resolve real video title if missing, placeholder or a generic site name
-      if (vinfo && vinfo.title && (!this.filename || this.filename === 'Fetching video info…' ||
+      if (!this.customFilename && vinfo && vinfo.title && (!this.filename || this.filename === 'Fetching video info…' ||
           this.filename === 'Video Download' || this.filename.includes('…') ||
           isGenericVideoTitle(this.filename, this.url))) {
         const hStr = this.quality && this.quality !== 'best' && this.quality !== 'audio' ? ` [${this.quality}p]` : '';
@@ -854,7 +919,9 @@ export class VideoDownloader extends EventEmitter {
     }
     const outName = q === 'audio'
       ? (providedBase ? `${providedBase}.%(ext)s` : '%(title)s.%(ext)s')
-      : (providedBase ? `${providedBase} [%(height)sp].%(ext)s` : '%(title)s [%(height)sp].%(ext)s');
+      : (this.customFilename && providedBase
+          ? `${providedBase}.%(ext)s`
+          : (providedBase ? `${providedBase} [%(height)sp].%(ext)s` : '%(title)s [%(height)sp].%(ext)s'));
     const outTemplate = path.join(this.saveDir, outName);
 
     const args = [
@@ -865,7 +932,6 @@ export class VideoDownloader extends EventEmitter {
       '--newline',
       '--no-color',
       '--continue',
-      '--force-overwrites',
       '--no-mtime',
       // %100'de takılma ve Ses/Görüntü Senkronizasyonu (Lip-Sync) düzeltmesi:
       '--socket-timeout', '30',
@@ -881,8 +947,23 @@ export class VideoDownloader extends EventEmitter {
       '--concurrent-fragments', '2',
       '--progress-template', 'download:OMNI|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s'
     ];
-    args.push(...networkArgs(this.url)); // proxy / site girişi
-    const effectiveLimit = this.speedLimitKbps > 0 ? this.speedLimitKbps : (storageService.settings.globalSpeedLimitKbps || 0);
+    const confPath = createTempConfigFile(this.url);
+    if (confPath) {
+      this._confPath = confPath;
+      args.push('--config-locations', confPath);
+    } else {
+      args.push(...networkArgs(this.url)); // proxy / site girişi fallback
+    }
+    let effectiveLimit = this.speedLimitKbps > 0 ? this.speedLimitKbps : 0;
+    if (effectiveLimit <= 0 && this.queueId) {
+      try {
+        const q = storageService.getQueues().find((x) => x.id === this.queueId);
+        if (q && q.speedLimitKbps > 0) effectiveLimit = q.speedLimitKbps;
+      } catch (e) {}
+    }
+    if (effectiveLimit <= 0) {
+      effectiveLimit = storageService.settings.globalSpeedLimitKbps || 0;
+    }
     if (effectiveLimit > 0) {
       args.push('--limit-rate', `${effectiveLimit}K`);
     }
@@ -979,6 +1060,10 @@ export class VideoDownloader extends EventEmitter {
 
     this.proc.on('close', (code) => {
       this.proc = null;
+      if (this._confPath) {
+        try { if (fs.existsSync(this._confPath)) fs.unlinkSync(this._confPath); } catch (e) {}
+        this._confPath = null;
+      }
       if (this._stallTimer) { clearInterval(this._stallTimer); this._stallTimer = null; }
       if (this.status === 'paused' || this.status === 'canceled') return;
       if (code === 0) {
@@ -1043,6 +1128,11 @@ export class VideoDownloader extends EventEmitter {
   }
 
   cleanup() {
+    if (this._confPath) {
+      try { if (fs.existsSync(this._confPath)) fs.unlinkSync(this._confPath); } catch (e) {}
+      this._confPath = null;
+    }
+
     // 1. Force kill yt-dlp & child processes (ffmpeg) on Windows
     if (this.proc) {
       try {
@@ -1091,12 +1181,14 @@ export class VideoDownloader extends EventEmitter {
           // parçalarını da yok ediyordu. Artık ad öneki bilinmiyorsa yalnızca
           // bu indirmenin kendi kaydettiği dosyalar (createdFiles/savePath)
           // temizlenir; klasör taraması yapılmaz.
-          if (titlePrefix) {
+          if (titlePrefix && titlePrefix.length >= 4) {
+            const escaped = titlePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const prefixRe = new RegExp(`^${escaped}(\\s*\\[|\\s*-|\\.|$)`, 'i');
             files.forEach(f => {
               const fullPath = path.join(this.saveDir, f);
               const isPartialFile = f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.tmp') || f.includes('.temp.') || /\.f\d+\./.test(f);
 
-              if (isPartialFile && f.startsWith(titlePrefix)) {
+              if (isPartialFile && prefixRe.test(f)) {
                 deleteTargetFile(fullPath);
               }
             });
@@ -1210,8 +1302,13 @@ export class VideoDownloader extends EventEmitter {
     }
 
     if (/^ERROR:/i.test(line) || /HTTP Error (404|403)/i.test(line)) {
-      if (/404|403|Forbidden|Not Found|Expired/i.test(line)) {
+      if (/cookie|decrypt|dpapi/i.test(line)) {
+        this.errorMsg = line.replace(/^ERROR:\s*/, '').slice(0, 300);
+      } else if (/404|403|Forbidden|Not Found|Expired/i.test(line)) {
         this.errorMsg = 'Bağlantı süresi doldu (404/403). İndirme adresini yenileyin.';
+        if (this.referer) {
+          this.emit('link-expired', { id: this.id, referer: this.referer });
+        }
       } else {
         this.errorMsg = line.replace(/^ERROR:\s*/, '').slice(0, 300);
       }
@@ -1263,6 +1360,7 @@ export class VideoDownloader extends EventEmitter {
       kind: 'video',
       url: this.url,
       filename: this.filename,
+      customFilename: this.customFilename || undefined,
       quality: this.quality,
       referer: this.referer,
       priority: this.priority,

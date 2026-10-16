@@ -398,6 +398,7 @@ export default {
   virus_alert_detected: "경고: \"{file}\" 파일에서 악성코드 ({threat}) 감지됨!",
   sec_antivirus: "바이러스 백신 및 Defender 보호",
   chk_antivirus_enable: "다운로드 완료 후 바이러스 백신으로 파일 자동 검사",
+  chk_telemetry_enable: "익명 오류 및 충돌 보고",
   antivirus_note: "기본적으로 Windows Defender (MpCmdRun.exe)를 사용합니다. 다른 백신 프로그램을 지정할 수도 있습니다.",
   lbl_antivirus_path: "사용자 지정 백신 경로 (비워두면 Windows Defender 사용):",
   nav_batch: "일괄 다운로드",

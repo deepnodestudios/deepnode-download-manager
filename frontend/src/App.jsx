@@ -15,7 +15,7 @@ import AboutModal from './components/AboutModal';
 import UpdateModal from './components/UpdateModal';
 import { I18nProvider, translate, resolveLanguage } from './i18n';
 import { closeWindow, bringToFront, openExternal } from './native';
-import { setAnonymousUser } from './sentry';
+import { setAnonymousUser, setTelemetryEnabled } from './sentry';
 import { ListOrdered } from 'lucide-react';
 
 export default function App() {
@@ -117,8 +117,11 @@ export default function App() {
         .then(res => res.json())
         .then(data => {
           setSettings(data || {});
-          if (data?.anonymousId) {
-            setAnonymousUser(data.anonymousId);
+          if (data) {
+            setTelemetryEnabled(data.telemetryEnabled !== false);
+            if (data.anonymousId) {
+              setAnonymousUser(data.anonymousId);
+            }
           }
         })
         .catch(err => console.error('Failed to fetch settings:', err));
@@ -178,8 +181,11 @@ export default function App() {
           setDownloads(payload.downloads || []);
           setSettings(payload.settings || {});
           if (payload.queues) setQueues(payload.queues);
-          if (payload.settings?.anonymousId) {
-            setAnonymousUser(payload.settings.anonymousId);
+          if (payload.settings) {
+            setTelemetryEnabled(payload.settings.telemetryEnabled !== false);
+            if (payload.settings.anonymousId) {
+              setAnonymousUser(payload.settings.anonymousId);
+            }
           }
         } else if (type === 'PROGRESS') {
           setDownloads(prev => prev.map(item => {
@@ -190,6 +196,7 @@ export default function App() {
                 totalSize: payload.totalSize,
                 speed: payload.speed,
                 eta: payload.eta,
+                percent: payload.percent !== undefined ? payload.percent : item.percent,
                 segments: payload.segments
               };
             }
@@ -286,7 +293,7 @@ export default function App() {
   // Tarayıcıdaki eklenti eski sürümde mi? (eklenti 30 sn'de bir sunucuya
   // sürümünü bildirir; Chrome paketten yüklenen eklentiyi otomatik yenilemez)
   useEffect(() => {
-    if (isStandaloneAdd || standaloneProgressId) return;
+    if (isStandaloneAdd || standaloneProgressId || standaloneCompleteId) return;
     const check = () =>
       fetch('/api/extension/status')
         .then(res => res.json())
@@ -295,11 +302,11 @@ export default function App() {
     check();
     const timer = setInterval(check, 20000);
     return () => clearInterval(timer);
-  }, [isStandaloneAdd]);
+  }, [isStandaloneAdd, standaloneProgressId, standaloneCompleteId]);
 
   // Uygulama güncellemesi var mı? (açılışta bir kez + 6 saatte bir kontrol)
   useEffect(() => {
-    if (isStandaloneAdd || standaloneProgressId) return;
+    if (isStandaloneAdd || standaloneProgressId || standaloneCompleteId) return;
     const check = () =>
       fetch('/api/update/check')
         .then(res => res.json())
@@ -316,7 +323,7 @@ export default function App() {
     check();
     const timer = setInterval(check, 6 * 60 * 60 * 1000);
     return () => clearInterval(timer);
-  }, [isStandaloneAdd, standaloneProgressId]);
+  }, [isStandaloneAdd, standaloneProgressId, standaloneCompleteId]);
 
   // Global klavye kısayolları: Insert/Ctrl+N ekle, Ctrl+L yakalayıcı,
   // Ctrl+, ayarlar, F1 hakkında. Liste kısayolları (Del, Ctrl+A, Enter) DownloadList'te.
@@ -487,7 +494,10 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(Array.isArray(data) ? { items: data } : data)
         });
-        const resData = await res.json();
+        const resData = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(resData?.error || `HTTP ${res.status}`);
+        }
         alert(tt('import_success', { count: resData.count || 0 }));
       } else {
         const urls = text.match(/https?:\/\/[^\s"'<>]+/gi) || [];
@@ -733,8 +743,8 @@ export default function App() {
               await handleAddDownload(data);
               closeWindow();
             }}
-            onAddBatch={async (urls) => {
-              await handleAddBatch(urls);
+            onAddBatch={async (...args) => {
+              await handleAddBatch(...args);
               closeWindow();
             }}
             settings={settings}
@@ -900,6 +910,7 @@ export default function App() {
           onClose={() => setIsSnifferModalOpen(false)}
           onAddBatch={handleAddBatch}
           queues={queues}
+          autoStartDownloads={settings?.autoStartDownloads ?? true}
         />
 
         <SettingsModal

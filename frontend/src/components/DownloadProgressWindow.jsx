@@ -13,8 +13,8 @@ export default function DownloadProgressWindow({ download, settings }) {
   const formatBytes = (bytes) => {
     if (!bytes || bytes <= 0) return '0 B';
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
@@ -46,9 +46,11 @@ export default function DownloadProgressWindow({ download, settings }) {
   const percent = download
     ? (download.status === 'completed'
         ? 100
-        : (download.totalSize > 0
-            ? Math.min(100, Math.round((download.downloadedBytes / download.totalSize) * 100))
-            : 0))
+        : (typeof download.percent === 'number' && !isNaN(download.percent)
+            ? Math.min(100, Math.max(0, Math.round(download.percent)))
+            : (download.totalSize > 0
+                ? Math.min(100, Math.round((download.downloadedBytes / download.totalSize) * 100))
+                : 0)))
     : 0;
 
   // Görev çubuğunda ilerleme görünsün: "45% - dosya.zip"

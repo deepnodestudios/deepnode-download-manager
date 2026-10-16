@@ -398,6 +398,7 @@ export default {
   virus_alert_detected: "警告: \"{file}\" にマルウェア ({threat}) が検出されました!",
   sec_antivirus: "ウイルス対策と Defender 保護",
   chk_antivirus_enable: "ダウンロード完了時にウイルス対策スキャンを実行",
+  chk_telemetry_enable: "匿名の致命的エラーおよびクラッシュ報告",
   antivirus_note: "デフォルトで Windows Defender (MpCmdRun.exe) を使用します。独自のウイルス対策実行ファイルを指定することも可能です。",
   lbl_antivirus_path: "カスタムウイルス対策パス（空欄で Windows Defender 使用）:",
   nav_batch: "一括ダウンロード",

@@ -398,6 +398,7 @@ export default {
   virus_alert_detected: "ВНИМАНИЕ: В файле «{file}» обнаружена угроза ({threat})!",
   sec_antivirus: "Антивирусная защита и Windows Defender",
   chk_antivirus_enable: "Проверять файлы антивирусом по завершении загрузки",
+  chk_telemetry_enable: "Анонимные отчеты об ошибках и сбоях",
   antivirus_note: "По умолчанию используется встроенный Windows Defender (MpCmdRun.exe). Вы также можете указать путь к другой программе.",
   lbl_antivirus_path: "Путь к антивирусу (оставьте пустым для Windows Defender):",
   nav_batch: "Пакетная загрузка",

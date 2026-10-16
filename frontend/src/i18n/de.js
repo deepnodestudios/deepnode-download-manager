@@ -398,6 +398,7 @@ export default {
   virus_alert_detected: "WARNUNG: Schadsoftware ({threat}) in „{file}“ erkannt!",
   sec_antivirus: "Antivirus & Defender-Schutz",
   chk_antivirus_enable: "Heruntergeladene Dateien nach Fertigstellung mit Antivirus scannen",
+  chk_telemetry_enable: "Anonyme Fehler- und Absturzberichte",
   antivirus_note: "Verwendet standardmäßig Windows Defender (MpCmdRun.exe). Sie können auch ein anderes Antivirenprogramm angeben.",
   lbl_antivirus_path: "Pfad zum Antivirus-Scanner (leer lassen für Windows Defender):",
   nav_batch: "Stapel-Download",

@@ -21,14 +21,14 @@ export default function SchedulerModal({ isOpen, onClose, settings, onSaveSettin
       const sch = currentQ.scheduler || {};
       setSchedulerEnabled(sch.enabled ?? false);
       setScheduleStartTime(sch.startTime || '02:00');
-      setScheduleStopTime(sch.stopTime || '08:00');
+      setScheduleStopTime(sch.stopTime !== undefined ? sch.stopTime : '08:00');
       setScheduleDays(sch.days || [1, 2, 3, 4, 5, 6, 0]);
       setSchedulerAfterStop(sch.afterStop || 'nothing');
       setMaxConcurrentDownloads(currentQ.maxConcurrent ?? 3);
     } else if (settings) {
       setSchedulerEnabled(settings.schedulerEnabled ?? false);
       setScheduleStartTime(settings.scheduleStartTime || '02:00');
-      setScheduleStopTime(settings.scheduleStopTime || '08:00');
+      setScheduleStopTime(settings.scheduleStopTime !== undefined ? settings.scheduleStopTime : '08:00');
       setScheduleDays(settings.scheduleDays || [1, 2, 3, 4, 5, 6, 0]);
       setSchedulerAfterStop(settings.schedulerAfterStop || settings.afterAllComplete || 'nothing');
       setMaxConcurrentDownloads(settings.maxConcurrentDownloads ?? 3);

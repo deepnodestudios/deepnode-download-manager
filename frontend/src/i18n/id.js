@@ -398,6 +398,7 @@ export default {
   virus_alert_detected: "PERINGATAN: Malware ({threat}) terdeteksi di \"{file}\"!",
   sec_antivirus: "Proteksi Antivirus & Windows Defender",
   chk_antivirus_enable: "Pindai berkas dengan antivirus setelah unduhan selesai",
+  chk_telemetry_enable: "Laporan Kesalahan & Kerusakan Anonim",
   antivirus_note: "Secara default menggunakan Windows Defender (MpCmdRun.exe). Anda juga dapat menentukan pemindai antivirus lain.",
   lbl_antivirus_path: "Jalur Antivirus Khusus (biarkan kosong untuk Windows Defender):",
   nav_batch: "Unduhan Massal",

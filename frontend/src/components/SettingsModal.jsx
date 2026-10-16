@@ -1,14 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { X, Settings, Save, Filter, Sliders, RotateCcw, CheckCircle2, Puzzle, Globe, Clock, Lock, Plus, Trash2, Languages, FolderOpen, Folder, Shield } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Settings, Save, Filter, Sliders, RotateCcw, CheckCircle2, Puzzle, Globe, Clock, Lock, Plus, Trash2, Languages, FolderOpen, Folder, Shield, Activity } from 'lucide-react';
 import { useT } from '../i18n';
 import { selectFolder, openExternal } from '../native';
 
 const DEFAULT_CAPTURED = 'ZIP RAR 7Z TAR GZ ISO EXE MSI APK PDF DOCX XLSX PPTX MP4 MKV AVI MOV WEBM MP3 FLAC WAV';
-const DEFAULT_IGNORED = 'JS CSS HTML PHP TS JSON WOFF WOFF2 PNG JPG GIF SVG ICO XML TORRENT';
+const DEFAULT_IGNORED = 'JS CSS HTML PHP JSON WOFF WOFF2 PNG JPG GIF SVG ICO XML TORRENT';
 
 export default function SettingsModal({ isOpen, onClose, settings, onSaveSettings }) {
   const { t } = useT();
   const [activeTab, setActiveTab] = useState('general');
+  const wasOpenRef = useRef(false);
+  const [proxyPassEdited, setProxyPassEdited] = useState(false);
+  const [telemetryEnabled, setTelemetryEnabled] = useState(settings?.telemetryEnabled ?? true);
 
   // General settings
   const [downloadDir, setDownloadDir] = useState(settings?.downloadDir || '');
@@ -76,7 +79,13 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
   // her açıldığında kayıtlı ayarları state'lere yeniden yükle — aksi halde boş/
   // varsayılan değerler kayıtlı ayarların ÜZERİNE yazılır (ayar sıfırlanma hatası).
   useEffect(() => {
-    if (!isOpen || !settings) return;
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      return;
+    }
+    if (wasOpenRef.current) return;
+    wasOpenRef.current = true;
+    if (!settings) return;
     setDownloadDir(settings.downloadDir || '');
     setMaxConcurrentDownloads(settings.maxConcurrentDownloads ?? 3);
     setDefaultSegments(settings.defaultSegments ?? 8);
@@ -102,11 +111,13 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
     setVirusScannerPath(settings.virusScannerPath || '');
     setClipboardWatch(settings.clipboardWatch ?? true);
     setAutoUpdateYtDlp(settings.autoUpdateYtDlp ?? true);
+    setTelemetryEnabled(settings.telemetryEnabled ?? true);
     setProxyEnabled(settings.proxyEnabled ?? false);
     setProxyHost(settings.proxyHost || '');
     setProxyPort(settings.proxyPort ?? 8080);
     setProxyUser(settings.proxyUser || '');
-    setProxyPass(settings.proxyPass || '');
+    setProxyPass('');
+    setProxyPassEdited(false);
     setSiteLogins(settings.siteLogins || []);
     setSchedulerEnabled(settings.schedulerEnabled ?? false);
     setScheduleStartTime(settings.scheduleStartTime || '02:00');
@@ -129,51 +140,57 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onSaveSettings({
-      downloadDir: downloadDir.trim(),
-      maxConcurrentDownloads: Number(maxConcurrentDownloads),
-      defaultSegments: Number(defaultSegments),
-      globalSpeedLimitKbps: Number(globalSpeedLimitKbps),
-      theme,
-      language,
-      captureEnabled,
-      captureBypassKey,
-      launchOnStartup,
-      startMinimized,
-      minimizeToTrayOnClose,
-      useCategoryFolders,
-      categoryDirs,
-      autoStartDownloads,
-      duplicateAction,
-      maxRetries: Number(maxRetries),
-      connectionTimeoutSec: Number(connectionTimeoutSec),
-      notifyOnComplete,
-      soundNotifications,
-      showCompleteDialog,
-      confirmOnDelete,
-      afterAllComplete,
-      virusScanEnabled,
-      virusScannerPath: virusScannerPath.trim(),
-      clipboardWatch,
-      autoUpdateYtDlp,
-      proxyEnabled,
-      proxyHost: proxyHost.trim(),
-      proxyPort: Number(proxyPort) || 8080,
-      proxyUser: proxyUser.trim(),
-      proxyPass,
-      siteLogins,
-      schedulerEnabled,
-      scheduleStartTime,
-      scheduleStopTime,
-      scheduleDays,
-      schedulerAfterStop,
-      enableFileFiltering,
-      capturedExtensions: capturedExtensions.trim().toUpperCase(),
-      ignoredExtensions: ignoredExtensions.trim().toUpperCase()
-    });
-    onClose();
+    try {
+      await onSaveSettings({
+        downloadDir: downloadDir.trim(),
+        maxConcurrentDownloads: Number(maxConcurrentDownloads),
+        defaultSegments: Number(defaultSegments),
+        globalSpeedLimitKbps: Number(globalSpeedLimitKbps),
+        theme,
+        language,
+        captureEnabled,
+        captureBypassKey,
+        launchOnStartup,
+        startMinimized,
+        minimizeToTrayOnClose,
+        useCategoryFolders,
+        categoryDirs,
+        autoStartDownloads,
+        duplicateAction,
+        maxRetries: Number(maxRetries),
+        connectionTimeoutSec: Number(connectionTimeoutSec),
+        notifyOnComplete,
+        soundNotifications,
+        showCompleteDialog,
+        confirmOnDelete,
+        afterAllComplete,
+        virusScanEnabled,
+        virusScannerPath: virusScannerPath.trim(),
+        clipboardWatch,
+        autoUpdateYtDlp,
+        telemetryEnabled,
+        proxyEnabled,
+        proxyHost: proxyHost.trim(),
+        proxyPort: Number(proxyPort) || 8080,
+        proxyUser: proxyUser.trim(),
+        proxyPass,
+        proxyPassEdited,
+        siteLogins,
+        schedulerEnabled,
+        scheduleStartTime,
+        scheduleStopTime,
+        scheduleDays,
+        schedulerAfterStop,
+        enableFileFiltering,
+        capturedExtensions: capturedExtensions.trim().toUpperCase(),
+        ignoredExtensions: ignoredExtensions.trim().toUpperCase()
+      });
+      onClose();
+    } catch (err) {
+      console.error('Save settings failed:', err);
+    }
   };
 
   const browseDownloadDir = async () => {
@@ -555,6 +572,11 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                   <span>{t('chk_ytdlp_update')}</span>
                 </label>
 
+                <label className="dn-check" style={{ marginTop: '8px' }}>
+                  <input type="checkbox" checked={telemetryEnabled} onChange={(e) => setTelemetryEnabled(e.target.checked)} />
+                  <span>{t('chk_telemetry_enable') || 'Anonim Hata Raporlama ve Çökme Telemetrisi'}</span>
+                </label>
+
                 {/* --- Antivirüs / Güvenlik Taraması --- */}
                 <div className="section-sep" />
                 <div className="form-label section-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -685,8 +707,17 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
                   </div>
                   <div className="form-group">
                     <label className="form-label">{t('lbl_password')}</label>
-                    <input type="password" className="form-input" value={proxyPass}
-                           onChange={(e) => setProxyPass(e.target.value)} disabled={!proxyEnabled} />
+                    <input
+                      type="password"
+                      className="form-input"
+                      placeholder={settings?.proxyPassSet && !proxyPassEdited ? '••••••••' : ''}
+                      value={proxyPass}
+                      onChange={(e) => {
+                        setProxyPass(e.target.value);
+                        setProxyPassEdited(true);
+                      }}
+                      disabled={!proxyEnabled}
+                    />
                   </div>
                 </div>
 

@@ -3,6 +3,7 @@ import { DownloadEngine } from './DownloadEngine.js';
 import { VideoDownloader, isVideoSiteUrl, isStreamManifestUrl, getVideoInfo, isGenericVideoTitle } from './VideoDownloader.js';
 import { LinkSniffer } from './LinkSniffer.js';
 import { safeName } from '../utils/paths.js';
+import { sanitizeSettingsForBroadcast } from '../security.js';
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -122,6 +123,7 @@ class QueueManager {
       const videoReferer = referer || (headers && (headers.Referer || headers.referer)) || null;
 
       let videoTitle = customFilename;
+      const hasCustom = !!(customFilename && !isGenericVideoTitle(customFilename, url));
       // Eklentiden gelen ad "YouTube" gibi jenerik bir site adıysa gerçek başlığı sorgula
       if (!videoTitle || isGenericVideoTitle(videoTitle, url)) {
         try {
@@ -138,6 +140,7 @@ class QueueManager {
         id,
         url,
         filename: videoTitle ? safeName(videoTitle, 'Video Download') : 'Video Download',
+        customFilename: hasCustom,
         quality: quality || 'best',
         referer: videoReferer,
         saveDir,
@@ -149,7 +152,9 @@ class QueueManager {
       this.engines.set(id, engine);
       this.saveState();
       this.broadcast({ type: 'DOWNLOAD_ADDED', payload: engine.toSnapshot() });
-      this.checkQueue(queueId);
+      if (storageService.settings.autoStartDownloads !== false) {
+        this.checkQueue(queueId);
+      }
       return engine.toSnapshot();
     }
 
@@ -176,7 +181,7 @@ class QueueManager {
       downloadedBytes: 0,
       status: 'queued',
       queueId: queueId || 'main',
-      segmentsCount: segmentsCount || storageService.settings.defaultSegments,
+      segmentsCount: Math.max(1, Math.min(32, parseInt(segmentsCount, 10) || parseInt(storageService.settings.defaultSegments, 10) || 8)),
       preflight // Arka plan ön indirmesi: onaylanana dek arayüzde gizli
     };
 
@@ -187,7 +192,9 @@ class QueueManager {
 
     this.broadcast({ type: 'DOWNLOAD_ADDED', payload: engine.toSnapshot() });
 
-    this.checkQueue(queueId);
+    if (storageService.settings.autoStartDownloads !== false) {
+      this.checkQueue(queueId);
+    }
     return engine.toSnapshot();
   }
 
@@ -205,11 +212,24 @@ class QueueManager {
   }
 
   // "dosya.zip" varsa "dosya (1).zip", "dosya (2).zip" ... döndürür
-  uniqueFilename(dir, name) {
+  uniqueFilename(dir, name, excludeId = null) {
     try {
       if (!name) return name;
       const full = (n) => path.join(dir, n);
-      if (!fs.existsSync(full(name))) return name;
+      const isTaken = (n) => {
+        if (fs.existsSync(full(n))) return true;
+        const normDir = path.resolve(dir);
+        for (const engine of this.engines.values()) {
+          if (engine.id !== excludeId && engine.saveDir && path.resolve(engine.saveDir) === normDir) {
+            if (engine.filename && engine.filename.toLowerCase() === n.toLowerCase()) {
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+
+      if (!isTaken(name)) return name;
 
       const dot = name.lastIndexOf('.');
       const base = dot > 0 ? name.slice(0, dot) : name;
@@ -217,7 +237,7 @@ class QueueManager {
 
       for (let i = 1; i < 1000; i++) {
         const candidate = `${base} (${i})${ext}`;
-        if (!fs.existsSync(full(candidate))) return candidate;
+        if (!isTaken(candidate)) return candidate;
       }
       return `${base} (${Date.now()})${ext}`;
     } catch (e) {
@@ -258,7 +278,7 @@ class QueueManager {
   cancelDownload(id) {
     const engine = this.engines.get(id);
     if (!engine) return false;
-    if (engine.status === 'completed') return false;
+    if (engine.status === 'completed') return true;
 
     if (engine.preflight) {
       this.deleteDownload(id, true);
@@ -300,7 +320,7 @@ class QueueManager {
 
   pauseAll() {
     this.engines.forEach((engine) => {
-      if (engine.status === 'downloading') {
+      if (engine.status === 'downloading' || engine.status === 'queued' || engine.status === 'merging') {
         engine.pause();
       }
     });
@@ -318,20 +338,14 @@ class QueueManager {
     engine.resolvedUrl = null;
     if (newReferer !== undefined && newReferer !== null) {
       engine.referer = newReferer;
+      if (engine.headers) {
+        engine.headers.Referer = newReferer;
+      }
     }
 
     if (engine.status === 'error' || engine.status === 'paused') {
       engine.status = 'paused';
       engine.errorMsg = null;
-    }
-
-    // Süresi dolmuş token sebebiyle hata veren parçaları sıfırla ki yeni link ile sorunsuz devam etsin
-    if (Array.isArray(engine.segments)) {
-      engine.segments.forEach((s) => {
-        if (s.status === 'error') {
-          s.status = 'paused';
-        }
-      });
     }
 
     this.saveState();
@@ -398,9 +412,23 @@ class QueueManager {
   }
 
   checkQueue(targetQueueId = null) {
-    // "Eklenince otomatik başlat" kapalıysa kuyruktakiler kullanıcı başlatana kadar bekler
-    if (storageService.settings.autoStartDownloads === false) return;
     this._fillSlots(targetQueueId);
+  }
+
+  canStartMore(queueId = 'main') {
+    const qId = queueId || 'main';
+    const queues = storageService.getQueues();
+    const q = queues.find(x => x.id === qId) || { id: 'main', maxConcurrent: 3 };
+    const maxActive = qId === 'main'
+      ? (storageService.settings.maxConcurrentDownloads || q.maxConcurrent || 3)
+      : (q.maxConcurrent || storageService.settings.maxConcurrentDownloads || 3);
+    let activeCount = 0;
+    this.engines.forEach((engine) => {
+      if ((engine.queueId || 'main') === qId && (engine.status === 'downloading' || engine.status === 'merging')) {
+        activeCount++;
+      }
+    });
+    return activeCount < maxActive;
   }
 
   // Boş slotları önceliğe göre kuyruktakilerle doldurur.
@@ -465,11 +493,16 @@ class QueueManager {
   moveDownloadToQueue(id, targetQueueId) {
     const engine = this.engines.get(id);
     if (!engine) return null;
-    engine.queueId = targetQueueId || 'main';
+    const targetQ = targetQueueId || 'main';
+    engine.queueId = targetQ;
+    if ((engine.status === 'downloading' || engine.status === 'merging') && !this.canStartMore(targetQ)) {
+      engine.pause();
+      engine.status = 'queued';
+    }
     this.saveState();
     const snap = engine.toSnapshot();
     this.broadcast({ type: 'DOWNLOAD_ADDED', payload: snap });
-    this.checkQueue(targetQueueId);
+    this.checkQueue(targetQ);
     return snap;
   }
 
@@ -484,7 +517,7 @@ class QueueManager {
       type: 'INIT_STATE',
       payload: {
         downloads: this.getAllDownloads(),
-        settings: storageService.settings
+        settings: sanitizeSettingsForBroadcast(storageService.settings)
       }
     });
   }
@@ -614,6 +647,11 @@ class QueueManager {
 
     // Kalite aynı: gizlilikten çıkar, kaldığı yerden devam et.
     engine.preflight = false;
+    if (opts.filename && String(opts.filename).trim()) {
+      engine.filename = safeName(opts.filename, engine.filename);
+      engine.userNamed = true;
+      engine.customFilename = true;
+    }
     if (opts.queueId) engine.queueId = opts.queueId;
     if (opts.autoStart === false) {
       if (engine.status === 'downloading') engine.pause();
@@ -660,6 +698,9 @@ class QueueManager {
         false, 'best', snap.saveDir, snap.headers || {}, false, snap.referer || null, snap.queueId || 'main'
       );
     }
+    if (newItem && snap.speedLimitKbps) {
+      this.setSpeedLimit(newItem.id, snap.speedLimitKbps);
+    }
     if (newItem && snap.priority) {
       this.setPriority(newItem.id, snap.priority);
     }
@@ -695,6 +736,7 @@ class QueueManager {
     }
     engine.filename = cleanName;
     engine.savePath = newPath;
+    engine.customFilename = true;
 
     this.saveState();
     const snap = engine.toSnapshot();
@@ -738,7 +780,7 @@ class QueueManager {
       type: 'INIT_STATE',
       payload: {
         downloads: this.getAllDownloads(),
-        settings: storageService.settings
+        settings: sanitizeSettingsForBroadcast(storageService.settings)
       }
     });
   }

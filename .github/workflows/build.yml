@@ -51,9 +51,20 @@ jobs:
           npm run build:frontend
           npx electron-builder --publish never
 
+      - name: Calculate SHA-256 Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist_exe -Filter *.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            Write-Host "sha256: $hash $($_.Name)"
+            "$hash  $($_.Name)" | Out-File -FilePath dist_exe/SHA256SUMS.txt -Append -Encoding ascii
+          }
+
       - name: Upload unsigned installer
         uses: actions/upload-artifact@v4
         with:
           name: deepnode-download-manager-setup-unsigned
-          path: dist_exe/*Setup*.exe
+          path: |
+            dist_exe/*Setup*.exe
+            dist_exe/SHA256SUMS.txt
           if-no-files-found: error

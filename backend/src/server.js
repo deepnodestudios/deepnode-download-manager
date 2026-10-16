@@ -15,12 +15,28 @@ import { LinkSniffer } from './services/LinkSniffer.js';
 import { DownloadEngine } from './services/DownloadEngine.js';
 import { getVideoInfo, autoUpdateYtDlp, isVideoSiteUrl, isValidVideoUrl } from './services/VideoDownloader.js';
 import { startScheduler, schedulerStatus } from './services/Scheduler.js';
-import { corsOptions, originGuard, appOnly, isExtensionOrigin, isAppOrigin, settingsForExtension, sanitizeSettingsForBroadcast } from './security.js';
+import { corsOptions, originGuard, appOnly, isExtensionOrigin, isAppOrigin, isAllowedHost, settingsForExtension, sanitizeSettingsForBroadcast } from './security.js';
 import { createUpdateRouter } from './routes/update.js';
 import { showItemInFolder, openPath } from './utils/shell.js';
 import { initSentry, Sentry } from './sentry.js';
 
-initSentry({ processName: 'backend', anonymousId: storageService.getAnonymousId() });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+let appVersionCache = null;
+function appVersion() {
+  if (appVersionCache !== null) return appVersionCache;
+  try {
+    appVersionCache = JSON.parse(
+      fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')
+    ).version || '';
+  } catch (e) {
+    appVersionCache = '';
+  }
+  return appVersionCache;
+}
+
+initSentry({ processName: 'backend', appVersion: appVersion() || '1.5.9', anonymousId: storageService.getAnonymousId() });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[Process] Unhandled Rejection at:', promise, 'reason:', reason);
@@ -28,9 +44,6 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (err) => {
   console.error('[Process] Uncaught Exception:', err);
 });
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 export const serverEvents = new EventEmitter();
 
@@ -121,7 +134,7 @@ function dropPreflight(url, entry) {
 // gönderilen cancel-preflight'ın bu sırada kaydı silmesini engeller.
 async function confirmPreflightForUrl(url, opts) {
   const entry = url ? preflights.get(url) : null;
-  if (!entry || entry.confirming) return null;
+  if (!entry || entry.video || entry.confirming) return null;
   entry.confirming = true;
   try {
     // Ön indirme henüz hazırlanıyorsa (HEAD sürüyor) kurulmasını bekle
@@ -165,7 +178,9 @@ function startPreflight(url, filename, headers) {
         }
         if (!item || !item.id) { preflights.delete(url); return; }
         entry.id = item.id;
-        queueManager.startDownload(item.id);
+        if (storageService.settings.autoStartDownloads !== false && queueManager.canStartMore('main')) {
+          queueManager.startDownload(item.id);
+        }
         setTimeout(() => dropPreflight(url, entry), PREFLIGHT_TTL);
       })
       .catch(() => { if (preflights.get(url) === entry) preflights.delete(url); });
@@ -195,7 +210,9 @@ function startVideoPreflight(url, quality, referer, filename) {
         }
         if (!item || !item.id) { preflights.delete(url); return; }
         entry.id = item.id;
-        queueManager.startDownload(item.id);
+        if (storageService.settings.autoStartDownloads !== false && queueManager.canStartMore('main')) {
+          queueManager.startDownload(item.id);
+        }
         setTimeout(() => dropPreflight(url, entry), PREFLIGHT_TTL);
       })
       .catch(() => { if (preflights.get(url) === entry) preflights.delete(url); });
@@ -269,6 +286,11 @@ function attachWebSocket(httpServer) {
       // Sadece uygulamanın kendi arayüzü (localhost / 127.0.0.1 / [::1]) bağlanabilir!
       if (origin && !isAppOrigin(origin, getPort())) {
         console.warn(`[WebSocket] Unauthorized origin rejected: ${origin}`);
+        return false;
+      }
+      const host = info.req && info.req.headers && info.req.headers.host;
+      if (!isAllowedHost(host, getPort())) {
+        console.warn(`[WebSocket] Unauthorized host rejected: ${host}`);
         return false;
       }
       const ip = info.req && info.req.socket && info.req.socket.remoteAddress;
@@ -598,6 +620,8 @@ app.post('/api/download/video', async (req, res) => {
   const existing = queueManager.findIncompleteDownloadByContext({ url, referer, filename });
   if (existing) {
     console.log(`[Server] Auto-refresh for #${existing.id}: updating expired stream URL with fresh token`);
+    const entry = preflights.get(url);
+    if (entry) dropPreflight(url, entry);
     const updated = queueManager.updateDownloadUrl(existing.id, url, referer);
     queueManager.startDownload(existing.id);
     serverEvents.emit('open-progress', existing.id);
@@ -657,7 +681,10 @@ app.post('/api/download/batch', appOnly(getPort), async (req, res) => {
     return res.status(400).json({ error: 'URLs array is required' });
   }
   try {
-    const items = await queueManager.addBatchDownloads(urls, saveDir, autoStart, queueId || 'main');
+    const safeSaveDir = (saveDir && typeof saveDir === 'string' && path.isAbsolute(saveDir))
+      ? path.resolve(saveDir)
+      : null;
+    const items = await queueManager.addBatchDownloads(urls, safeSaveDir, autoStart, queueId || 'main');
     res.json(items);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -846,7 +873,10 @@ app.post('/api/downloads/import', appOnly(getPort), async (req, res) => {
     if (Array.isArray(items) && items.length > 0) {
       for (const item of items) {
         if (item && item.url) {
-          await queueManager.addDownload(item.url, item.filename, item.category, item.segmentsCount, false, 'best', item.saveDir);
+          const safeSaveDir = (item.saveDir && typeof item.saveDir === 'string' && path.isAbsolute(item.saveDir))
+            ? path.resolve(item.saveDir)
+            : null;
+          await queueManager.addDownload(item.url, item.filename, item.category, item.segmentsCount, false, 'best', safeSaveDir);
           count++;
         }
       }
@@ -1014,14 +1044,16 @@ app.get('/api/settings', (req, res) => {
   // old extensions (<=1.1.2) send no extVersion param and thus report ''.
   const origin = String(req.headers.origin || '');
   if (isExtensionOrigin(origin)) {
-    extensionSeen.version = String(req.query.extVersion || '');
+    if (req.query.extVersion) {
+      extensionSeen.version = String(req.query.extVersion);
+    }
     extensionSeen.lastSeenAt = Date.now();
     // Eklentiye TÜM ayarlar gönderilmez: proxy şifresi, site giriş şifreleri ve
     // indirme klasörü gibi bilgilere ihtiyacı yok. Yalnız gerçekten okuduğu
     // alanlar döner (captureBypassKey, captureEnabled, language, filtreler...).
     return res.json(settingsForExtension(storageService.settings));
   }
-  res.json(storageService.settings);
+  res.json(sanitizeSettingsForBroadcast(storageService.settings));
 });
 
 // Extension freshness status for the UI warning banner
@@ -1037,22 +1069,7 @@ app.get('/api/extension/status', (req, res) => {
   });
 });
 
-// 14. App info (About screen): version comes from the app root package.json —
-// dev: <project>/package.json, packaged: resources/app/package.json (same
-// relative path from backend/src in both layouts).
-let appVersionCache = null;
-function appVersion() {
-  if (appVersionCache !== null) return appVersionCache;
-  try {
-    appVersionCache = JSON.parse(
-      fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')
-    ).version || '';
-  } catch (e) {
-    appVersionCache = '';
-  }
-  return appVersionCache;
-}
-
+// 14. App info (About screen)
 app.get('/api/app/info', (req, res) => {
   res.json({
     name: 'DeepNode Download Manager',
@@ -1155,6 +1172,9 @@ app.get('/api/test-file', appOnly(getPort), (req, res) => {
 
 // Fallback index.html for SPA frontend
 app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'Endpoint not found' });
+  }
   const indexPath = path.join(distPath, 'index.html');
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath);
@@ -1172,6 +1192,15 @@ function onServerReady() {
 
   serverEvents.emit('server-ready', activePort);
 
+  // Uygulama açılışında kayıtlı kuyrukta bekleyen (queued) indirmeleri başlat
+  if (storageService.settings.autoStartDownloads !== false) {
+    try {
+      queueManager.checkQueue();
+    } catch (err) {
+      console.error('[QueueManager] Startup checkQueue error:', err);
+    }
+  }
+
   // Keep yt-dlp fresh automatically (no user action). Check shortly after start,
   // then every 12 hours while the app runs.
   const maybeUpdate = () => {
@@ -1188,6 +1217,22 @@ function onServerReady() {
       serverEvents.emit('scheduler-stop-action', action);
     }
   });
+}
+
+/**
+ * Electron veya sistem kapanışında çalışan tüm motorları duraklatır ve
+ * arka plandaki alt süreçleri (yt-dlp, ffmpeg) temizler.
+ */
+export function shutdownAllDownloads() {
+  try {
+    queueManager.engines.forEach((engine) => {
+      if (engine.status === 'downloading' || engine.status === 'merging') {
+        try { engine.pause(); } catch (e) {}
+      }
+    });
+  } catch (err) {
+    console.error('Error shutting down downloads:', err);
+  }
 }
 
 // Port çakışmasında sessizce ölme: eskiden `listen` hata verince işlenmemiş

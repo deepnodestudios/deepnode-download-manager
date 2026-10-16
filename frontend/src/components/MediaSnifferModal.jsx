@@ -12,7 +12,7 @@ const FILE_TYPE_OPTIONS = [
   { key: 'program', Icon: Package }
 ];
 
-export default function MediaSnifferModal({ isOpen, onClose, onAddBatch, queues = [] }) {
+export default function MediaSnifferModal({ isOpen, onClose, onAddBatch, queues = [], autoStartDownloads = true }) {
   const { t } = useT();
   const [pageUrl, setPageUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -110,9 +110,9 @@ export default function MediaSnifferModal({ isOpen, onClose, onAddBatch, queues 
   };
 
   const handleDownloadSelected = () => {
-    const urlsToDownload = foundLinks.filter(l => selectedUrls[l.url]).map(l => l.url);
+    const urlsToDownload = displayedLinks.filter(l => selectedUrls[l.url]).map(l => l.url);
     if (urlsToDownload.length > 0) {
-      onAddBatch(urlsToDownload, null, false, selectedQueue);
+      onAddBatch(urlsToDownload, null, autoStartDownloads, selectedQueue);
       onClose();
     }
   };

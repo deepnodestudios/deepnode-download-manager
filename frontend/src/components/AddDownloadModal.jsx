@@ -109,6 +109,9 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
     if (isOpen) {
       setManualDir(false); // her yeni pencerede otomatik klasör seçimi
       userEditedFilenameRef.current = false;
+      if (settings?.defaultSegments) {
+        setSegmentsCount(Number(settings.defaultSegments));
+      }
     }
     if (isOpen && !url && !initialUrl) {
       navigator.clipboard?.readText().then(text => {
@@ -120,6 +123,12 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
       setUrl(initialUrl);
     }
   }, [isOpen, initialUrl]);
+
+  useEffect(() => {
+    if (settings?.defaultSegments) {
+      setSegmentsCount(Number(settings.defaultSegments));
+    }
+  }, [settings?.defaultSegments]);
 
   // Eklentide seçilen kaliteyi GÜVENİLİR biçimde uygula. Eskiden kalite yalnızca
   // /api/video/formats çağrısının başarılı .then'inde senkronlanıyordu; çağrı

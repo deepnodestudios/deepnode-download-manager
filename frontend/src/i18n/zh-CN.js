@@ -398,6 +398,7 @@ export default {
   virus_alert_detected: "警告：在“{file}”中检测到恶意软件 ({threat})！",
   sec_antivirus: "杀毒软件与 Defender 防护",
   chk_antivirus_enable: "下载完成后使用杀毒软件扫描文件",
+  chk_telemetry_enable: "匿名错误与崩溃报告",
   antivirus_note: "默认使用系统内置的 Windows Defender (MpCmdRun.exe)。您也可以指定自定义杀毒程序。",
   lbl_antivirus_path: "自定义杀毒软件路径（留空则使用 Windows Defender）：",
   nav_batch: "批量下载",
