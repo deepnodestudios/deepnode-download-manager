@@ -151,6 +151,10 @@ function safeReadJsonSync(targetPath, fallbackValue = null) {
       return JSON.parse(data);
     } catch (err) {
       console.error(`Error reading ${path.basename(targetPath)}:`, err.message);
+      // Geçici okuma hatası (dosya kilidi, antivirüs, izin): dosya bozuk DEĞİL.
+      // Bu durumda eski .bak'ı ana dosyanın üzerine kopyalamak, son yazılan
+      // verileri sessizce geriye sarardı — yalnızca gerçek JSON bozulmasında kurtar.
+      if (!(err instanceof SyntaxError)) return fallbackValue;
       // Ana dosya bozulduysa (.bak) yedeğinden kurtar
       if (fs.existsSync(bakPath)) {
         try {
@@ -372,7 +376,15 @@ class StorageService {
       telemetryEnabled: true
     };
 
+    const settingsExisted = fs.existsSync(SETTINGS_FILE);
     const parsed = safeReadJsonSync(SETTINGS_FILE, null);
+    if (!parsed && settingsExisted) {
+      // Geçici okuma hatası (kilit/izin): varsayılanları DOSYAYA YAZMA — aksi
+      // halde anlık bir EACCES/EBUSY tüm kullanıcı ayarlarını silerdi.
+      console.error('settings.json okunamadı; dosya korunuyor, varsayılanlar bellekte kullanılacak.');
+      defaultSettings.anonymousId = crypto.randomUUID();
+      return defaultSettings;
+    }
     if (parsed && typeof parsed === 'object') {
       const merged = { ...defaultSettings, ...parsed };
       if (!merged.downloadDir || merged.downloadDir === OLD_DEFAULT_DOWNLOAD_DIR) {
@@ -401,6 +413,7 @@ class StorageService {
   }
 
   saveSettings(newSettings) {
+    const previousSettings = this.settings;
     try {
       const currentAnonymousId = this.settings?.anonymousId;
       const existingProxyPass = this.settings?.proxyPass;
@@ -450,7 +463,10 @@ class StorageService {
       return this.settings;
     } catch (err) {
       console.error('Error saving settings.json:', err.message);
-      return this.settings;
+      // Disk dolu/izin hatasında çağırana HATA dönmeli: aksi halde istemci
+      // kaydın başarılı olduğunu sanıp arayüzü kapatıyor, ayar sessizce kayboluyordu.
+      this.settings = previousSettings;
+      throw err;
     }
   }
 

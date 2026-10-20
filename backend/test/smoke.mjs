@@ -20,6 +20,7 @@ import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import { verifyInstallerSignature } from '../src/routes/update.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BACKEND_ENTRY = path.join(__dirname, '..', 'src', 'server.js');
@@ -172,8 +173,8 @@ function setApiPort(port) {
   API = `http://127.0.0.1:${port}`;
 }
 
-async function call(pathname, { origin, method = 'GET', body } = {}) {
-  const headers = {};
+async function call(pathname, { origin, method = 'GET', body, headers: extraHeaders } = {}) {
+  const headers = { ...(extraHeaders || {}) };
   if (origin) headers.Origin = origin;
   if (body) headers['Content-Type'] = 'application/json';
   const res = await fetch(API + pathname, {
@@ -220,9 +221,25 @@ async function run() {
       (await call('/api/download/add', { origin: 'https://evil.example.com', method: 'POST', body: { url: 'http://x/y.zip', confirmedByUser: true } })).status === 403);
     check('güncelleyici beyaz liste dışı adresi reddeder',
       (await call('/api/update/download', { origin: APP_ORIGIN, method: 'POST', body: { url: 'http://127.0.0.1:5999/real.zip' } })).status === 400);
+    check('güncelleyici hash olmadan indirmeyi reddeder',
+      (await call('/api/update/download', {
+        origin: APP_ORIGIN,
+        method: 'POST',
+        body: { url: 'https://github.com/deepnodestudios/deepnode-download-manager/releases/download/v1.0.0/DeepNodeSetup.exe' }
+      })).status === 400);
+    check('doğrulama fonksiyonu hash yokken fail-closed',
+      (await verifyInstallerSignature(fileURLToPath(import.meta.url), null)) === false);
+    check('doğrulama fonksiyonu yanlış hash ile false döner',
+      (await verifyInstallerSignature(fileURLToPath(import.meta.url), '0'.repeat(64))) === false);
+
+    const hs = await call('/api/handshake', { origin: EXT_ORIGIN });
+    check('eklenti el sıkışması uygulama kimliğini doğrular',
+      hs.status === 200 && hs.json && hs.json.app === 'deepnode' && hs.json.apiVersion === 1);
 
     const extSettings = await call('/api/settings?extVersion=1.3.6', { origin: EXT_ORIGIN });
     check('eklenti ayarları okuyabilir', extSettings.status === 200);
+    check('eklenti ayar yanıtı uygulama işareti taşır',
+      extSettings.json && extSettings.json.app === 'deepnode');
     check('eklentiye şifre alanları gönderilmez',
       extSettings.json && extSettings.json.proxyPass === undefined && extSettings.json.siteLogins === undefined);
     check('eklenti capture ayarlarını görebilir',
@@ -381,6 +398,39 @@ async function run() {
     await sleep(500);
     const canceledItem = ((await call('/api/downloads', { origin: APP_ORIGIN })).json || []).find((d) => d.id === cancelId);
     check('iptal edilen indirme durumu canceled oldu', canceledItem && canceledItem.status === 'canceled');
+
+    console.log('\nR12 — Eklenti yakalama kararı (capture decision) kanalı');
+    const decUrl = `http://127.0.0.1:${ORIGIN_SRC}/real.zip?dec=1`;
+    const decAdd = await call('/api/download/add', {
+      origin: EXT_ORIGIN, method: 'POST', body: { url: decUrl, filename: 'dec_test.zip' }
+    });
+    check('yakalama onay bekliyor (prompted)', decAdd.json && decAdd.json.status === 'prompted');
+    const decHeaders = { 'X-DDM-Capture': '1' };
+    const decPending = await call(`/api/capture/decision?url=${encodeURIComponent(decUrl)}`, { origin: EXT_ORIGIN, headers: decHeaders });
+    check('karar gelmeden durum pending', decPending.json && decPending.json.status === 'pending');
+    const decNoHeader = await call(`/api/capture/decision?url=${encodeURIComponent(decUrl)}`, { origin: EXT_ORIGIN });
+    check('özel başlık olmadan karar okunamaz', decNoHeader.status === 403);
+
+    await sleep(1000);
+    const decConfirm = await call('/api/download/confirm-preflight', {
+      origin: APP_ORIGIN, method: 'POST',
+      body: { url: decUrl, filename: 'dec_confirmed.zip', autoStart: false }
+    });
+    check('ön indirme onaylandı', decConfirm.status === 200);
+    const decConfirmed = await call(`/api/capture/decision?url=${encodeURIComponent(decUrl)}`, { origin: EXT_ORIGIN, headers: decHeaders });
+    check('onay kararı eklentiye bildirildi', decConfirmed.json && decConfirmed.json.status === 'confirmed');
+    const decSecondRead = await call(`/api/capture/decision?url=${encodeURIComponent(decUrl)}`, { origin: EXT_ORIGIN, headers: decHeaders });
+    check('karar tek kullanımlık', decSecondRead.json && decSecondRead.json.status === 'pending');
+
+    const decUrl2 = `http://127.0.0.1:${ORIGIN_SRC}/real.zip?dec=2`;
+    await call('/api/download/add', {
+      origin: EXT_ORIGIN, method: 'POST', body: { url: decUrl2, filename: 'dec_cancel.zip' }
+    });
+    await call('/api/download/cancel-preflight', {
+      origin: APP_ORIGIN, method: 'POST', body: { url: decUrl2 }
+    });
+    const decCancelled = await call(`/api/capture/decision?url=${encodeURIComponent(decUrl2)}`, { origin: EXT_ORIGIN, headers: decHeaders });
+    check('iptal kararı eklentiye bildirildi', decCancelled.json && decCancelled.json.status === 'cancelled');
   } finally {
     backend.child.kill('SIGKILL');
     origin.close();

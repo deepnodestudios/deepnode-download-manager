@@ -24,6 +24,7 @@ export default function MediaSnifferModal({ isOpen, onClose, onAddBatch, queues 
   const [scanInfo, setScanInfo] = useState('');
   const [filterQuery, setFilterQuery] = useState('');
   const [selectedQueue, setSelectedQueue] = useState('main');
+  const [adding, setAdding] = useState(false);
   const [fileTypes, setFileTypes] = useState(
     Object.fromEntries(FILE_TYPE_OPTIONS.map(o => [o.key, true]))
   );
@@ -109,11 +110,20 @@ export default function MediaSnifferModal({ isOpen, onClose, onAddBatch, queues 
     setSelectedUrls(nextState);
   };
 
-  const handleDownloadSelected = () => {
-    const urlsToDownload = displayedLinks.filter(l => selectedUrls[l.url]).map(l => l.url);
-    if (urlsToDownload.length > 0) {
-      onAddBatch(urlsToDownload, null, autoStartDownloads, selectedQueue);
+  const handleDownloadSelected = async () => {
+    // Filtre aktifken görünmeyen ama seçili kalan bağlantılar da eklenmeli.
+    const urlsToDownload = foundLinks.filter(l => selectedUrls[l.url]).map(l => l.url);
+    if (urlsToDownload.length === 0 || adding) return;
+    setAdding(true);
+    setErrorMsg('');
+    try {
+      await onAddBatch(urlsToDownload, null, autoStartDownloads, selectedQueue);
       onClose();
+    } catch (err) {
+      // Modal açık kalır; kullanıcı seçimi kaybetmeden tekrar deneyebilir.
+      setErrorMsg(err?.message || String(err));
+    } finally {
+      setAdding(false);
     }
   };
 
@@ -283,7 +293,7 @@ export default function MediaSnifferModal({ isOpen, onClose, onAddBatch, queues 
         <div className="modal-footer">
           <button type="button" className="btn btn-secondary" onClick={onClose}>{t('btn_close')}</button>
           {foundLinks.length > 0 && (
-            <button type="button" className="btn btn-success" onClick={handleDownloadSelected}>
+            <button type="button" className="btn btn-success" onClick={handleDownloadSelected} disabled={adding}>
               <Download size={16} /> {t('btn_add_selected')}
             </button>
           )}

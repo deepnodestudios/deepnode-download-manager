@@ -36,7 +36,7 @@ function appVersion() {
   return appVersionCache;
 }
 
-initSentry({ processName: 'backend', appVersion: appVersion() || '1.5.9', anonymousId: storageService.getAnonymousId() });
+initSentry({ processName: 'backend', appVersion: appVersion() || '1.6.0', anonymousId: storageService.getAnonymousId() });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[Process] Unhandled Rejection at:', promise, 'reason:', reason);
@@ -118,6 +118,23 @@ function hasUsableExt(filename, url) {
 // ön indirme yapılmaz.
 const preflights = new Map(); // url -> { id, promise }
 const PREFLIGHT_TTL = 15 * 60 * 1000; // onaylanmadan unutulan pencereler için emniyet
+
+// Eklenti, yakaladığı tarayıcı indirmesini DDM onayından SONRA iptal eder; aksi
+// halde aynı dosya hem tarayıcıda hem DDM'de iniyor ve çift dosya kalıyordu.
+// Eklenti bu haritayı kısa aralıklarla yoklar (tek kullanımlık kayıt).
+const captureDecisions = new Map(); // url -> { status: 'confirmed'|'cancelled', at }
+const CAPTURE_DECISION_TTL = PREFLIGHT_TTL;
+
+function markCaptureDecision(url, status) {
+  if (!url) return;
+  captureDecisions.set(url, { status, at: Date.now() });
+  if (captureDecisions.size > 200) {
+    const cutoff = Date.now() - CAPTURE_DECISION_TTL;
+    for (const [key, value] of captureDecisions) {
+      if (value.at < cutoff || captureDecisions.size > 200) captureDecisions.delete(key);
+    }
+  }
+}
 
 function dropPreflight(url, entry) {
   if (preflights.get(url) !== entry) return;
@@ -272,7 +289,15 @@ app.use('/api', originGuard(getPort));
 // Serve static frontend dist for web and electron
 const distPath = path.join(__dirname, '../../frontend/dist');
 if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
+  app.use(express.static(distPath, {
+    setHeaders: (res) => {
+      // Arayüz başka bir sayfada iframe'lenip tıklama hilesiyle indirme
+      // onaylattırılamasın (CSP tam sürümü Vite inline stilleriyle çakışabilir;
+      // burada yalnız çerçeveleme engellenir).
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+    }
+  }));
 }
 
 // WebSocket real-time broadcasting
@@ -363,6 +388,14 @@ queueManager.setBroadcastCallback((message) => {
           (d) => (d.status === 'downloading' || d.status === 'merging' || d.status === 'queued') && !d.preflight
         );
         if (!busy) serverEvents.emit('all-complete');
+      }
+    } else if (message && message.type === 'DOWNLOAD_ADDED') {
+      // Tamamlanmış bir indirmenin adı/yolu değiştiyse (rename) Electron'un
+      // sürükleme beyaz listesini güncelle; aksi halde yeniden adlandırılan
+      // dosya sürüklenemiyordu (bkz. electron/main.js start-drag).
+      const p = message.payload;
+      if (p && p.status === 'completed' && typeof p.savePath === 'string' && p.savePath) {
+        serverEvents.emit('download-path-updated', p.savePath);
       }
     }
   } catch (e) { /* ignore */ }
@@ -554,6 +587,7 @@ app.post('/api/download/add', async (req, res) => {
       const pf = await confirmPreflightForUrl(url, { filename, saveDir: effectiveSaveDir, segmentsCount, autoStart, queueId });
       if (pf) {
         // open-progress zaten confirmPreflightForUrl içinde erken emit edildi
+        markCaptureDecision(url, 'confirmed');
         return res.json(pf);
       }
     } else {
@@ -563,6 +597,7 @@ app.post('/api/download/add', async (req, res) => {
     }
 
     const item = await queueManager.addDownload(url, filename, category, segmentsCount, forceVideo, quality, effectiveSaveDir, sessionHeaders, false, null, queueId || 'main');
+    markCaptureDecision(url, 'confirmed');
     if (autoStart === false && item && item.id) {
       queueManager.pauseDownload(item.id);
     } else if (item && item.id) {
@@ -582,6 +617,7 @@ app.post('/api/download/confirm-preflight', appOnly(getPort), async (req, res) =
   const { url, filename, saveDir, segmentsCount, autoStart } = req.body || {};
   const snap = await confirmPreflightForUrl(url, { filename, saveDir, segmentsCount, autoStart });
   if (!snap) return res.status(404).json({ notFound: true });
+  markCaptureDecision(url, 'confirmed');
   // open-progress zaten confirmPreflightForUrl içinde erken emit edildi
   res.json(snap);
 });
@@ -591,8 +627,28 @@ app.post('/api/download/confirm-preflight', appOnly(getPort), async (req, res) =
 app.post('/api/download/cancel-preflight', appOnly(getPort), (req, res) => {
   const { url } = req.body || {};
   const entry = url ? preflights.get(url) : null;
-  if (entry) dropPreflight(url, entry);
+  if (entry) {
+    dropPreflight(url, entry);
+    // Onay işlemi sürerken gelen kapatma yarışı "iptal" sayılmamalı; aksi halde
+    // hemen ardından tamamlanan onay eklentiye ulaşamaz ve tarayıcı kopyası kalır.
+    if (!entry.confirming) markCaptureDecision(url, 'cancelled');
+  }
   res.json({ ok: true });
+});
+
+// Eklenti, yakaladığı tarayıcı indirmesini ne zaman bırakacağını buradan öğrenir.
+// Kayıt tek kullanımlıktır: ilk okuyan alır (çoklu yoklama yarışı zararsız).
+app.get('/api/capture/decision', (req, res) => {
+  // Tek kullanımlık kaydı herhangi bir web sayfası <img>/fetch ile tüketememeli.
+  // Özel başlık, basit (preflight'sız) isteklerle taklit edilemez; eklenti bu
+  // başlığı gönderir, originGuard da yabancı origin'leri zaten reddeder.
+  if (req.headers['x-ddm-capture'] !== '1') return res.status(403).json({ error: 'Forbidden' });
+  const url = typeof req.query.url === 'string' ? req.query.url : '';
+  const decision = url ? captureDecisions.get(url) : null;
+  if (!decision) return res.json({ status: 'pending' });
+  captureDecisions.delete(url);
+  if (Date.now() - decision.at > CAPTURE_DECISION_TTL) return res.json({ status: 'expired' });
+  res.json({ status: decision.status });
 });
 
 // 6. Add video download (STRICT RULE: Requires confirmedByUser: true from Download Dialog)
@@ -623,9 +679,14 @@ app.post('/api/download/video', async (req, res) => {
     const entry = preflights.get(url);
     if (entry) dropPreflight(url, entry);
     const updated = queueManager.updateDownloadUrl(existing.id, url, referer);
-    queueManager.startDownload(existing.id);
-    serverEvents.emit('open-progress', existing.id);
-    return res.json({ status: 'auto_refreshed', id: existing.id, download: updated });
+    if (updated) {
+      queueManager.startDownload(existing.id);
+      serverEvents.emit('open-progress', existing.id);
+      markCaptureDecision(url, 'confirmed');
+      return res.json({ status: 'auto_refreshed', id: existing.id, download: updated });
+    }
+    // Motor bu arada silinmiş olabilir: 200 + download:null dönmek yerine
+    // normal ekleme yoluna düş (istemci kaydı eklemiş sanıyordu).
   }
 
   try {
@@ -634,10 +695,12 @@ app.post('/api/download/video', async (req, res) => {
     const pf = await confirmVideoPreflightForUrl(url, { quality, filename, saveDir: effectiveSaveDir, autoStart, queueId });
     if (pf) {
       // open-progress zaten confirmVideoPreflightForUrl içinde emit edildi
+      markCaptureDecision(url, 'confirmed');
       return res.json(pf);
     }
 
     const item = await queueManager.addDownload(url, filename, 'Video', 1, true, quality, effectiveSaveDir, null, false, referer || null, queueId || 'main');
+    markCaptureDecision(url, 'confirmed');
     if (autoStart === false && item && item.id) {
       queueManager.pauseDownload(item.id);
     } else if (item && item.id) {
@@ -870,25 +933,38 @@ app.post('/api/downloads/import', appOnly(getPort), async (req, res) => {
   try {
     const { urls, items } = req.body || {};
     let count = 0;
+    let failed = 0;
+    // Tek bir geçersiz kayıt tüm içe aktarmayı 500 ile düşürmemeli; diğerleri eklenir.
+    const addOne = async (fn) => {
+      try {
+        const item = await fn();
+        if (item && item.id) count++; else failed++;
+      } catch (err) {
+        failed++;
+        console.error('[Import] Öğe eklenemedi:', err.message);
+      }
+    };
     if (Array.isArray(items) && items.length > 0) {
       for (const item of items) {
         if (item && item.url) {
           const safeSaveDir = (item.saveDir && typeof item.saveDir === 'string' && path.isAbsolute(item.saveDir))
             ? path.resolve(item.saveDir)
             : null;
-          await queueManager.addDownload(item.url, item.filename, item.category, item.segmentsCount, false, 'best', safeSaveDir);
-          count++;
+          await addOne(() => queueManager.addDownload(item.url, item.filename, item.category, item.segmentsCount, false, 'best', safeSaveDir));
+        } else {
+          failed++;
         }
       }
     } else if (Array.isArray(urls) && urls.length > 0) {
       for (const u of urls) {
         if (typeof u === 'string' && u.trim().startsWith('http')) {
-          await queueManager.addDownload(u.trim());
-          count++;
+          await addOne(() => queueManager.addDownload(u.trim()));
+        } else {
+          failed++;
         }
       }
     }
-    res.json({ success: true, count });
+    res.json({ success: true, count, failed });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1039,6 +1115,13 @@ function bundledExtensionVersion() {
 }
 const extensionSeen = { version: '', lastSeenAt: 0 };
 
+// Eklenti <-> uygulama kimlik doğrulaması. Eklenti, portu DDM sanmadan ve
+// özellikle tarayıcı çerezlerini göndermeden önce bu işareti doğrular; böylece
+// 5000–5010 aralığına taşınan rastgele bir yerel servis çerezleri toplayamaz.
+app.get('/api/handshake', (req, res) => {
+  res.json({ app: 'deepnode', apiVersion: 1, version: appVersion() });
+});
+
 app.get('/api/settings', (req, res) => {
   // Only requests coming from the browser extension carry an extension Origin;
   // old extensions (<=1.1.2) send no extVersion param and thus report ''.
@@ -1095,10 +1178,24 @@ app.use('/api/update', createUpdateRouter({
 }));
 
 app.post('/api/settings', appOnly(getPort), (req, res) => {
-  const updated = storageService.saveSettings(req.body);
-  // Electron tarafı (açılışta başlat, tepsi davranışı vb.) hemen uygulasın
-  serverEvents.emit('settings-changed', updated);
-  res.json(updated);
+  try {
+    const updated = storageService.saveSettings(req.body || {});
+    // Electron tarafı (açılışta başlat, tepsi davranışı vb.) hemen uygulasın
+    serverEvents.emit('settings-changed', updated);
+    // Eşzamanlılık artırıldıysa boş slotlar bir sonraki bitişi beklemeden dolsun.
+    try { queueManager.checkQueue(); } catch (e) { /* kuyruk yoksa zararsız */ }
+    // Proxy/site şifreleri renderer'a düz metin dönmesin (GET yoluyla aynı maske).
+    const sanitized = sanitizeSettingsForBroadcast(updated);
+    // Tamamlanma penceresi gibi ayrı pencerelerden yapılan ayar değişiklikleri
+    // ana pencerenin state'ine de yansısın (aksi halde sonraki kayıt eski değeri geri yazar).
+    try {
+      const json = JSON.stringify({ type: 'SETTINGS_CHANGED', payload: sanitized });
+      clients.forEach((c) => { if (c.readyState === 1) c.send(json); });
+    } catch (e) { /* WS yayını başarısızsa HTTP yanıtı yine geçerli */ }
+    res.json(sanitized);
+  } catch (err) {
+    res.status(500).json({ error: 'Settings could not be saved', detail: err.message });
+  }
 });
 
 // 14. Built-in Local Test File Generator
@@ -1118,7 +1215,10 @@ app.get('/api/test-file', appOnly(getPort), (req, res) => {
   if (range) {
     const parts = range.replace(/bytes=/, "").split("-");
     const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : totalSizeBytes - 1;
+    let end = parts[1] ? parseInt(parts[1], 10) : totalSizeBytes - 1;
+    // İstemci bitişi dosya boyutunu aşarsa Content-Length ve üretilen bayt
+    // sayısı dosyadan büyük oluyordu; RFC 7233 gereği son bayta kırp.
+    if (!isNaN(end)) end = Math.min(end, totalSizeBytes - 1);
 
     if (isNaN(start) || isNaN(end) || start < 0 || end < start || start >= totalSizeBytes) {
       res.setHeader('Content-Range', `bytes */${totalSizeBytes}`);

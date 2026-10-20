@@ -21,7 +21,7 @@ const { serverEvents, shutdownAllDownloads } = await import('../backend/src/serv
 // Initialize Sentry for Electron main process error & crash tracking
 initSentry({
   processName: 'electron-main',
-  appVersion: app.getVersion ? app.getVersion() : '1.5.9',
+  appVersion: app.getVersion ? app.getVersion() : '1.6.0',
   anonymousId: storageService.getAnonymousId()
 });
 
@@ -32,11 +32,27 @@ initSentry({
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// IPC GÜVEN SINIRI: tüm pencereler yalnız yerel arayüzü yükler. Yine de bir
+// pencere başka bir origin'e yönlendirilirse (ya da gelecekte bir hata olursa)
+// IPC kanallarının yabancı içerikten çağrılmasını engelle.
+function isTrustedSender(event) {
+  try {
+    const raw = (event.senderFrame && event.senderFrame.url) || event.sender.getURL();
+    const u = new URL(raw);
+    if (u.protocol !== 'http:') return false;
+    if (!['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)) return false;
+    return u.port === String(backendPort);
+  } catch (e) {
+    return false;
+  }
+}
+
 // Register IPC handler for native modern Windows 10/11 File Explorer Folder Dialog.
 // İletişim kutusu, isteği GÖNDEREN pencereye bağlanır: ekleme penceresinden
 // çağrıldığında da çalışır (eskiden yalnız ana pencere varsa açılıyordu; ekleme
 // penceresi PowerShell yedeğine düşüyordu).
 ipcMain.handle('select-folder', async (e) => {
+  if (!isTrustedSender(e)) return null;
   const owner = BrowserWindow.fromWebContents(e.sender) || mainWindow;
   if (!owner) return null;
   const result = await dialog.showOpenDialog(owner, {
@@ -51,7 +67,8 @@ ipcMain.handle('select-folder', async (e) => {
 });
 
 // Register IPC handler to forcefully bring app to the front
-ipcMain.on('bring-to-front', () => {
+ipcMain.on('bring-to-front', (e) => {
+  if (!isTrustedSender(e)) return;
   bringToFront();
 });
 
@@ -59,6 +76,7 @@ ipcMain.on('bring-to-front', () => {
 // erişemediği için (contextIsolation) bu köprü gerekli; ayrıca yalnız http(s)
 // şemalarına izin verilir — `file:` / özel şemalarla yerel program çalıştırılamaz.
 ipcMain.on('open-external', (e, url, browser) => {
+  if (!isTrustedSender(e)) return;
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
     if (browser === 'firefox' && process.platform === 'win32') {
       const candidates = [
@@ -109,6 +127,7 @@ const serverReadyPromise = new Promise((resolve) => {
 serverEvents.on('server-ready', (port) => {
   backendPort = port;
   if (serverReadyResolve) serverReadyResolve(port);
+  loadCompletedPaths().catch(() => {});
 });
 
 serverEvents.on('server-error', (err) => {
@@ -155,7 +174,9 @@ function hardenWindow(win) {
   const MAX_FAIL_ATTEMPTS = 5;
 
   // Yükleme geçici olarak başarısız olursa boş pencere kalmasını önle, en fazla 5 kez dene
-  win.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+  win.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    // Alt çerçevelerin (iframe/reklam) yüklenememesi ana pencereyi yeniden yüklememeli.
+    if (isMainFrame === false) return;
     if (errorCode === -3 || win.isDestroyed()) return;
 
     failAttempts++;
@@ -176,6 +197,12 @@ function hardenWindow(win) {
         }
       }
     }, 1000);
+  });
+
+  // Başarılı ana çerçeve yüklemesi sayaçları sıfırlar; aksi halde uygulama ömrü
+  // boyunca biriken 5 geçici hatadan sonra yeniden deneme kalıcı olarak dururdu.
+  win.webContents.on('did-finish-load', () => {
+    failAttempts = 0;
   });
 }
 
@@ -304,6 +331,7 @@ function createProgressWindow(downloadId) {
 }
 
 ipcMain.on('open-progress-window', (e, id) => {
+  if (!isTrustedSender(e)) return;
   try { createProgressWindow(id); } catch (err) { /* ignore */ }
 });
 
@@ -316,12 +344,14 @@ serverEvents.on('open-progress', (id) => {
 
 // Close only the window that sent the request (each add window is independent).
 ipcMain.on('close-add-window', (e) => {
+  if (!isTrustedSender(e)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (w && !w.isDestroyed()) w.close();
 });
 
 // Minimize the frameless add window to the taskbar (no native title bar buttons).
 ipcMain.on('minimize-add-window', (e) => {
+  if (!isTrustedSender(e)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (w && !w.isDestroyed()) w.minimize();
 });
@@ -329,6 +359,7 @@ ipcMain.on('minimize-add-window', (e) => {
 // İçerik yüksekliğine göre pencereyi boyutlandır (renderer ResizeObserver ile gönderir).
 // Genişliğe dokunulmaz; yükseklik ekran çalışma alanıyla sınırlanır.
 ipcMain.on('resize-add-window', (e, height) => {
+  if (!isTrustedSender(e)) return;
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w || w.isDestroyed() || w.isMinimized() || !Number.isFinite(height)) return;
   const workH = screen.getDisplayMatching(w.getBounds()).workAreaSize.height;
@@ -342,6 +373,7 @@ ipcMain.on('resize-add-window', (e, height) => {
 // pencereyi/ekranı aşabilir ve gerektiğinde kendi kaydırmasını yapar. Renderer menü
 // öğelerini (etiket + command) gönderir; kullanıcının seçtiği command string'i döner.
 ipcMain.handle('popup-download-menu', (e, items) => {
+  if (!isTrustedSender(e)) return Promise.resolve(null);
   return new Promise((resolve) => {
     let chosen = null;
     const toTemplate = (arr) => (Array.isArray(arr) ? arr : []).map((it) => {
@@ -418,8 +450,37 @@ serverEvents.on('settings-changed', (s) => {
 });
 
 // İndirme bitince bildirim + ses + "İndirme Tamamlandı" diyaloğu
+// Sürükleme yalnızca uygulamanın GERÇEKTEN tamamladığı dosyalar için yapılabilir:
+// renderer ele geçirilse bile keyfi bir dosya yolu verilerek veri sızdırılamaz.
+const completedPaths = new Set();
+
+async function loadCompletedPaths() {
+  try {
+    const res = await fetch(appUrl('/api/downloads'));
+    if (!res.ok) return;
+    const list = await res.json();
+    if (!Array.isArray(list)) return;
+    for (const d of list) {
+      if (d && d.status === 'completed' && typeof d.savePath === 'string' && d.savePath) {
+        completedPaths.add(path.resolve(d.savePath));
+      }
+    }
+  } catch (e) { /* sunucu henüz hazır değil */ }
+}
+
+serverEvents.on('download-path-updated', (savePath) => {
+  try {
+    if (typeof savePath === 'string' && savePath) {
+      completedPaths.add(path.resolve(savePath));
+    }
+  } catch (e) { /* yok say */ }
+});
+
 serverEvents.on('download-completed', (item) => {
   try {
+    if (item && typeof item.savePath === 'string' && item.savePath) {
+      completedPaths.add(path.resolve(item.savePath));
+    }
     if (appSettings.notifyOnComplete !== false && Notification.isSupported()) {
       const n = new Notification({
         title: et('notif_dl_complete'),
@@ -891,24 +952,31 @@ app.on('window-all-closed', () => {
 });
 
 ipcMain.on('start-drag', (e, filePaths) => {
+  if (!isTrustedSender(e)) return;
   try {
+    const requested = (Array.isArray(filePaths) ? filePaths : [filePaths])
+      .filter((p) => typeof p === 'string' && p)
+      .map((p) => path.resolve(p));
+    // Yalnız tamamlanmış indirmelerin kayıtlı yolları ve hâlâ var olan dosyalar
+    const allowed = requested.filter((p) => {
+      if (!completedPaths.has(p)) return false;
+      try { return fs.statSync(p).isFile(); } catch (err) { return false; }
+    });
+    if (!allowed.length) {
+      console.warn('start-drag: izin verilmeyen dosya yolu reddedildi.');
+      return;
+    }
+
     const iconPath = path.join(__dirname, 'icon.png');
     let dragIcon = nativeImage.createFromPath(iconPath);
     if (!dragIcon.isEmpty()) {
       dragIcon = dragIcon.resize({ width: 32, height: 32 });
     }
-    
-    if (Array.isArray(filePaths)) {
-      e.sender.startDrag({
-        files: filePaths,
-        icon: dragIcon
-      });
-    } else {
-      e.sender.startDrag({
-        file: filePaths,
-        icon: dragIcon
-      });
-    }
+
+    e.sender.startDrag({
+      files: allowed,
+      icon: dragIcon
+    });
   } catch (err) {
     console.error('start-drag hatası:', err);
   }

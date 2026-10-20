@@ -1,7 +1,7 @@
 import axios from 'axios';
 import path from 'path';
 import storageService from './StorageService.js';
-import { proxyUrl, authHeaderFor } from './NetworkConfig.js';
+import { proxyAgent, authHeaderFor } from './NetworkConfig.js';
 
 // Dosya türü kategorileri: tarama filtresi bu gruplar üzerinden çalışır.
 // Frontend'deki filtre seçenekleriyle (video/audio/image/document/archive/program) birebir aynıdır.
@@ -23,20 +23,36 @@ function requestConfig(url) {
   const auth = authHeaderFor(url);
   if (auth) headers.Authorization = auth;
 
-  const cfg = { headers, timeout: 12000, maxRedirects: 5, responseType: 'text' };
-  const px = proxyUrl();
-  if (px) {
-    try {
-      const u = new URL(px);
-      cfg.proxy = {
-        protocol: 'http',
-        host: u.hostname,
-        port: parseInt(u.port, 10) || 8080,
-        ...(u.username ? { auth: { username: decodeURIComponent(u.username), password: decodeURIComponent(u.password || '') } } : {})
-      };
-    } catch (e) { /* geçersiz proxy -> proxysiz devam */ }
+  const cfg = {
+    headers,
+    timeout: 12000,
+    maxRedirects: 5,
+    responseType: 'text',
+    // Tarama yalnızca HTML sayfası okur; devasa bir gövde belleği şişirmesin.
+    maxContentLength: 8 * 1024 * 1024,
+    maxBodyLength: 8 * 1024 * 1024
+  };
+
+  // Proxy agent'ı hedef protokole göre seç (http/https/SOCKS). Eskiden axios'a
+  // daima `protocol: 'http'` veriliyordu; bu, SOCKS ve https proxy'leri sessizce
+  // devre dışı bırakıyor ve IPv6 proxy adreslerini bozuyordu.
+  const httpAgent = proxyAgent('http://target.invalid');
+  const httpsAgent = proxyAgent('https://target.invalid');
+  if (httpAgent || httpsAgent) {
+    if (httpAgent) cfg.httpAgent = httpAgent;
+    if (httpsAgent) cfg.httpsAgent = httpsAgent;
+    cfg.proxy = false;
   }
   return cfg;
+}
+
+function hostMatches(finalUrl, rootHost) {
+  try {
+    const h = new URL(finalUrl).hostname.toLowerCase();
+    return h === rootHost || h.endsWith('.' + rootHost);
+  } catch (e) {
+    return false;
+  }
 }
 
 function extractHrefs(html, baseUrl) {
@@ -129,6 +145,10 @@ export class LinkSniffer {
       try {
         const res = await axios.get(url, requestConfig(url));
         pagesFetched++;
+        // Yönlendirme başka bir siteye çıkmışsa ve yalnızca aynı alan adı
+        // istenmişse, o sayfanın bağlantılarını toplama.
+        const finalUrl = res.request?.res?.responseUrl || res.request?.responseURL || url;
+        if (sameDomainOnly && !hostMatches(finalUrl, rootHost)) continue;
         html = typeof res.data === 'string' ? res.data : String(res.data || '');
       } catch (err) {
         if (!firstError) firstError = err;

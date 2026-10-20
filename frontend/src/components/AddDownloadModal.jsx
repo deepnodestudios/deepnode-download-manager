@@ -112,11 +112,19 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
       if (settings?.defaultSegments) {
         setSegmentsCount(Number(settings.defaultSegments));
       }
+    } else {
+      // Pencere kapanınca iç durumu sıfırla: aksi halde bir sonraki açılışta
+      // eski URL dolu olduğu için panodan otomatik okuma hiç çalışmıyordu.
+      setUrl('');
+      setFilename('');
+      setQuality('best');
     }
     if (isOpen && !url && !initialUrl) {
       navigator.clipboard?.readText().then(text => {
         if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
-          setUrl(text.trim());
+          // readText asenkron: kullanıcı bu arada yazmaya başladıysa ÜZERİNE YAZMA.
+          const pasted = text.trim();
+          setUrl(prev => (prev ? prev : pasted));
         }
       }).catch(() => {});
     } else if (isOpen && initialUrl) {
@@ -160,11 +168,15 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
       setQualities([]);
       setVariants([]);
       setFormatError('');
+      setFilename('');
       userEditedFilenameRef.current = false;
       return;
     }
 
     userEditedFilenameRef.current = false;
+    // URL değiştiyse önceki videoya ait kalite/format kimliği (ör. "fmt:137")
+    // geçersizdir; aksi halde yeni videoya eski formattan indirme isteği gider.
+    setQuality(initialQuality && url.trim() === (initialUrl || '').trim() ? initialQuality : 'best');
 
     // initialIsVideo: eklentiden gelen video/manifest indirmesi (uzantısız .txt manifest de
     // URL'den anlaşılmaz; eklenti Content-Type ile doğruladı). Bu bayrak varsa daima video say.
@@ -206,8 +218,9 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
               setFilename(prev => (userEditedFilenameRef.current ? prev : (initialFilename || data.title || prev || '')));
             }
             // Eklentide/kullanıcı tarafından seçilmiş kaliteyi EZME.
-            // Yalnızca hiç seçim yoksa "en yüksek"e düş.
-            setQuality((prev) => (prev && prev !== 'best' ? prev : (initialQuality || 'best')));
+            // Yalnızca hiç seçim yoksa "en yüksek"e düş. initialQuality yalnızca
+            // eklentiden gelen ilk URL için geçerlidir; sonradan yazılan URL'lerde değil.
+            setQuality((prev) => (prev && prev !== 'best' ? prev : (url.trim() === (initialUrl || '').trim() ? (initialQuality || 'best') : 'best')));
           })
           .catch(err => {
             if (err.name === 'AbortError') return;

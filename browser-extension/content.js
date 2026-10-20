@@ -504,6 +504,54 @@ function isManifestUrl(u) {
   return /\.(m3u8|mpd|f4m)(\?|$)/i.test(u || '');
 }
 
+// Otomatik format sorgusu yt-dlp'yi KULLANICI MAKİNESİNDE çalıştırır. Sayfa
+// betikleri window.postMessage ile sahte bir `__dnHls` mesajı gönderebildiği
+// için, iç ağ/loopback adreslerine istek attırılabilmesini (SSRF) engelle:
+// yalnızca genel internete açık http(s) adresleri otomatik sorgulanır.
+function isPrivateHost(hostname) {
+  const h = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return true;
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') ||
+      h.endsWith('.internal') || h.endsWith('.home.arpa')) return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) {
+    const p = h.split('.').map(Number);
+    if (p.some((n) => n > 255)) return true;
+    const [a, b] = p;
+    return a === 0 || a === 10 || a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) || a >= 224;
+  }
+  if (h.includes(':')) {
+    if (h === '::' || h === '::1') return true;
+    if (/^f[cd][0-9a-f]{2}:/.test(h)) return true;   // fc00::/7 (unique local)
+    if (/^fe[89ab][0-9a-f]:/.test(h)) return true;   // fe80::/10 (link-local)
+    const mapped = h.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+    if (mapped) return isPrivateHost(mapped[1]);
+    // URL standardı IPv4-mapped adresi hex biçimine normalize eder:
+    // [::ffff:127.0.0.1] -> [::ffff:7f00:1]
+    const hexMapped = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (hexMapped) {
+      const hi = parseInt(hexMapped[1], 16);
+      const lo = parseInt(hexMapped[2], 16);
+      return isPrivateHost(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+    }
+    return false;
+  }
+  return false;
+}
+
+function isFetchableUrl(u) {
+  try {
+    const url = new URL(u, location.href);
+    if (!/^https?:$/.test(url.protocol)) return false;
+    if (url.username || url.password) return false;
+    return !isPrivateHost(url.hostname);
+  } catch (e) {
+    return false;
+  }
+}
+
 // inject.js (MAIN world) sayfanın fetch/XHR çağrılarından yakaladığı manifest
 // URL'lerini buraya postMessage eder. Bu, cross-origin iframe içinde de çalışır
 // ve chrome.webRequest'e (MV3 worker uykusu) bağımlı değildir. inject.js yalnızca
@@ -515,7 +563,7 @@ window.addEventListener('message', (e) => {
   if (e.source !== window) return;
   const d = e.data;
   if (!(d && d.__dnHls && typeof d.url === 'string')) return;
-  if (!/^https?:\/\//i.test(d.url)) return;
+  if (!isFetchableUrl(d.url)) return;
   if (!dnSniffed.includes(d.url)) {
     dnSniffed.unshift(d.url);
     if (dnSniffed.length > 100) dnSniffed.length = 100; // uzun oturumda sınırsız büyümesin
@@ -526,7 +574,13 @@ window.addEventListener('message', (e) => {
     if (dnMasters.length > 100) dnMasters.length = 100;
     // Kaliteleri ARKA PLANDA ısıt: kullanıcı "DDM ile İndir"e bastığında menü anında
     // hazır olsun (yt-dlp master+varyant probe gecikmesi tıklamadan ÖNCE yapılır).
-    try { fetchFormats(d.url, null, location.href); } catch (e) { /* ignore */ }
+    // Yalnızca arka planın ağ katmanında (webRequest) GERÇEKTEN görülen manifestler
+    // için: sayfa betiklerinin uydurduğu URL'lerle otomatik istek başlatılamasın.
+    dnSendMessage({ type: 'DN_VERIFY_MANIFEST', url: d.url }, (resp) => {
+      if (resp && resp.ok && isFetchableUrl(d.url)) {
+        try { fetchFormats(d.url, null, location.href); } catch (e) { /* ignore */ }
+      }
+    });
   }
 }, false);
 
@@ -551,6 +605,7 @@ function isThinQualityList(data) {
 }
 
 function fetchFormats(url, cb, referer) {
+  if (!isFetchableUrl(url)) { if (cb) cb({ error: true }); return; }
   const key = pageKey(url);
   const c = formatsCache.get(key);
   const thin = c && c.data && isThinQualityList(c.data);

@@ -54,27 +54,23 @@ function installerNameFrom(rawUrl) {
   return /\.exe$/i.test(clean) ? clean : 'DeepNodeSetup.exe';
 }
 
+// Güncelleme bütünlüğü: kurulum dosyası YALNIZCA beklenen SHA-256 ile eşleşirse
+// doğrulanmış sayılır. Authenticode zinciri kendinden imzalı sertifika yüzünden
+// kullanılamıyor; bu yüzden hash zorunludur ve hash yoksa fail-closed davranılır.
 export async function verifyInstallerSignature(filePath, expectedSha256 = null) {
-  if (expectedSha256) {
-    try {
-      const crypto = await import('crypto');
-      const hash = crypto.createHash('sha256');
-      const stream = fs.createReadStream(filePath);
-      for await (const chunk of stream) {
-        hash.update(chunk);
-      }
-      const digest = hash.digest('hex').toLowerCase();
-      return digest === String(expectedSha256).toLowerCase().trim();
-    } catch (err) {
-      return false;
+  const expected = String(expectedSha256 || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(expected)) return false;
+  try {
+    const crypto = await import('crypto');
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    for await (const chunk of stream) {
+      hash.update(chunk);
     }
+    return hash.digest('hex').toLowerCase() === expected;
+  } catch (err) {
+    return false;
   }
-  // Not: DeepNode Windows kurulumu kendinden-imzalı sertifika taşır (CN=DeepNode Studios).
-  // Son kullanıcılarda bu sertifika Windows Güvenilen Kök Sertifika Yetkilileri (Root CA)
-  // deposunda bulunmadığından Authenticode 'UnknownError' döner ve kurulumun reddedilmesine
-  // yol açar. Bu sebeple imza zinciri zorunlu bir engel olarak tutulmaz; güvenlik HTTPS aktarımı,
-  // kaynak URL beyaz listesi (isAllowedUpdateUrl), Content-Length ve varsa SHA-256 ile sağlanır.
-  return true;
 }
 
 
@@ -82,6 +78,9 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
   const router = express.Router();
 
   let state = { status: 'idle', progress: 0, file: null, error: null };
+  // Çift tıklama / iki pencere aynı anda kurulum başlatmasın: aksi halde iki
+  // installer süreci yarışır ve uygulama iki kez kapanma sinyali alabilir.
+  let installing = false;
   const emit = () => broadcast({ type: 'UPDATE_PROGRESS', payload: state });
 
   router.get('/check', async (req, res) => {
@@ -97,10 +96,34 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
       if (!resp.ok) throw new Error(`GitHub HTTP ${resp.status}`);
       const data = await resp.json();
       const latest = (data.tag_name || '').replace(/^v/, '');
-      const asset = (data.assets || []).find((a) => /\.exe$/i.test(a.name || '')) || (data.assets || [])[0];
+      const asset = (data.assets || []).find((a) => /\.exe$/i.test(a.name || ''));
       const shaMatch = (data.body || '').match(/(?:sha256|sha-256|checksum)[:\s=]+([a-fA-F0-9]{64})/i)
         || (data.body || '').match(/([a-fA-F0-9]{64})\s+[*]?\S+\.exe/i);
-      const sha256 = shaMatch ? shaMatch[1].toLowerCase() : null;
+      let sha256 = shaMatch ? shaMatch[1].toLowerCase() : null;
+      // Release notlarında hash yoksa sürümle birlikte yüklenen SHA256SUMS.txt
+      // varlığından oku. Böylece güncelleme, release notu biçimine bağımlı kalmaz;
+      // iki kaynak da aynı GitHub release'ine ait olduğu için güven seviyesi aynı.
+      if (!sha256 && asset) {
+        const sumsAsset = (data.assets || []).find((a) => /^SHA256SUMS(\.txt)?$/i.test(a.name || ''));
+        if (sumsAsset && isAllowedUpdateUrl(sumsAsset.browser_download_url)) {
+          try {
+            const sumsResp = await fetch(sumsAsset.browser_download_url, {
+              headers: { 'User-Agent': `DeepNode/${current}` },
+              signal: AbortSignal.timeout(5000)
+            });
+            if (sumsResp.ok) {
+              const text = await sumsResp.text();
+              const want = asset.name.toLowerCase();
+              const line = text.split(/\r?\n/).map((l) => l.trim()).find((l) => {
+                const m = /^([a-fA-F0-9]{64})\s+\*?(.+)$/.exec(l);
+                return m && m[2].trim().toLowerCase() === want;
+              });
+              const m = line ? /^([a-fA-F0-9]{64})\s+\*?(.+)$/.exec(line) : null;
+              if (m) sha256 = m[1].toLowerCase();
+            }
+          } catch (e) { /* hash yoksa indirme yolu yine fail-closed kalır */ }
+        }
+      }
       res.json({
         current,
         latest,
@@ -160,6 +183,19 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
       return res.status(409).json({ error: 'A download is already in progress' });
     }
 
+    // Fail-closed: hash yoksa/geçersizse indirilen dosya asla "doğrulanmış"
+    // sayılmaz. Aksi halde release notlarında hash bulunmayan her sürüm,
+    // doğrulanmamış bir .exe'nin çalıştırılmasına izin verirdi.
+    const expectedSha256 = typeof sha256 === 'string' ? sha256.trim().toLowerCase() : '';
+    if (!/^[a-f0-9]{64}$/.test(expectedSha256)) {
+      const error = 'SHA-256 checksum is missing or invalid; refusing to download an unverified installer.';
+      if (state.status !== 'ready') {
+        state = { status: 'error', progress: 0, file: null, error, verified: false };
+        emit();
+      }
+      return res.status(400).json({ error });
+    }
+
     state = { status: 'checking', progress: 0, file: null, error: null, verified: false };
 
     if (!fs.existsSync(UPDATE_DIR)) fs.mkdirSync(UPDATE_DIR, { recursive: true });
@@ -171,26 +207,23 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
     const partPath = filePath + '.part';
 
     // Daha önce tamamlanmış indirmeyi yeniden kullan:
-    // YALNIZCA beklenen SHA-256 sağlandıysa ve diskteki dosya doğrulanırsa yeniden kullan.
-    // Hash yoksa diskteki dosya doğrudan güvenilir sayılamaz; silinip sıfırdan indirilir.
+    // YALNIZCA diskteki dosya beklenen SHA-256 ile doğrulanırsa yeniden kullan.
     if (fs.existsSync(filePath)) {
       try {
-        if (sha256) {
-          const head = await fetch(url, {
-            method: 'HEAD',
-            headers: { 'User-Agent': `DeepNode/${appVersion()}` },
-            redirect: 'follow',
-            signal: AbortSignal.timeout(10000)
-          });
-          const remoteSize = parseInt(head.headers.get('content-length') || '0', 10);
-          const localSize = fs.statSync(filePath).size;
-          if (head.ok && remoteSize > 0 && localSize === remoteSize) {
-            const isSigned = await verifyInstallerSignature(filePath, sha256);
-            if (isSigned) {
-              state = { status: 'ready', progress: 100, file: filePath, error: null, verified: true };
-              emit();
-              return res.json({ started: true, reused: true, file: filePath });
-            }
+        const head = await fetch(url, {
+          method: 'HEAD',
+          headers: { 'User-Agent': `DeepNode/${appVersion()}` },
+          redirect: 'follow',
+          signal: AbortSignal.timeout(10000)
+        });
+        const remoteSize = parseInt(head.headers.get('content-length') || '0', 10);
+        const localSize = fs.statSync(filePath).size;
+        if (head.ok && remoteSize > 0 && localSize === remoteSize) {
+          const isSigned = await verifyInstallerSignature(filePath, expectedSha256);
+          if (isSigned) {
+            state = { status: 'ready', progress: 100, file: filePath, error: null, verified: true };
+            emit();
+            return res.json({ started: true, reused: true, file: filePath });
           }
         }
       } catch (err) {
@@ -217,13 +250,28 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
 
       const totalSize = parseInt(response.headers.get('content-length') || '0', 10);
       fileStream = fs.createWriteStream(partPath);
+      let streamError = null;
+      // Yazma hatası döngü sürerken de gelebilir. Listener'ı döngüden ÖNCE bağla;
+      // aksi halde dinleyicisiz 'error' süreci düşürür veya drain bekleyen route
+      // sonsuza kadar asılı kalır ve uygulama yeniden başlatılana dek 409 döner.
+      const streamFailed = new Promise((_, reject) => {
+        fileStream.once('error', (err) => {
+          streamError = err || new Error('Write stream failed');
+          reject(streamError);
+        });
+      });
+      streamFailed.catch(() => { /* aşağıdaki yarışlardan biri zaten yakalar */ });
       let downloaded = 0;
       let lastBroadcast = 0;
 
       for await (const chunk of response.body) {
+        if (streamError) throw streamError;
         // Geri basınç: disk ağdan yavaşsa yazma kuyruğu bellekte birikmesin
         if (!fileStream.write(chunk)) {
-          await new Promise((resolve) => fileStream.once('drain', resolve));
+          await Promise.race([
+            new Promise((resolve) => fileStream.once('drain', resolve)),
+            streamFailed
+          ]);
         }
         downloaded += chunk.length;
         const progress = totalSize > 0 ? Math.round((downloaded / totalSize) * 100) : 0;
@@ -236,18 +284,20 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
       }
       clearTimeout(downloadTimeout);
 
-      await new Promise((resolve, reject) => {
-        fileStream.on('finish', resolve);
-        fileStream.on('error', reject);
-        fileStream.end();
-      });
+      await Promise.race([
+        new Promise((resolve) => {
+          fileStream.once('finish', resolve);
+          fileStream.end();
+        }),
+        streamFailed
+      ]);
 
       if (totalSize > 0 && downloaded !== totalSize) {
         throw new Error(`Incomplete download (${downloaded}/${totalSize})`);
       }
 
       fs.renameSync(partPath, filePath);
-      const isSigned = await verifyInstallerSignature(filePath, sha256);
+      const isSigned = await verifyInstallerSignature(filePath, expectedSha256);
       if (!isSigned) {
         try { fs.unlinkSync(filePath); } catch (e) {}
         throw new Error('Installer checksum or verification failed');
@@ -265,6 +315,9 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
   });
 
   router.post('/install', appOnly, (req, res) => {
+    if (installing) {
+      return res.status(409).json({ error: 'Installation is already in progress' });
+    }
     const filePath = state.file;
 
     // Yalnızca BU oturumda, beyaz listedeki kaynaktan indirilip boyutu doğrulanmış
@@ -276,15 +329,20 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
       return res.status(400).json({ error: 'Installer file not found' });
     }
 
+    installing = true;
     res.json({ installing: true });
 
     const installer = spawn(filePath, ['/S'], { detached: true, stdio: 'ignore', shell: false });
-    installer.on('error', (spawnErr) => {
+    // Uygulamayı yalnız kurulum GERÇEKTEN başladıysa kapat. spawn hatasında
+    // kapanmak kullanıcıyı kurulumsuz bırakıyordu.
+    installer.once('spawn', () => {
+      setTimeout(() => serverEvents.emit('quit-and-install'), 1500);
+    });
+    installer.once('error', (spawnErr) => {
       console.error('[Update] Failed to spawn installer:', spawnErr);
+      installing = false; // kullanıcı tekrar deneyebilsin
     });
     installer.unref();
-
-    setTimeout(() => serverEvents.emit('quit-and-install'), 1500);
   });
 
   return router;

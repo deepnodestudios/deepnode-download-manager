@@ -381,6 +381,7 @@ export default {
   batch_to: "إلى:",
   batch_digits: "الخانات (01..):",
   batch_items_preview: "معاينة الروابط للتنزيل ({n})",
+  selected: "محدد",
   btn_select_all: "تحديد الكل",
   btn_deselect_all: "إلغاء تحديد الكل",
   chk_auto_start_batch: "بدء التنزيلات المضافة فوراً",

@@ -23,7 +23,10 @@ import crypto from 'crypto';
 
 const distDir = 'dist_exe';
 if (fs.existsSync(distDir)) {
-  const exes = fs.readdirSync(distDir).filter((f) => /\.exe$/i.test(f));
+  // Yalnız BU sürümün kurulum dosyasını listele: dist_exe içinde eski
+  // sürümlerden kalan setup'lar varsa SHA256SUMS.txt'ye karışmasın.
+  const pkgVersion = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+  const exes = fs.readdirSync(distDir).filter((f) => /\.exe$/i.test(f) && f.includes(pkgVersion));
   const lines = [];
   for (const exe of exes) {
     const full = path.join(distDir, exe);

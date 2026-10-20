@@ -151,7 +151,8 @@ const EXTENSION_SETTING_KEYS = [
 ];
 
 export function settingsForExtension(settings) {
-  const out = {};
+  // Eklenti, ayarları uygulamadan aldığını doğrulayabilsin diye sabit işaret.
+  const out = { app: 'deepnode' };
   for (const key of EXTENSION_SETTING_KEYS) {
     if (settings[key] !== undefined) out[key] = settings[key];
   }

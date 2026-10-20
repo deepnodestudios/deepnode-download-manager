@@ -36,12 +36,22 @@ export function proxyUrl() {
   if (!host) return null;
 
   let port = parseInt(s.proxyPort, 10);
-  // Eğer kullanıcı proxyHost içine "host:port" yazmışsa ayır
-  if (host.includes(':') && !host.startsWith('[')) {
-    const parts = host.split(':');
-    host = parts[0];
-    const extractedPort = parseInt(parts[1], 10);
-    if (extractedPort) port = extractedPort;
+  // Kullanıcı proxyHost içine "host:port" yazmışsa ayır.
+  // IPv6: "[::1]:1080" -> host "[::1]", port 1080. Çıplak "::1" (köşeli parantezsiz)
+  // çoklu iki nokta içerdiği için port ayrıştırmasına girmez, olduğu gibi kalır.
+  const bracketMatch = host.match(/^\[([^\]]+)\](?::(\d+))?$/);
+  if (bracketMatch) {
+    host = `[${bracketMatch[1]}]`;
+    if (bracketMatch[2]) port = parseInt(bracketMatch[2], 10);
+  } else if (host.split(':').length === 2) {
+    const idx = host.lastIndexOf(':');
+    if (idx > 0) {
+      const extractedPort = parseInt(host.slice(idx + 1), 10);
+      if (extractedPort) {
+        host = host.slice(0, idx);
+        port = extractedPort;
+      }
+    }
   }
   if (!port || isNaN(port)) port = 8080;
 

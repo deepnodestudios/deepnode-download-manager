@@ -18,6 +18,9 @@ export default function BatchDownloadModal({ isOpen, onClose, onAddBatch, settin
   // Parsed / Generated URL items: [{ url, selected: true, filename: '' }]
   const [items, setItems] = useState([]);
   const [saveDir, setSaveDir] = useState('');
+  // Kullanıcı klasörü elle değiştirmediyse saveDir gönderilmez; böylece
+  // "kategori klasörleri" ayarı toplu indirmelerde de uygulanır.
+  const [manualDir, setManualDir] = useState(false);
   const [autoStart, setAutoStart] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const wasOpenRef = useRef(false);
@@ -31,6 +34,7 @@ export default function BatchDownloadModal({ isOpen, onClose, onAddBatch, settin
       wasOpenRef.current = true;
       const defaultDir = settings?.downloadDir || '';
       setSaveDir(defaultDir);
+      setManualDir(false);
       setAutoStart(settings?.autoStartDownloads ?? true);
 
       if (Array.isArray(initialUrls) && initialUrls.length > 0) {
@@ -143,7 +147,7 @@ export default function BatchDownloadModal({ isOpen, onClose, onAddBatch, settin
         const data = await res.json();
         if (data && data.folderPath) selected = data.folderPath;
       }
-      if (selected) setSaveDir(selected);
+      if (selected) { setSaveDir(selected); setManualDir(true); }
     } catch (e) {
       console.error(e);
     }
@@ -158,15 +162,16 @@ export default function BatchDownloadModal({ isOpen, onClose, onAddBatch, settin
 
     setSubmitting(true);
     try {
+      const dirToSend = manualDir ? (saveDir.trim() || undefined) : undefined;
       if (onAddBatch) {
-        await onAddBatch(selectedUrls, saveDir, autoStart);
+        await onAddBatch(selectedUrls, dirToSend, autoStart);
       } else {
         await fetch('/api/download/batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             urls: selectedUrls,
-            saveDir: saveDir || undefined,
+            saveDir: dirToSend,
             autoStart
           })
         });
@@ -379,7 +384,7 @@ export default function BatchDownloadModal({ isOpen, onClose, onAddBatch, settin
                     type="text"
                     className="form-input"
                     value={saveDir}
-                    onChange={(e) => setSaveDir(e.target.value)}
+                    onChange={(e) => { setSaveDir(e.target.value); setManualDir(true); }}
                     style={{ fontSize: '12px' }}
                     required
                   />

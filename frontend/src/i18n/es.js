@@ -381,6 +381,7 @@ export default {
   batch_to: "Hasta:",
   batch_digits: "Dígitos (01..):",
   batch_items_preview: "Vista previa de enlaces ({n})",
+  selected: "seleccionados",
   btn_select_all: "Seleccionar todo",
   btn_deselect_all: "Deseleccionar todo",
   chk_auto_start_batch: "Iniciar descargas agregadas de inmediato",

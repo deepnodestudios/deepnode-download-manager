@@ -381,6 +381,7 @@ export default {
   batch_to: "Sampai:",
   batch_digits: "Digit (01..):",
   batch_items_preview: "Pratinjau Tautan yang Diunduh ({n})",
+  selected: "dipilih",
   btn_select_all: "Pilih Semua",
   btn_deselect_all: "Batalkan Pilihan",
   chk_auto_start_batch: "Mulai unduhan yang ditambahkan secara langsung",

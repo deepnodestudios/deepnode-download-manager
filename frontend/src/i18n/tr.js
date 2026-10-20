@@ -375,6 +375,7 @@ export default {
   batch_to: 'Bitiş:',
   batch_digits: 'Basamak Sayısı (01..):',
   batch_items_preview: 'İndirilecek Bağlantılar Önizlemesi ({n})',
+  selected: 'seçili',
   btn_select_all: 'Tümünü Seç',
   btn_deselect_all: 'Seçimi Kaldır',
   chk_auto_start_batch: 'Eklenen indirmeleri hemen başlat',

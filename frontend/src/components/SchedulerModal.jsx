@@ -12,18 +12,23 @@ export default function SchedulerModal({ isOpen, onClose, settings, onSaveSettin
   const [scheduleDays, setScheduleDays] = useState([1, 2, 3, 4, 5, 6, 0]);
   const [schedulerAfterStop, setSchedulerAfterStop] = useState('nothing');
   const [maxConcurrentDownloads, setMaxConcurrentDownloads] = useState(3);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const currentQ = (queues || []).find(q => q.id === selectedQueueId) || queues[0] || null;
+  // Ana kuyruk için zamanlayıcı global ayarlarda tutulur (Scheduler.js s.schedulerEnabled
+  // okur ve tüm kuyrukları başlatır). Diğer kuyruklar kendi düz alanlarını kullanır.
+  const isMain = !currentQ || currentQ.id === 'main';
 
   useEffect(() => {
     if (!isOpen) return;
-    if (currentQ) {
-      const sch = currentQ.scheduler || {};
-      setSchedulerEnabled(sch.enabled ?? false);
-      setScheduleStartTime(sch.startTime || '02:00');
-      setScheduleStopTime(sch.stopTime !== undefined ? sch.stopTime : '08:00');
-      setScheduleDays(sch.days || [1, 2, 3, 4, 5, 6, 0]);
-      setSchedulerAfterStop(sch.afterStop || 'nothing');
+    setSaveError('');
+    if (!isMain && currentQ) {
+      setSchedulerEnabled(currentQ.schedulerEnabled ?? false);
+      setScheduleStartTime(currentQ.startTime || '02:00');
+      setScheduleStopTime(currentQ.stopTime || '08:00');
+      setScheduleDays(Array.isArray(currentQ.days) ? currentQ.days : [1, 2, 3, 4, 5, 6, 0]);
+      setSchedulerAfterStop(currentQ.afterStop || 'nothing');
       setMaxConcurrentDownloads(currentQ.maxConcurrent ?? 3);
     } else if (settings) {
       setSchedulerEnabled(settings.schedulerEnabled ?? false);
@@ -47,32 +52,40 @@ export default function SchedulerModal({ isOpen, onClose, settings, onSaveSettin
     [0, 'day_0']
   ];
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (onUpdateQueue && currentQ) {
-      onUpdateQueue(currentQ.id, {
-        maxConcurrent: Number(maxConcurrentDownloads),
-        scheduler: {
-          enabled: schedulerEnabled,
+    if (saving) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      if (isMain) {
+        if (onSaveSettings) {
+          await onSaveSettings({
+            schedulerEnabled,
+            scheduleStartTime,
+            scheduleStopTime,
+            scheduleDays,
+            schedulerAfterStop,
+            afterAllComplete: schedulerAfterStop,
+            maxConcurrentDownloads: Number(maxConcurrentDownloads)
+          });
+        }
+      } else if (onUpdateQueue && currentQ) {
+        await onUpdateQueue(currentQ.id, {
+          maxConcurrent: Number(maxConcurrentDownloads),
+          schedulerEnabled,
           startTime: scheduleStartTime,
           stopTime: scheduleStopTime,
           days: scheduleDays,
           afterStop: schedulerAfterStop
-        }
-      });
+        });
+      }
+      onClose();
+    } catch (err) {
+      setSaveError(err?.message || String(err));
+    } finally {
+      setSaving(false);
     }
-    if ((selectedQueueId === 'main' || !currentQ) && onSaveSettings) {
-      onSaveSettings({
-        schedulerEnabled,
-        scheduleStartTime,
-        scheduleStopTime,
-        scheduleDays,
-        schedulerAfterStop,
-        afterAllComplete: schedulerAfterStop,
-        maxConcurrentDownloads: Number(maxConcurrentDownloads)
-      });
-    }
-    onClose();
   };
 
   return (
@@ -256,14 +269,22 @@ export default function SchedulerModal({ isOpen, onClose, settings, onSaveSettin
 
           </div>
 
-          <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '14px 20px' }}>
-            <button type="button" className="btn btn-secondary" onClick={onClose}>
-              {t('btn_cancel')}
-            </button>
-            <button type="submit" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <CheckCircle2 size={15} />
-              <span>{t('btn_save')}</span>
-            </button>
+          <div className="modal-footer" style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px 20px' }}>
+            {saveError && (
+              <div style={{ color: '#f87171', fontSize: '12px', alignSelf: 'stretch', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <AlertTriangle size={14} />
+                <span>{saveError}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', width: '100%' }}>
+              <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>
+                {t('btn_cancel')}
+              </button>
+              <button type="submit" className="btn btn-primary" disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <CheckCircle2 size={15} />
+                <span>{t('btn_save')}</span>
+              </button>
+            </div>
           </div>
         </form>
       </div>

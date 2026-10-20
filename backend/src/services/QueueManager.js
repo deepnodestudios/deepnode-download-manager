@@ -28,8 +28,11 @@ class QueueManager {
       if (item.preflight) {
         try {
           const eng = item.kind === 'video' ? new VideoDownloader(item) : new DownloadEngine(item);
+          const ownsSavePath = eng._ownsSavePath === true || eng._createdFinal === true;
           eng.cleanup();
-          if (eng.savePath && fs.existsSync(eng.savePath)) fs.unlinkSync(eng.savePath);
+          // Yalnız bu motorun sahiplendiği dosyayı sil; kullanıcının önceden
+          // var olan dosyası (ör. yt-dlp "zaten indirildi") korunur.
+          if (ownsSavePath && eng.savePath && fs.existsSync(eng.savePath)) fs.unlinkSync(eng.savePath);
         } catch (e) { /* ignore */ }
         purgedPreflight = true;
         return;
@@ -79,6 +82,15 @@ class QueueManager {
 
     engine.on('link-expired', async ({ id, referer }) => {
       if (!referer) return;
+      const eng = this.engines.get(id);
+      if (!eng) return;
+      // Token süresi dolduğunda 8 segmentin TAMAMI 403 alıp aynı olayı yayıyor.
+      // Uçuşta yenileme + kısa bekleme olmadan her olay ayrı sniffPage/start yapıp
+      // siteye istek yağmuru ve duraklat/başlat yarışı üretiyordu.
+      const now = Date.now();
+      if (eng._linkRefreshBusy || (eng._linkRefreshAt && now - eng._linkRefreshAt < 60000)) return;
+      eng._linkRefreshBusy = true;
+      eng._linkRefreshAt = now;
       console.log(`[QueueManager] Link expired for download #${id}, auto-sniffing referer page: ${referer}`);
       try {
         const sniffed = await LinkSniffer.sniffPage(referer, { depth: 1, maxPages: 2 });
@@ -88,11 +100,12 @@ class QueueManager {
             console.log(`[QueueManager] Auto-refreshed stream URL for #${id}: ${newStream.url}`);
             this.updateDownloadUrl(id, newStream.url, referer);
             this.startDownload(id);
-            return;
           }
         }
       } catch (err) {
         console.warn(`[QueueManager] Auto-sniff refresh failed for #${id}:`, err.message);
+      } finally {
+        eng._linkRefreshBusy = false;
       }
     });
   }
@@ -111,11 +124,24 @@ class QueueManager {
     storageService.saveDownloads(snapshots);
   }
 
+  // Geçersiz/silinmiş kuyruk kimliği motoru hiçbir _fillSlots turuna sokmaz ve
+  // indirme sonsuza dek "kuyrukta" kalırdı. Bilinmeyen kimlik ana kuyruğa düşer.
+  normalizeQueueId(queueId) {
+    const id = typeof queueId === 'string' && queueId ? queueId : 'main';
+    if (id === 'main') return 'main';
+    try {
+      return storageService.getQueues().some(q => q.id === id) ? id : 'main';
+    } catch (e) {
+      return 'main';
+    }
+  }
+
   async addDownload(url, customFilename = null, customCategory = null, segmentsCount = 8, forceVideo = false, quality = 'best', customSaveDir = null, headers = null, preflight = false, referer = null, queueId = 'main') {
     // NOTE: file-type filtering (capturedExtensions/ignoredExtensions) is applied
     // only to AUTOMATIC browser captures before prompting (see server /api/download/add).
     // An explicit/confirmed add must never be blocked here.
     const id = 'dl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    const safeQueueId = this.normalizeQueueId(queueId);
 
     // Streaming sites (YouTube, etc.) and HLS/DASH manifests -> handled by yt-dlp video engine
     if (forceVideo || isVideoSiteUrl(url) || isStreamManifestUrl(url)) {
@@ -139,13 +165,19 @@ class QueueManager {
       const engine = new VideoDownloader({
         id,
         url,
-        filename: videoTitle ? safeName(videoTitle, 'Video Download') : 'Video Download',
+        filename: (() => {
+          const base = videoTitle ? safeName(videoTitle, 'Video Download') : 'Video Download';
+          // Ön indirme ASLA mevcut bir kullanıcı dosyasının adını hedeflemez;
+          // aksi halde "Vazgeç" mevcut dosyayı siler ve yt-dlp var olan dosyayı
+          // "zaten indirildi" sayıp onu sahiplenirdi.
+          return preflight ? this.uniqueFilename(saveDir, base) : base;
+        })(),
         customFilename: hasCustom,
         quality: quality || 'best',
         referer: videoReferer,
         saveDir,
         status: 'queued',
-        queueId: queueId || 'main',
+        queueId: safeQueueId,
         preflight // Arka plan ön indirmesi: onaylanana dek arayüzde gizli
       });
       this.attachEngineListeners(engine);
@@ -153,7 +185,7 @@ class QueueManager {
       this.saveState();
       this.broadcast({ type: 'DOWNLOAD_ADDED', payload: engine.toSnapshot() });
       if (storageService.settings.autoStartDownloads !== false) {
-        this.checkQueue(queueId);
+        this.checkQueue(safeQueueId);
       }
       return engine.toSnapshot();
     }
@@ -169,6 +201,9 @@ class QueueManager {
     if ((storageService.settings.duplicateAction || 'rename') === 'rename') {
       filename = this.uniqueFilename(saveDir, filename);
     }
+    // Ön indirme, onaylanmadan önce mevcut bir dosyayı HEDEFLEMEMELİ: kullanıcı
+    // vazgeçtiğinde bu yol silinir (eski sürümde kullanıcı dosyası kayboluyordu).
+    if (preflight) filename = this.uniqueFilename(saveDir, filename);
 
     const item = {
       id,
@@ -180,7 +215,7 @@ class QueueManager {
       totalSize: info.totalSize,
       downloadedBytes: 0,
       status: 'queued',
-      queueId: queueId || 'main',
+      queueId: safeQueueId,
       segmentsCount: Math.max(1, Math.min(32, parseInt(segmentsCount, 10) || parseInt(storageService.settings.defaultSegments, 10) || 8)),
       preflight // Arka plan ön indirmesi: onaylanana dek arayüzde gizli
     };
@@ -193,7 +228,7 @@ class QueueManager {
     this.broadcast({ type: 'DOWNLOAD_ADDED', payload: engine.toSnapshot() });
 
     if (storageService.settings.autoStartDownloads !== false) {
-      this.checkQueue(queueId);
+      this.checkQueue(safeQueueId);
     }
     return engine.toSnapshot();
   }
@@ -248,12 +283,17 @@ class QueueManager {
   async addBatchDownloads(urls, saveDir = null, autoStart = true, queueId = 'main') {
     const results = [];
     for (const url of urls) {
-      if (url && url.trim()) {
+      if (!url || !url.trim()) continue;
+      // Tek bir bozuk URL tüm partiyi düşürmemeli; kalanlar eklenmeye devam eder.
+      try {
         const item = await this.addDownload(url.trim(), null, null, null, false, null, saveDir || null, null, false, null, queueId || 'main');
-        if (autoStart === false && item && item.id) {
+        if (!item || !item.id) continue;
+        if (autoStart === false) {
           this.pauseDownload(item.id);
         }
         results.push(item);
+      } catch (err) {
+        console.error('[QueueManager] Batch öğesi eklenemedi:', url, err.message);
       }
     }
     return results;
@@ -261,11 +301,16 @@ class QueueManager {
 
   startDownload(id) {
     const engine = this.engines.get(id);
-    if (engine) {
-      Promise.resolve(engine.start()).catch((err) => {
-        console.error(`[QueueManager] Error starting engine ${id}:`, err);
-      });
-    }
+    if (!engine) return;
+    // Eşzamanlılık sınırı ATLANMAZ: motoru doğrudan başlatmak yerine kuyruğa al
+    // ve slot dağıtımını _fillSlots'a bırak. Aksi halde "başlat" çağrıları
+    // maxConcurrentDownloads sınırını aşıp bağlantıları boğuyordu.
+    if (engine.status === 'downloading' || engine.status === 'merging' ||
+        engine.status === 'completed' || engine.status === 'canceled') return;
+    engine.status = 'queued';
+    this.saveState();
+    this.broadcast({ type: 'STATUS_CHANGE', payload: { id, status: 'queued' } });
+    this._fillSlots(engine.queueId || 'main');
   }
 
   pauseDownload(id) {
@@ -334,6 +379,18 @@ class QueueManager {
       engine.pause();
     }
 
+    // Taze link farklı bir host/CDN'e aitse eski host için toplanan çerezler
+    // yeni hedefe gönderilmemeli (oturum sızıntısı).
+    try {
+      const oldHost = new URL(engine.url).hostname.toLowerCase();
+      const newHost = new URL(newUrl).hostname.toLowerCase();
+      if (oldHost !== newHost && engine.headers) {
+        for (const key of Object.keys(engine.headers)) {
+          if (/^(cookie|authorization)$/i.test(key)) delete engine.headers[key];
+        }
+      }
+    } catch (e) { /* URL ayrıştırılamadı — başlıklara dokunma */ }
+
     engine.url = newUrl;
     engine.resolvedUrl = null;
     if (newReferer !== undefined && newReferer !== null) {
@@ -369,11 +426,31 @@ class QueueManager {
       }
 
       // 2. Eşleşme 2: URL origin ve path bileşeni tam aynı mı? (query tokenleri hariç)
+      // Oynatıcı sayfalarında path her içerikte aynıdır (YouTube /watch); kimlik
+      // query'dedir. Kimlik eşleşmeden bu dal yanlış indirmeyi güncelliyordu.
       if (url && engine.url) {
         try {
           const u1 = new URL(url);
           const u2 = new URL(engine.url);
-          if (u1.origin === u2.origin && u1.pathname === u2.pathname && u1.pathname !== '/') return engine;
+          if (u1.origin !== u2.origin || u1.pathname !== u2.pathname || u1.pathname === '/') continue;
+          const genericPath = /^\/(watch|watch\/|player|video|videos|embed|shorts)(\/|$)/i.test(u1.pathname);
+          if (genericPath) {
+            const idKeys = ['v', 'video_id', 'videoid', 'vid'];
+            const pick = (u) => {
+              for (const k of idKeys) {
+                const value = u.searchParams.get(k);
+                if (value) return value;
+              }
+              return '';
+            };
+            const id1 = pick(u1);
+            const id2 = pick(u2);
+            // Kimlik yoksa eşleştirme YAPMA: yanlış videonun kaydını güncellemek,
+            // yeni indirme kaçırmaktan daha kötü.
+            if (id1 && id2 && id1 === id2) return engine;
+            continue;
+          }
+          return engine;
         } catch (e) {}
       }
     }
@@ -395,8 +472,16 @@ class QueueManager {
       engine.cleanup();
     }
 
-    // If explicit delete file requested OR if the download was not completed (incomplete/paused), remove savePath!
-    if ((deleteFile || engine.status !== 'completed') && engine.savePath) {
+    // If explicit delete file requested OR the engine created this final file itself,
+    // remove savePath. ÜZERİNE-YAZ modunda yarım kalan bir indirme, hedef adda zaten
+    // var olan kullanıcı dosyasını asla silmemeli (motor onu hiç yazmadı).
+    // Ön indirmeler kullanıcıya hiç gösterilmez; onların dosya silme kararı
+    // kullanıcının "dosyayı da sil" seçimi DEĞİLDİR → yalnız sahiplik varsa sil.
+    const ownsFinal = engine._ownsSavePath === true || engine._createdFinal === true;
+    const shouldDelete = engine.preflight === true
+      ? ownsFinal
+      : (deleteFile || (engine.status !== 'completed' && ownsFinal));
+    if (shouldDelete && engine.savePath) {
       try {
         if (fs.existsSync(engine.savePath)) {
           fs.unlinkSync(engine.savePath);
@@ -493,9 +578,12 @@ class QueueManager {
   moveDownloadToQueue(id, targetQueueId) {
     const engine = this.engines.get(id);
     if (!engine) return null;
-    const targetQ = targetQueueId || 'main';
+    const targetQ = this.normalizeQueueId(targetQueueId);
     engine.queueId = targetQ;
-    if ((engine.status === 'downloading' || engine.status === 'merging') && !this.canStartMore(targetQ)) {
+    // Yalnızca AĞ indirmesini duraklat. 'merging' yerel disk işidir; burada
+    // pause() çağrılırsa epoch artar, süren birleştirme iptal edilir ve tüm
+    // parçaların yeniden birleştirilmesi gerekirdi.
+    if (engine.status === 'downloading' && !this.canStartMore(targetQ)) {
       engine.pause();
       engine.status = 'queued';
     }
@@ -517,9 +605,13 @@ class QueueManager {
       type: 'INIT_STATE',
       payload: {
         downloads: this.getAllDownloads(),
-        settings: sanitizeSettingsForBroadcast(storageService.settings)
+        settings: sanitizeSettingsForBroadcast(storageService.settings),
+        queues: storageService.getQueues()
       }
     });
+    // Ana kuyruğa taşınan motorlar boş slotlara hemen yerleşsin; aksi halde
+    // 'queued' kalıp kullanıcı başka bir eylem yapana dek asılı kalıyorlardı.
+    this.checkQueue('main');
   }
 
   getAllDownloads() {
@@ -571,6 +663,8 @@ class QueueManager {
         engine.saveDir = newDir;
         engine.filename = newName;
         engine.savePath = np;
+        // Taşınan dosya bu motorun ürünü; yeni yol da sahiplenilmiş sayılır.
+        engine._ownsSavePath = true;
       } else {
         // Yalnız ad değiştiyse duraklatmaya gerek yok: parçalar tempDir'e yazar,
         // nihai ad birleştirmede kullanılır — indirme kesintisiz sürer (hızlı onay).
@@ -598,6 +692,10 @@ class QueueManager {
         engine.saveDir = newDir;
         engine.filename = newName;
         engine.savePath = path.join(newDir, newName);
+        // Yeni hedefte zaten bir dosya varsa (üzerine-yaz modu) ve motor henüz
+        // yazmadıysa temizlik onu silmemeli; birleştirme başarıyla bitince
+        // DownloadEngine._ownsSavePath'i true yapar.
+        engine._ownsSavePath = !fs.existsSync(engine.savePath);
       }
     }
 
@@ -610,16 +708,14 @@ class QueueManager {
     if (this.engines.get(id) !== engine) { engine.pause(); return null; }
 
     engine.preflight = false;
-    if (opts.queueId) engine.queueId = opts.queueId;
+    if (opts.queueId) engine.queueId = this.normalizeQueueId(opts.queueId);
 
     if (opts.autoStart === false) {
       // "Daha Sonra İndir": inen baytlar korunur, duraklatılmış olarak listelenir
       if (engine.status === 'downloading') engine.pause();
       else if (engine.status === 'queued') engine.status = 'paused';
     } else if (['paused', 'queued', 'error'].includes(engine.status)) {
-      Promise.resolve(engine.start()).catch((err) => {
-        console.error(`[QueueManager] Error starting engine ${engine.id}:`, err);
-      }); // kaldığı yerden devam
+      this.startDownload(engine.id); // eşzamanlılık sınırına uyar
     }
 
     this.saveState();
@@ -645,21 +741,31 @@ class QueueManager {
     const newQuality = opts.quality || engine.quality;
     if (String(newQuality) !== String(engine.quality)) return null; // kalite değişti → sıfırdan
 
+    // Klasör değiştiyse yt-dlp'nin açık çıktı dosyaları taşınamaz; sessizce eski
+    // klasöre indirmek yerine devralmayı reddet — çağıran seçilen klasöre sıfırdan indirir.
+    if (opts.saveDir && String(opts.saveDir).trim() &&
+        path.resolve(String(opts.saveDir).trim()) !== path.resolve(engine.saveDir)) {
+      return null;
+    }
+
     // Kalite aynı: gizlilikten çıkar, kaldığı yerden devam et.
     engine.preflight = false;
     if (opts.filename && String(opts.filename).trim()) {
-      engine.filename = safeName(opts.filename, engine.filename);
+      const desired = safeName(opts.filename, engine.filename);
       engine.userNamed = true;
       engine.customFilename = true;
+      if (typeof engine.setDesiredFilename === 'function') {
+        engine.setDesiredFilename(desired);
+      } else {
+        engine.filename = desired;
+      }
     }
-    if (opts.queueId) engine.queueId = opts.queueId;
+    if (opts.queueId) engine.queueId = this.normalizeQueueId(opts.queueId);
     if (opts.autoStart === false) {
       if (engine.status === 'downloading') engine.pause();
       else if (engine.status === 'queued') engine.status = 'paused';
     } else if (['paused', 'queued', 'error'].includes(engine.status)) {
-      Promise.resolve(engine.start()).catch((err) => {
-        console.error(`[QueueManager] Error starting engine ${engine.id}:`, err);
-      }); // kaldığı baytlardan devam
+      this.startDownload(engine.id); // kaldığı baytlardan devam, sınır dahilinde
     }
 
     this.saveState();
@@ -679,25 +785,83 @@ class QueueManager {
     const snap = old.toSnapshot({ secrets: true });
     old.pause();
     if (typeof old.cleanup === 'function') { try { old.cleanup(); } catch (e) {} }
-    try {
-      if (snap.savePath && fs.existsSync(snap.savePath)) fs.unlinkSync(snap.savePath);
-    } catch (e) { /* dosya kilitli olabilir */ }
+
+    // Eski dosyayı HEMEN SİLME: yeni indirme başarısız olursa kullanıcı verisiz
+    // kalıyordu. Başarılı tamamlanmada silinen, hata/iptalde geri konan yedek oluştur.
+    let backupPath = null;
+    if (snap.savePath && fs.existsSync(snap.savePath)) {
+      const candidate = `${snap.savePath}.redownload-${Date.now()}.bak`;
+      try {
+        fs.renameSync(snap.savePath, candidate);
+        backupPath = candidate;
+      } catch (e) {
+        // Dosya kilitliyse üzerine yazma riskini alma: eski dosya yerinde kalsın,
+        // yeniden indirme başlatılmasın (veri kaybı yerine açık hata).
+        console.error('[QueueManager] redownload: eski dosya yedeklenemedi:', e.message);
+        throw new Error('Mevcut dosya kilitli olduğu için yeniden indirme başlatılamadı.');
+      }
+    }
+
+    const restoreBackup = () => {
+      if (!backupPath) return;
+      try {
+        if (fs.existsSync(backupPath)) {
+          if (!fs.existsSync(snap.savePath)) {
+            fs.renameSync(backupPath, snap.savePath);
+            backupPath = null;
+          } else {
+            // Yeni (kısmi) dosya oluşmuş: eski dosyayı .bak olarak koru.
+            console.warn(`[QueueManager] redownload: eski dosya yedekte tutuldu: ${backupPath}`);
+          }
+        }
+      } catch (e) {
+        console.error('[QueueManager] redownload: yedek geri yüklenemedi:', e.message);
+      }
+    };
 
     this.engines.delete(id);
     this.broadcast({ type: 'DOWNLOAD_DELETED', payload: { id } });
 
     let newItem;
-    if (snap.kind === 'video') {
-      newItem = await this.addDownload(
-        snap.url, snap.filename, 'Video', 1, true, snap.quality || 'best',
-        snap.saveDir, null, false, snap.referer || null, snap.queueId || 'main'
-      );
-    } else {
-      newItem = await this.addDownload(
-        snap.url, snap.filename, snap.category, snap.segmentsCount,
-        false, 'best', snap.saveDir, snap.headers || {}, false, snap.referer || null, snap.queueId || 'main'
-      );
+    try {
+      if (snap.kind === 'video') {
+        newItem = await this.addDownload(
+          snap.url, snap.filename, 'Video', 1, true, snap.quality || 'best',
+          snap.saveDir, null, false, snap.referer || null, snap.queueId || 'main'
+        );
+      } else {
+        newItem = await this.addDownload(
+          snap.url, snap.filename, snap.category, snap.segmentsCount,
+          false, 'best', snap.saveDir, snap.headers || {}, false, snap.referer || null, snap.queueId || 'main'
+        );
+      }
+    } catch (err) {
+      restoreBackup();
+      throw err;
     }
+
+    const engine = newItem && this.engines.get(newItem.id);
+    if (!engine) {
+      restoreBackup();
+      return newItem;
+    }
+
+    if (backupPath) {
+      let settled = false;
+      const keepBackup = () => { settled = true; }; // hata: .bak korunur
+      const dropBackup = () => {
+        if (settled) return;
+        settled = true;
+        try { if (backupPath && fs.existsSync(backupPath)) fs.unlinkSync(backupPath); } catch (e) {}
+        backupPath = null;
+      };
+      engine.once('completed', dropBackup);
+      engine.once('error', keepBackup);
+      engine.once('status-change', ({ status } = {}) => {
+        if (status === 'canceled') keepBackup();
+      });
+    }
+
     if (newItem && snap.speedLimitKbps) {
       this.setSpeedLimit(newItem.id, snap.speedLimitKbps);
     }
@@ -726,13 +890,20 @@ class QueueManager {
 
     // Kullanıcı girdisi doğrudan yol olarak kullanılamaz: "../../Startup/x.exe"
     // gibi bir ad dosyayı indirme klasörünün dışına taşırdı.
-    const cleanName = safeName(newName, engine.filename);
+    let cleanName = safeName(newName, engine.filename);
     const dir = engine.saveDir;
     const oldPath = engine.savePath;
-    const newPath = path.join(dir, cleanName);
+    let newPath = path.join(dir, cleanName);
 
-    if (oldPath && fs.existsSync(oldPath) && oldPath !== newPath) {
-      fs.renameSync(oldPath, newPath);
+    if (oldPath && path.resolve(oldPath) !== path.resolve(newPath)) {
+      // Hedef ada sahip başka bir dosya/indirme varsa üzerine YAZMA; "ad (1).ext"
+      // üret. fs.renameSync mevcut hedefi sessizce eziyordu.
+      const unique = this.uniqueFilename(dir, cleanName, engine.id);
+      if (unique !== cleanName) {
+        cleanName = unique;
+        newPath = path.join(dir, cleanName);
+      }
+      if (fs.existsSync(oldPath)) fs.renameSync(oldPath, newPath);
     }
     engine.filename = cleanName;
     engine.savePath = newPath;

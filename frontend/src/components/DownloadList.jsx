@@ -33,12 +33,16 @@ export default function DownloadList({
   onShowProperties,
   onSetPriority,
   queues = [],
-  onMoveToQueue
+  onMoveToQueue,
+  shortcutsEnabled = true
 }) {
   const { t } = useT();
   const [menu, setMenu] = useState(null); // { x, y, item }
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [focusedIndex, setFocusedIndex] = useState(-1);
+  // Odak satırını kimlikle takip et: hız/tarih/sıralama değişince indeks kaysa da
+  // Delete/Enter aynı indirmeye etki etsin (yanlış dosya silinmesin).
+  const focusedIdRef = useRef(null);
   const [dragBox, setDragBox] = useState(null); // { x1, y1, x2, y2 } in container coords
   const [refreshingItem, setRefreshingItem] = useState(null);
   const [speedLimitTarget, setSpeedLimitTarget] = useState(null);
@@ -264,6 +268,10 @@ export default function DownloadList({
   // --- Keyboard shortcuts ---
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Açık bir modal/onay penceresi varken (ör. silme onayı) Delete/Enter
+      // arka plandaki listeyi etkilememeli. Liste içindeki yenileme / hız
+      // sınırı pencereleri de aynı şekilde kısayolları kilitlemeli.
+      if (!shortcutsEnabled || refreshingItem || speedLimitTarget) return;
       // Skip if typing in an input/textarea — but checkbox/radio/button focus
       // (row selection) must NOT swallow shortcuts like Delete
       const tag = e.target.tagName.toLowerCase();
@@ -324,7 +332,9 @@ export default function DownloadList({
         case 'Enter': {
           if (selectedIds.size === 1 && focusedIndex >= 0) {
             e.preventDefault();
-            const item = sortedDownloads[focusedIndex];
+            // Focus indeksi liste değişince kayabilir; daima SEÇİLİ öğeyi aç.
+            const selectedId = [...selectedIds][0];
+            const item = sortedDownloads.find(d => d.id === selectedId);
             if (item && item.status === 'completed') onOpenFile && onOpenFile(item.id);
             else if (item) onShowProperties && onShowProperties(item);
           }
@@ -341,7 +351,34 @@ export default function DownloadList({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [sortedDownloads, focusedIndex, selectedIds, toggleSelect, selectAll, selectRange, bulkDelete, clearSelection, onOpenFile, onShowProperties]);
+  }, [sortedDownloads, focusedIndex, selectedIds, toggleSelect, selectAll, selectRange, bulkDelete, clearSelection, onOpenFile, onShowProperties, shortcutsEnabled, refreshingItem, speedLimitTarget]);
+
+  // Liste değiştiğinde (silme/filtre/sıralama) seçim ve focus'u geçerli öğelerle sınırla:
+  // aksi halde Delete/Enter artık görünmeyen bir öğeye etki edebiliyordu.
+  useEffect(() => {
+    const validIds = new Set(sortedDownloads.map(d => d.id));
+    setSelectedIds(prev => {
+      let changed = false;
+      const next = new Set();
+      for (const id of prev) {
+        if (validIds.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+    setFocusedIndex(prev => {
+      if (sortedDownloads.length === 0) return -1;
+      const focusedId = focusedIdRef.current;
+      const byId = focusedId ? sortedDownloads.findIndex(d => d.id === focusedId) : -1;
+      if (byId !== -1) return byId;
+      return Math.min(prev, sortedDownloads.length - 1);
+    });
+  }, [sortedDownloads]);
+
+  // Geçerli odak indeksinin kimliğini ref'te tut (listeden bağımsız).
+  useEffect(() => {
+    focusedIdRef.current = sortedDownloads[focusedIndex]?.id ?? null;
+  }, [focusedIndex, sortedDownloads]);
 
   // Scroll focused row into view
   useEffect(() => {

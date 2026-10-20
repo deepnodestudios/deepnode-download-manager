@@ -381,6 +381,7 @@ export default {
   batch_to: "종료:",
   batch_digits: "자릿수 (01..):",
   batch_items_preview: "다운로드할 링크 미리보기 ({n})",
+  selected: "선택됨",
   btn_select_all: "모두 선택",
   btn_deselect_all: "선택 해제",
   chk_auto_start_batch: "추가된 다운로드 즉시 시작",

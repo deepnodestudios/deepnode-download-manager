@@ -381,6 +381,7 @@ export default {
   batch_to: "Bis:",
   batch_digits: "Stellen (01..):",
   batch_items_preview: "Vorschau der Download-Links ({n})",
+  selected: "ausgewählt",
   btn_select_all: "Alle auswählen",
   btn_deselect_all: "Auswahl aufheben",
   chk_auto_start_batch: "Hinzugefügte Downloads sofort starten",

@@ -9,10 +9,10 @@ let initialized = false;
  * Initializes Sentry for Node / Electron Main / Backend environments.
  * @param {Object} options
  * @param {string} [options.processName='backend'] - e.g. 'electron-main' or 'backend'
- * @param {string} [options.appVersion='1.5.9']
+ * @param {string} [options.appVersion='1.6.0']
  * @param {string|null} [options.anonymousId=null]
  */
-export function initSentry({ processName = 'backend', appVersion = '1.5.9', anonymousId = null } = {}) {
+export function initSentry({ processName = 'backend', appVersion = '1.6.0', anonymousId = null } = {}) {
   if (initialized || Sentry.isInitialized()) {
     Sentry.setTag('process', processName);
     if (anonymousId) {

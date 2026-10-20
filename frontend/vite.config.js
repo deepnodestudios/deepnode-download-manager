@@ -7,7 +7,7 @@ const rootPkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.met
 export default defineConfig({
   plugins: [react()],
   define: {
-    __APP_VERSION__: JSON.stringify(rootPkg.version || '1.5.9')
+    __APP_VERSION__: JSON.stringify(rootPkg.version || '1.6.0')
   },
   base: './', // Essential for Electron file:// protocol loading!
   build: {
@@ -28,7 +28,17 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true,
-        ws: true
+        ws: true,
+        // Backend originGuard yalnızca uygulamanın kendi origin'lerini kabul eder;
+        // dev sunucusunun (localhost:3000) istekleri 403 olmasın diye Origin'i
+        // backend'in beklediği değere çevir.
+        configure: (proxy) => {
+          const rewriteOrigin = (proxyReq) => {
+            proxyReq.setHeader('Origin', 'http://localhost:5000');
+          };
+          proxy.on('proxyReq', rewriteOrigin);
+          proxy.on('proxyReqWs', rewriteOrigin);
+        }
       }
     }
   }

@@ -12,6 +12,11 @@ let cfg = { ...DEFAULTS };
 let bypassKey = 'Shift';
 let captureEnabled = true;
 
+// Firefox'un `chrome.*` ad alanı GERİ ÇAĞIRMA tabanlıdır; callback verilmeden
+// yapılan `await chrome.storage.session.get(...)` undefined döner. Promise
+// tabanlı `browser` varsa onu kullan (Chrome MV3'te yok, chrome.* promise verir).
+const extApi = (typeof browser !== 'undefined' && browser && browser.runtime) ? browser : chrome;
+
 function applyLanguage() {
   let ui = 'en';
   try { ui = chrome.i18n.getUILanguage(); } catch (e) { /* ignore */ }
@@ -114,7 +119,7 @@ async function getStreams(tabId) {
   if (!streams.length || !manifests.length) {
     try {
       const sk = 'streams_' + tabId, mk = 'manifests_' + tabId;
-      const v = await chrome.storage.session.get([sk, mk]);
+      const v = await extApi.storage.session.get([sk, mk]);
       if (!streams.length && v[sk]) { streams = v[sk]; streamsByTab.set(tabId, streams); }
       if (!manifests.length && v[mk]) { manifests = v[mk]; manifestsByTab.set(tabId, manifests); }
     } catch (e) { /* ignore */ }
@@ -157,7 +162,7 @@ async function isBypassActive() {
   if (isBypassHeld()) return true;
   let ts = lastBypassClickAt;
   if (!ts) {
-    try { ts = (await chrome.storage.session.get('bypassClickAt')).bypassClickAt || 0; } catch (e) { ts = 0; }
+    try { ts = (await extApi.storage.session.get('bypassClickAt')).bypassClickAt || 0; } catch (e) { ts = 0; }
   }
   if (ts && Date.now() - ts < BYPASS_GRACE_MS) {
     lastBypassClickAt = 0; // single use: only the download triggered by that click is bypassed
@@ -189,14 +194,22 @@ async function probeApp() {
   const ports = [resolvedPort, cfg.port, 5000, 5001, 5002, 5003, 5004, 5005, 5006, 5007, 5008, 5009, 5010].filter((p, i, a) => p && a.indexOf(p) === i);
   const hosts = [resolvedHost, ...APP_HOSTS].filter((h, i, a) => h && a.indexOf(h) === i);
   for (const port of ports) {
-    const ver = chrome.runtime.getManifest().version;
     for (const host of hosts) {
       try {
-        const r = await fetchWithTimeout(`http://${host}:${port}/api/settings?extVersion=${encodeURIComponent(ver)}`, {}, 800);
-        if (r.ok) { rememberApp(host, port); return true; }
+        const r = await fetchWithTimeout(`http://${host}:${port}/api/handshake`, {}, 800);
+        if (!r.ok) continue;
+        const ct = String(r.headers.get('content-type') || '').toLowerCase();
+        if (!ct.includes('application/json')) continue;
+        const data = await r.json().catch(() => null);
+        // Herhangi bir 200 yanıtı DDM sayılmaz: portu kullanan başka bir yerel
+        // servis SPA fallback ile 200 dönebilir. Kimlik işareti şart.
+        if (!data || data.app !== 'deepnode' || data.apiVersion !== 1) continue;
+        rememberApp(host, port);
+        return true;
       } catch (e) { /* bu host:port'ta uygulama yok */ }
     }
   }
+  resolvedPort = null;
   return false;
 }
 
@@ -227,7 +240,8 @@ async function refreshRemoteSettings() {
     const r = await fetchApp(`/api/settings?extVersion=${encodeURIComponent(ver)}`, {}, 1500);
     if (!r.ok) { resolvedPort = null; return; }
     const s = await r.json();
-    if (s && typeof s.captureBypassKey === 'string') {
+    if (!s || s.app !== 'deepnode') { resolvedPort = null; return; }
+    if (typeof s.captureBypassKey === 'string') {
       bypassKey = s.captureBypassKey;
       chrome.storage.local.set({ captureBypassKey: s.captureBypassKey });
     }
@@ -281,7 +295,11 @@ async function postJson(path, body) {
       body: JSON.stringify(body)
     }, 8000);
     if (!res.ok) return null;
-    try { return await res.json(); } catch (e) { return {}; }
+    // JSON olmayan bir 200 (ör. başka bir yerel servisin HTML sayfası) başarı
+    // sayılmamalı; aksi halde çağıran tarayıcı indirmesini iptal edebiliyordu.
+    const ct = String(res.headers.get('content-type') || '').toLowerCase();
+    if (!ct.includes('application/json')) return null;
+    try { return await res.json(); } catch (e) { return null; }
   } catch (e) {
     return null;
   }
@@ -292,7 +310,7 @@ async function postJson(path, body) {
 async function sessionHeaders(url, referrer) {
   const headers = {};
   try {
-    const cookies = await chrome.cookies.getAll({ url });
+    const cookies = await extApi.cookies.getAll({ url });
     if (cookies && cookies.length) {
       headers.Cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
     }
@@ -311,12 +329,17 @@ async function sessionHeaders(url, referrer) {
 
 // Returns 'accepted' | 'prompted' | 'ignored' (file-type filter) | 'failed' (app unreachable)
 async function sendToApp(url, filename, referrer, explicit) {
+  // Çerezleri toplamadan ÖNCE uygulamanın kimliğini doğrula: portu ele geçiren
+  // yabancı bir servise oturum çerezlerinin gönderilmesini engeller.
+  if (!(await probeApp())) return 'failed';
   const headers = await sessionHeaders(url, referrer);
   const data = await postJson('/api/download/add', { url, filename, headers, explicit: !!explicit });
   if (!data) return 'failed';
   if (data.status === 'ignored') return 'ignored';
   if (data.status === 'prompted') return 'prompted';
-  return 'accepted';
+  // Bilinmeyen/bozuk yanıtı ASLA 'accepted' sayma: çağıran bu durumda tarayıcı
+  // indirmesini iptal edip dosyayı siliyor.
+  return 'failed';
 }
 async function sendVideoToApp(url, quality, referer, filename) {
   return (await postJson('/api/download/video', { url, quality: quality || 'best', referer: referer || undefined, filename: filename || undefined })) !== null;
@@ -584,7 +607,7 @@ async function resolveItemFilename(item) {
   for (let i = 0; !name && i < 14; i++) {
     await new Promise((r) => setTimeout(r, 150));
     try {
-      const [d] = await chrome.downloads.search({ id: item.id });
+      const [d] = await extApi.downloads.search({ id: item.id });
       if (!d) break;
       if (d.filename) name = d.filename.split(/[\\/]/).pop();
       if (d.mime) mime = d.mime;
@@ -600,13 +623,169 @@ async function resolveItemFilename(item) {
   return name;
 }
 
+// ---- DDM onayı sonrası tarayıcı kopyasını iptal etme ----
+// Onay penceresi açıkken tarayıcı indirmesi de sürüyordu; kullanıcı DDM'de
+// indirmeyi onaylayınca aynı dosya iki kez kalıyordu. Karar backend'den yoklanır.
+// MV3 servis çalışanı uyuyabildiği için bekleyen kayıtlar storage.session'da
+// tutulur ve dakikalık alarm ile kaldığı yerden yoklanır.
+const CAPTURE_PENDING_KEY = 'pendingCaptures';
+const CAPTURE_POLL_TTL = 16 * 60 * 1000;
+
+function finalizeBrowserDownload(itemId) {
+  try {
+    chrome.downloads.search({ id: itemId }, (res) => {
+      let _ = chrome.runtime.lastError;
+      if (res && res[0] && res[0].state === 'complete') {
+        try { chrome.downloads.removeFile(itemId).catch(() => {}); } catch (e) {}
+      }
+      try { chrome.downloads.erase({ id: itemId }).catch(() => {}); } catch (e) {}
+    });
+  } catch (e) { }
+}
+
+function cancelBrowserDownload(itemId) {
+  try {
+    chrome.downloads.cancel(itemId, () => {
+      let _ = chrome.runtime.lastError;
+      setTimeout(() => finalizeBrowserDownload(itemId), 100);
+    });
+  } catch (e) {
+    setTimeout(() => finalizeBrowserDownload(itemId), 100);
+  }
+}
+
+async function readPendingCaptures() {
+  try {
+    const data = await extApi.storage.session.get(CAPTURE_PENDING_KEY);
+    return (data && data[CAPTURE_PENDING_KEY]) || {};
+  } catch (e) { return {}; }
+}
+
+async function writePendingCaptures(map) {
+  try { await extApi.storage.session.set({ [CAPTURE_PENDING_KEY]: map }); } catch (e) { /* ignore */ }
+}
+
+async function clearPendingCapture(url) {
+  const map = await readPendingCaptures();
+  if (!map[url]) return;
+  delete map[url];
+  await writePendingCaptures(map);
+}
+
+async function fetchCaptureDecision(url) {
+  try {
+    // Sunucu bu başlığı ister: web sayfaları <img>/basit fetch ile tek kullanımlık
+    // kararı tüketemez (özel başlık CORS preflight gerektirir).
+    const res = await fetchApp(
+      `/api/capture/decision?url=${encodeURIComponent(url)}`,
+      { headers: { 'X-DDM-Capture': '1' } },
+      1500
+    );
+    if (!res.ok) return 'error';
+    const data = await res.json().catch(() => null);
+    return data && typeof data.status === 'string' ? data.status : 'error';
+  } catch (e) { return 'error'; }
+}
+
+async function trackCapturePrompt(url, downloadId) {
+  try {
+    const map = await readPendingCaptures();
+    const now = Date.now();
+    for (const [key, value] of Object.entries(map)) {
+      if (!value || !value.deadline || value.deadline < now) delete map[key];
+    }
+    map[url] = { downloadId, deadline: now + CAPTURE_POLL_TTL };
+    await writePendingCaptures(map);
+  } catch (e) { /* storage yoksa kısa yoklama yine çalışır */ }
+
+  // Hızlı yol: kullanıcı genelde saniyeler içinde onaylar. Servis çalışanı
+  // uyursa (veya yanıt gecikirse) alarm devralır.
+  const end = Date.now() + 20000;
+  while (Date.now() < end) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const status = await fetchCaptureDecision(url);
+    if (status === 'error') return; // uygulama kapalı — alarm yeniden dener
+    if (status === 'pending') continue;
+    await clearPendingCapture(url);
+    if (status === 'confirmed') cancelBrowserDownload(downloadId);
+    return;
+  }
+}
+
+async function pollPendingCaptures() {
+  const map = await readPendingCaptures();
+  const now = Date.now();
+  let changed = false;
+  for (const [url, info] of Object.entries(map)) {
+    if (!info || !info.deadline || info.deadline < now) { delete map[url]; changed = true; continue; }
+    if (!resolvedPort && !(await probeApp())) return; // uygulama yok — sonraki tura bırak
+    const status = await fetchCaptureDecision(url);
+    if (status === 'error' || status === 'pending') continue;
+    delete map[url];
+    changed = true;
+    if (status === 'confirmed') cancelBrowserDownload(info.downloadId);
+  }
+  if (changed) await writePendingCaptures(map);
+}
+
+chrome.alarms.create('dn-capture-decisions', { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'dn-capture-decisions') pollPendingCaptures().catch(() => {});
+});
+pollPendingCaptures().catch(() => {});
+
 // ---- Capture browser-initiated downloads ----
+// Otomatik yakalama, sayfa tarafından tetiklenen gizli indirmelerle yerel ağa
+// (router/panel/loopback) kullanıcı çerezleriyle istek attırılmasına (SSRF/CSRF)
+// yol açmamalı. Bu adresler yakalanmaz; tarayıcı normal indirmesine devam eder.
+function isPrivateDownloadHost(hostname) {
+  const h = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return true;
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') ||
+      h.endsWith('.internal') || h.endsWith('.home.arpa')) return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) {
+    const p = h.split('.').map(Number);
+    if (p.some((n) => n > 255)) return true;
+    const [a, b] = p;
+    return a === 0 || a === 10 || a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) || a >= 224;
+  }
+  if (h.includes(':')) {
+    if (h === '::' || h === '::1') return true;
+    if (/^f[cd][0-9a-f]{2}:/.test(h)) return true;   // fc00::/7
+    if (/^fe[89ab][0-9a-f]:/.test(h)) return true;   // fe80::/10
+    const dotted = h.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+    if (dotted) return isPrivateDownloadHost(dotted[1]);
+    const hexMapped = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (hexMapped) {
+      const hi = parseInt(hexMapped[1], 16);
+      const lo = parseInt(hexMapped[2], 16);
+      return isPrivateDownloadHost(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+    }
+  }
+  return false;
+}
+
+function isPrivateDownloadUrl(raw) {
+  try {
+    const u = new URL(raw);
+    if (!/^https?:$/.test(u.protocol)) return true;
+    if (u.username || u.password) return true;
+    return isPrivateDownloadHost(u.hostname);
+  } catch (e) {
+    return true;
+  }
+}
+
 async function handleDownloadItem(item, suggest) {
   await storageReady;
   if (!cfg.enabled || !cfg.captureDownloads) { if (suggest) suggest(); return; }
   if (!captureEnabled) { if (suggest) suggest(); return; }
   const url = item.finalUrl || item.url || '';
   if (!/^https?:/i.test(url)) { if (suggest) suggest(); return; }
+  if (isPrivateDownloadUrl(url)) { if (suggest) suggest(); return; }
 
   try {
     const u = new URL(url);
@@ -648,31 +827,14 @@ async function handleDownloadItem(item, suggest) {
     
     const result = await sendToApp(url, name, item.referrer);
     if (result === 'accepted') {
-      try {
-        const finalizeInterception = () => {
-          chrome.downloads.search({ id: item.id }, (res) => {
-            let _ = chrome.runtime.lastError;
-            if (res && res[0] && res[0].state === 'complete') {
-              try { chrome.downloads.removeFile(item.id).catch(() => {}); } catch (e) {}
-            }
-            try { chrome.downloads.erase({ id: item.id }).catch(() => {}); } catch (e) {}
-          });
-        };
-
-        if (item.state !== 'interrupted' && item.state !== 'complete') {
-          chrome.downloads.cancel(item.id, () => {
-            let _ = chrome.runtime.lastError;
-            setTimeout(finalizeInterception, 100);
-          });
-        } else {
-          finalizeInterception();
-        }
-      } catch (e) { }
+      cancelBrowserDownload(item.id);
       notify(DN_I18N.t('notif_captured'), name || url);
       if (suggest) suggest();
     } else if (result === 'prompted') {
-      // DDM onay penceresi açtı (ön indirme arka planda çalışıyor).
-      // Kullanıcı onay penceresini iptal edebileceğinden tarayıcı indirmesini erken silmiyoruz.
+      // DDM onay penceresi açtı (ön indirme arka planda çalışıyor). Kullanıcı
+      // onaylayana kadar tarayıcı indirmesine dokunma; onay gelirse karar
+      // kanalı tarayıcı kopyasını iptal eder (çift dosya kalmaz).
+      trackCapturePrompt(url, item.id).catch(() => {});
       notify(DN_I18N.t('notif_captured'), name || url);
       if (suggest) suggest();
     } else {
@@ -765,10 +927,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     getVideoFormats(msg.url, msg.referer).then((data) => sendResponse(data));
     return true;
   }
+  if (msg.type === 'DN_VERIFY_MANIFEST') {
+    // content.js'in postMessage köprüsünden gelen URL'yi, gerçekten bu sekmeye
+    // ait ağ isteklerinde (webRequest) görülen manifestlerle doğrula.
+    const id = sender && sender.tab ? sender.tab.id : -1;
+    const want = String(msg.url || '');
+    if (id < 0 || !want) { sendResponse({ ok: false }); return true; }
+    getStreams(id).then(({ streams, manifests }) => {
+      try { sendResponse({ ok: manifests.includes(want) || streams.includes(want) }); }
+      catch (e) { /* kanal kapandı */ }
+    });
+    return true;
+  }
   if (msg.type === 'DN_DOWNLOAD_MANY') {
     (async () => {
       let n = 0;
-      for (const u of (msg.urls || [])) { if (await sendToApp(u, guessName(u), null, true) === 'accepted') n++; }
+      for (const u of (msg.urls || [])) {
+        // Eklenti origin'inden gelen eklemelerde sunucu DAİMA onay penceresi açar
+        // ('prompted'); yalnız 'accepted' sayıldığı için bildirim hep "0 eklendi" diyordu.
+        const r = await sendToApp(u, guessName(u), null, true);
+        if (r === 'accepted' || r === 'prompted') n++;
+      }
       notify('Grabber', DN_I18N.t('notif_grabber_added', { n }));
       sendResponse({ ok: true, count: n });
     })();

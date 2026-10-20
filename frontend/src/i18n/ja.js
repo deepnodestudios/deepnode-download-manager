@@ -381,6 +381,7 @@ export default {
   batch_to: "終了:",
   batch_digits: "桁数 (01..):",
   batch_items_preview: "ダウンロード候補プレビュー ({n})",
+  selected: "選択済み",
   btn_select_all: "すべて選択",
   btn_deselect_all: "選択を解除",
   chk_auto_start_batch: "追加後すぐにダウンロードを開始",

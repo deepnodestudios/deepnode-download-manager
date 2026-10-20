@@ -20,12 +20,20 @@ function moduleFor(urlObj) {
   return urlObj.protocol === 'https:' ? https : http;
 }
 
-// "cdn.site.com" ile "site.com" aynı siteden sayılır; "site.com" ile "evil.com" sayılmaz.
-function sameSite(hostA, hostB) {
-  const a = String(hostA || '').toLowerCase();
-  const b = String(hostB || '').toLowerCase();
+// Kimlik bilgileri (Cookie/Authorization) yalnızca "from" alan adından kendisine
+// veya ALT alan adlarına taşınır: site.com -> cdn.site.com taşınır, ancak
+// cdn.site.com -> site.com taşınmaz (ters yön, daha az güvenilen bir host'un
+// üst alan adının çerezlerini görmesine yol açardı). evil.com hiçbir yönde eşleşmez.
+// www -> apex (ve tersi) aynı site sayılır; aksi halde yaygın kanonik
+// yönlendirmelerde oturum çerezleri düşüp 403/login sayfası indiriliyordu.
+function normalizeSiteHost(host) {
+  return String(host || '').toLowerCase().replace(/^www\./, '');
+}
+function sameSite(fromHost, toHost) {
+  const a = normalizeSiteHost(fromHost);
+  const b = normalizeSiteHost(toHost);
   if (!a || !b) return false;
-  return a === b || a.endsWith('.' + b) || b.endsWith('.' + a);
+  return a === b || b.endsWith('.' + a);
 }
 
 function stripCredentialHeaders(headers) {
@@ -127,10 +135,13 @@ export function requestFollowingRedirects(startUrl, opts = {}) {
             return finish(reject, new Error('Invalid redirect target'));
           }
 
-          // Başka bir siteye gidiliyorsa oturum başlıklarını taşıma
+          // Başka bir siteye gidiliyorsa VEYA HTTPS'ten HTTP'ye düşülüyorsa
+          // oturum başlıklarını taşıma (şifresiz ağda çerez/kimlik sızmasın).
           let nextHeaders = sendHeaders;
           try {
-            if (!sameSite(new URL(nextUrl).hostname, urlObj.hostname)) {
+            const nextUrlObj = new URL(nextUrl);
+            const downgrade = urlObj.protocol === 'https:' && nextUrlObj.protocol === 'http:';
+            if (downgrade || !sameSite(urlObj.hostname, nextUrlObj.hostname)) {
               nextHeaders = stripCredentialHeaders(sendHeaders);
             }
           } catch (err) {

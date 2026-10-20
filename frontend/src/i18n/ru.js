@@ -381,6 +381,7 @@ export default {
   batch_to: "По:",
   batch_digits: "Количество знаков (01..):",
   batch_items_preview: "Предпросмотр ссылок для скачивания ({n})",
+  selected: "выбрано",
   btn_select_all: "Выбрать все",
   btn_deselect_all: "Снять выбор",
   chk_auto_start_batch: "Запустить добавленные загрузки сразу",

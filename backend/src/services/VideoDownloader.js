@@ -231,6 +231,7 @@ function isVideoFormat(f) {
 }
 
 let ytDlpReady = null;
+let ytDlpCacheKey = null;
 const MIN_BIN_SIZE = 1000000;
 
 function download(url, dest, redirects = 0) {
@@ -365,9 +366,13 @@ export async function autoUpdateYtDlp(force = false) {
 }
 
 export async function ensureYtDlp() {
-  if (ytDlpReady) return ytDlpReady;
+  const configured = storageService.settings.ytDlpPath;
+  // Ayar değişince (veya özel dosya silinince) önbelleği tazele; eskiden uygulama
+  // yeniden başlatılana kadar eski/silinmiş yol kullanılmaya devam ediyordu.
+  const cacheKey = `${configured || ''}|${configured ? (fs.existsSync(configured) ? '1' : '0') : '-'}`;
+  if (ytDlpReady && ytDlpCacheKey === cacheKey) return ytDlpReady;
+  ytDlpCacheKey = cacheKey;
   ytDlpReady = (async () => {
-    const configured = storageService.settings.ytDlpPath;
     if (configured && fs.existsSync(configured)) return configured;
 
     try {
@@ -680,10 +685,19 @@ function extractZip(zipPath, destDir) {
 }
 
 let ffmpegReady = undefined;
+let ffmpegPromise = null;
 
 export async function ensureFfmpeg(onProgress) {
   if (ffmpegReady !== undefined) return ffmpegReady;
+  // Paralel ilk video indirmeleri aynı zip/tmp üzerinde yarışıp bozuk ffmpeg
+  // bırakıyordu; uçuştaki kurulum tek promise olarak paylaşılır.
+  if (!ffmpegPromise) {
+    ffmpegPromise = _ensureFfmpegInner(onProgress).finally(() => { ffmpegPromise = null; });
+  }
+  return ffmpegPromise;
+}
 
+async function _ensureFfmpegInner(onProgress) {
   try {
     if (fs.statSync(BUNDLED_FFMPEG).size > 1000000) { ffmpegReady = BUNDLED_DIR; return ffmpegReady; }
   } catch (e) {}
@@ -758,6 +772,14 @@ export class VideoDownloader extends EventEmitter {
     this.proc = null;
     this.errorMsg = item.errorMsg || null;
     this.createdFiles = new Set();
+    // Kullanıcının onay penceresinde seçtiği nihai ad; yt-dlp çıktısı bittikten
+    // sonra uygulanır (süreç çalışırken çıktı yolu değiştirilemez).
+    this._desiredFilename = null;
+    this.userNamed = Boolean(item.userNamed);
+    // savePath'in bu motor tarafından mı oluşturulduğu (var olan dosyayı silme koruması)
+    // Yeniden başlatmada da korunur: aksi halde kapanma öncesi tamamlanan ön
+    // indirme "sahipsiz" sanılıp kullanıcı dosyasıyla karıştırılabilirdi.
+    this._createdFinal = Boolean(item.createdFinal);
     // Çok akışlı (video+ses) indirmede kümülatif boyut takibi
     this._doneStreamsBytes = 0;
     this._curStreamPath = null;
@@ -765,11 +787,63 @@ export class VideoDownloader extends EventEmitter {
     this.speedLimitKbps = item.speedLimitKbps || 0;
     // İndirme ekranında baştan gösterilecek SABİT toplam boyut (video+ses birlikte)
     this.plannedTotal = 0;
+    // start() içindeki uzun hazırlık await'leri sırasında pause/cancel gelirse
+    // eski çalışmanın süreç başlatmasını engelleyen nesil sayacı.
+    this._startToken = 0;
   }
 
   setSpeedLimit(kbps) {
     this.speedLimitKbps = Math.max(0, parseInt(kbps, 10) || 0);
     this.emit('meta');
+  }
+
+  // Kullanıcının onay penceresinde seçtiği ad. yt-dlp çalışırken çıktı şablonu
+  // değiştirilemediği için indirme bitince dosya bu ada taşınır.
+  setDesiredFilename(name) {
+    const desired = sanitizeFilename(String(name || '')).trim();
+    if (!desired) return;
+    this._desiredFilename = desired;
+    this.userNamed = true;
+    this.customFilename = true;
+    this.filename = desired;
+    if (this.status === 'completed') this.applyDesiredFilename();
+    else this.emit('meta', { id: this.id });
+  }
+
+  applyDesiredFilename() {
+    const desired = this._desiredFilename;
+    this._desiredFilename = null;
+    if (!desired || !this.savePath || !fs.existsSync(this.savePath)) return;
+    const dir = path.dirname(this.savePath);
+    let target = path.join(dir, desired);
+    if (path.resolve(target) === path.resolve(this.savePath)) {
+      this.filename = path.basename(this.savePath);
+      return;
+    }
+    try {
+      if (fs.existsSync(target)) {
+        if ((storageService.settings.duplicateAction || 'rename') === 'overwrite') {
+          fs.unlinkSync(target);
+        } else {
+          const dot = desired.lastIndexOf('.');
+          const base = dot > 0 ? desired.slice(0, dot) : desired;
+          const ext = dot > 0 ? desired.slice(dot) : '';
+          let picked = null;
+          for (let i = 1; i < 1000; i++) {
+            const candidate = `${base} (${i})${ext}`;
+            if (!fs.existsSync(path.join(dir, candidate))) { picked = candidate; break; }
+          }
+          target = path.join(dir, picked || `${base} (${Date.now()})${ext}`);
+        }
+      }
+      fs.renameSync(this.savePath, target);
+      this.savePath = target;
+      this.filename = path.basename(target);
+      this.emit('meta', { id: this.id });
+    } catch (e) {
+      console.warn('[VideoDownloader] Could not apply chosen filename:', e.message);
+      try { this.filename = path.basename(this.savePath); } catch (e2) {}
+    }
   }
 
   // Seçilen kaliteye göre indirmenin TOPLAM boyutunu (video+ses birleşik) döndürür.
@@ -806,6 +880,7 @@ export class VideoDownloader extends EventEmitter {
       this.emit('error', { id: this.id, error: this.errorMsg });
       return;
     }
+    const token = ++this._startToken;
     this._ytRetried = false;
     this._cookieRetried = false;
     this.status = 'downloading';
@@ -818,11 +893,13 @@ export class VideoDownloader extends EventEmitter {
         this.emit('meta', { id: this.id });
       }
       bin = await ensureYtDlp();
+      if (token !== this._startToken) return; // bu sırada pause/start/cancel geldi
 
       // Video bilgisini bir kez al (cache'li, ucuz): hem başlık hem de indirme
       // ekranında gösterilecek TOPLAM boyut (video+ses birlikte) için kullanılır.
       let vinfo = null;
       try { vinfo = await getVideoInfo(this.url, this.referer); } catch (e) {}
+      if (token !== this._startToken) return;
 
       // Resolve real video title if missing, placeholder or a generic site name
       if (!this.customFilename && vinfo && vinfo.title && (!this.filename || this.filename === 'Fetching video info…' ||
@@ -855,6 +932,8 @@ export class VideoDownloader extends EventEmitter {
         }
       }
     } catch (err) {
+      // Duraklatma/iptal sonrası gecikmeli gelen hazırlık hatası durumu ezmesin.
+      if (token !== this._startToken) return;
       this.status = 'error';
       this.errorMsg = 'Could not download yt-dlp: ' + err.message;
       this.filename = 'Error: yt-dlp missing';
@@ -865,6 +944,7 @@ export class VideoDownloader extends EventEmitter {
     try {
       if (!fs.existsSync(this.saveDir)) fs.mkdirSync(this.saveDir, { recursive: true });
     } catch (err) {
+      if (token !== this._startToken) return;
       this.status = 'error';
       this.errorMsg = `Could not create save directory: ${err.message}`;
       this.emit('error', { id: this.id, error: this.errorMsg });
@@ -872,6 +952,7 @@ export class VideoDownloader extends EventEmitter {
     }
 
     const ffmpegLoc = await ensureFfmpeg();
+    if (token !== this._startToken) return; // hazırlık sırasında duraklatıldı/iptal edildi
     const merge = ffmpegLoc !== null;
 
     const q = this.quality;
@@ -995,9 +1076,14 @@ export class VideoDownloader extends EventEmitter {
     this._doneStreamsBytes = 0;
     this._curStreamPath = null;
     this._curStreamTotal = 0;
+    // Bu süreç hangi start() nesline ait? pause()/start() sonrası eski sürecin
+    // close/error olayları yeni çalışmanın proc/timer/config alanlarını ezmemeli.
+    const launchToken = this._startToken;
     const fullArgs = [...optionsArgs, '--', this.url.trim()];
+    let child;
     try {
-      this.proc = spawn(bin, fullArgs, { windowsHide: true, env: YTDLP_ENV });
+      child = spawn(bin, fullArgs, { windowsHide: true, env: YTDLP_ENV });
+      this.proc = child;
     } catch (err) {
       this.status = 'error';
       this.errorMsg = err.message;
@@ -1012,21 +1098,23 @@ export class VideoDownloader extends EventEmitter {
     this._stalled = false;
     if (this._stallTimer) clearInterval(this._stallTimer);
     this._stallTimer = setInterval(() => {
+      if (launchToken !== this._startToken || child !== this.proc) return;
       if (this.status !== 'downloading' || !this.proc) return;
       if (Date.now() - this._lastOutputTs > 120000) {
         this._stalled = true;
         try {
-          if (isWin && this.proc.pid) {
-            spawnSync('taskkill', ['/F', '/T', '/PID', this.proc.pid.toString()]);
+          if (isWin && child.pid) {
+            spawnSync('taskkill', ['/F', '/T', '/PID', child.pid.toString()]);
           } else {
-            this.proc.kill('SIGKILL');
+            child.kill('SIGKILL');
           }
         } catch (e) {}
       }
     }, 15000);
     if (this._stallTimer.unref) this._stallTimer.unref();
 
-    this.proc.on('error', (err) => {
+    child.on('error', (err) => {
+      if (launchToken !== this._startToken || child !== this.proc) return;
       this.proc = null;
       if (this.status === 'paused' || this.status === 'canceled') return;
       this.status = 'error';
@@ -1055,18 +1143,38 @@ export class VideoDownloader extends EventEmitter {
       for (const line of lines) this.parseLine(line);
     };
 
-    this.proc.stdout.on('data', handleStdout);
-    this.proc.stderr.on('data', handleStderr);
+    child.stdout.on('data', handleStdout);
+    child.stderr.on('data', handleStderr);
 
-    this.proc.on('close', (code) => {
-      this.proc = null;
-      if (this._confPath) {
-        try { if (fs.existsSync(this._confPath)) fs.unlinkSync(this._confPath); } catch (e) {}
-        this._confPath = null;
+    child.on('close', (code) => {
+      // Eski neslin kapanışı: yeni süreç varsa hiçbir alanı değiştirme; yeni süreç
+      // yoksa (pause/cancel) yalnız bu sürece ait kaynakları bırak.
+      if (launchToken !== this._startToken) {
+        if (child === this.proc) {
+          this.proc = null;
+          if (this._confPath) {
+            try { if (fs.existsSync(this._confPath)) fs.unlinkSync(this._confPath); } catch (e) {}
+            this._confPath = null;
+          }
+          if (this._stallTimer) { clearInterval(this._stallTimer); this._stallTimer = null; }
+        }
+        return;
       }
+      if (child !== this.proc) return;
+      this.proc = null;
       if (this._stallTimer) { clearInterval(this._stallTimer); this._stallTimer = null; }
-      if (this.status === 'paused' || this.status === 'canceled') return;
+
+      const dropConf = () => {
+        if (this._confPath) {
+          try { if (fs.existsSync(this._confPath)) fs.unlinkSync(this._confPath); } catch (e) {}
+          this._confPath = null;
+        }
+      };
+
+      if (this.status === 'paused' || this.status === 'canceled') { dropConf(); return; }
       if (code === 0) {
+        dropConf();
+        this.applyDesiredFilename();
         this.status = 'completed';
         this.errorMsg = null;
         this.percent = 100;
@@ -1088,6 +1196,7 @@ export class VideoDownloader extends EventEmitter {
             /cookie|decrypt|dpapi/i.test(this.errorMsg || '')) {
           this._cookieRetried = true;
           this.errorMsg = null;
+          // NOT: config dosyası SİLİNMEZ — _baseArgs hâlâ ona işaret ediyor.
           this._launch(bin, this._baseArgs);
           return;
         }
@@ -1111,14 +1220,18 @@ export class VideoDownloader extends EventEmitter {
           const args = this._baseArgs.slice();
           const fi = args.indexOf('-f');
           if (fi >= 0 && fi + 1 < args.length) args[fi + 1] = sel;
+          // Config dosyası korunur (aynı token, aynı argümanlar).
           this._launch(bin, args);
           return;
         }
+        dropConf();
         this.status = 'error';
         this.errorMsg = this._stalled
           ? 'Download stalled (no data received)'
           : (this.errorMsg || ('yt-dlp exit code ' + code));
         this.emit('error', { id: this.id, error: this.errorMsg });
+      } else {
+        dropConf();
       }
     });
   }
@@ -1163,8 +1276,10 @@ export class VideoDownloader extends EventEmitter {
       // Delete explicitly recorded file paths
       this.createdFiles.forEach(fPath => deleteTargetFile(fPath));
 
-      // Delete main savePath if set
-      if (this.savePath) deleteTargetFile(this.savePath);
+      // Delete main savePath only if this engine created it. Ön indirme olması
+      // tek başına sahiplik saymaz: yt-dlp "zaten indirildi" dediyse dosya
+      // bizden önce vardı ve asla silinmemeli.
+      if (this.savePath && this._createdFinal) deleteTargetFile(this.savePath);
 
       // Scan saveDir for any remaining partial files matching this download
       if (this.saveDir && fs.existsSync(this.saveDir)) {
@@ -1222,8 +1337,10 @@ export class VideoDownloader extends EventEmitter {
          || line.match(/\[download\]\s+(.+?)\s+has already been downloaded/);
     if (m) {
       const rawPath = m[1].trim().replace(/^"|"$/g, '');
+      const alreadyDownloaded = /has already been downloaded/i.test(line);
       if (rawPath) {
-        this.createdFiles.add(rawPath);
+        // Bu motordan önce var olan dosyayı "sahiplenme": iptal/temizlikte silinmesin.
+        if (!alreadyDownloaded) this.createdFiles.add(rawPath);
 
         const baseName = path.basename(rawPath);
         let cleanName = baseName.replace(/\.f\d+\.[^/.]+$/, '').replace(/\.temp\.[^/.]+$/, '');
@@ -1234,7 +1351,9 @@ export class VideoDownloader extends EventEmitter {
 
         if (!rawPath.endsWith('.tmp') && !rawPath.endsWith('.part') && !rawPath.endsWith('.ytdl')) {
           this.savePath = rawPath.endsWith('.mp4') || rawPath.endsWith('.webm') || rawPath.endsWith('.mkv') ? rawPath : (this.savePath || rawPath);
-          this.filename = cleanName;
+          // "zaten indirildi" ise dosya bizden ÖNCE vardı — temizlikte silinmez.
+          this._createdFinal = !alreadyDownloaded;
+          if (!this.userNamed) this.filename = cleanName;
           this.emit('meta', { id: this.id });
         }
       }
@@ -1317,6 +1436,7 @@ export class VideoDownloader extends EventEmitter {
 
   pause() {
     if (this.status !== 'downloading' && this.status !== 'queued') return;
+    this._startToken++; // hazırlık await'lerindeki eski start() süreç başlatmasın
     this.status = 'paused';
     this.speed = 0;
     this.eta = 0;
@@ -1334,6 +1454,7 @@ export class VideoDownloader extends EventEmitter {
 
   cancel() {
     if (this.status === 'completed') return;
+    this._startToken++;
     this.status = 'canceled';
     this.speed = 0;
     this.eta = 0;
@@ -1379,6 +1500,7 @@ export class VideoDownloader extends EventEmitter {
       checksum: null,
       errorMsg: this.errorMsg,
       preflight: this.preflight ? true : undefined,
+      createdFinal: this._createdFinal ? true : undefined,
       virusAlert: Boolean(this.virusAlert),
       segments: []
     };

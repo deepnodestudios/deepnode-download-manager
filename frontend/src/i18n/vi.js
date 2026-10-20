@@ -381,6 +381,7 @@ export default {
   batch_to: "Đến:",
   batch_digits: "Số chữ số (01..):",
   batch_items_preview: "Xem trước liên kết cần tải ({n})",
+  selected: "đã chọn",
   btn_select_all: "Chọn tất cả",
   btn_deselect_all: "Bỏ chọn tất cả",
   chk_auto_start_batch: "Bắt đầu tải ngay các mục đã thêm",

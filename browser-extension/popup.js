@@ -174,12 +174,17 @@ async function pingDirect(port) {
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 1200);
-      const r = await fetch('http://' + host + ':' + port + '/api/settings', {
+      const r = await fetch('http://' + host + ':' + port + '/api/handshake', {
         cache: 'no-store',
         signal: ctrl.signal
       });
       clearTimeout(timer);
-      if (r.ok) return true;
+      // Portta başka bir uygulama olabilir; yalnızca DeepNode kimlik işareti
+      // döndüğünde "uygulama çalışıyor" say (bkz. background.js port taraması).
+      if (r.ok) {
+        const d = await r.json().catch(() => null);
+        if (d && d.app === 'deepnode') return true;
+      }
     } catch (e) { /* diğer host */ }
   }
   return false;

@@ -95,6 +95,9 @@ export class DownloadEngine extends EventEmitter {
     this.speedLimitKbps = item.speedLimitKbps || 0;
 
     this.savePath = path.join(this.saveDir, this.filename);
+    // Üzerine-yaz modunda hedef dosya zaten var olabilir; onu bu motor yazmadığı
+    // sürece cleanup/iptal ASLA silmemeli.
+    this._ownsSavePath = !fs.existsSync(this.savePath);
     this.tempDir = path.join(this.saveDir, `.tmp_${this.id}`);
 
     this.status = item.status || 'queued'; // queued, downloading, paused, completed, error
@@ -212,7 +215,7 @@ export class DownloadEngine extends EventEmitter {
       };
     };
 
-    const describe = (res, finalUrl) => {
+    const describe = (res, finalUrl, { rangeProbe = false } = {}) => {
       const filename = DownloadEngine.filenameFromResponse(res, finalUrl, downloadUrl);
       const contentType = res.headers['content-type'] || '';
       let totalSize = parseInt(res.headers['content-length'] || '0', 10);
@@ -221,16 +224,38 @@ export class DownloadEngine extends EventEmitter {
       // GET + "Range: bytes=0-0" ile sorulduysa gerçek boyut Content-Range'de gelir
       const contentRange = res.headers['content-range'];
       if (contentRange) {
-        acceptRanges = true;
-        const m = /\/(\d+)\s*$/.exec(contentRange);
-        if (m) totalSize = parseInt(m[1], 10);
+        const m = /^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i.exec(String(contentRange).trim());
+        if (m) {
+          const start = parseInt(m[1], 10);
+          const end = parseInt(m[2], 10);
+          const total = m[3] === '*' ? 0 : parseInt(m[3], 10);
+          acceptRanges = true;
+          if (end < start || !Number.isFinite(total) || total <= 0) {
+            totalSize = 0; // toplam bilinmiyor — content-length aralık boyutudur
+          } else if (rangeProbe && start !== 0) {
+            // İstenen 0-0 aralığından farklı bir aralık döndüyse toplam yine de
+            // Content-Range'deki değerdir; ancak aralık boyu toplamla karışmasın.
+            totalSize = total;
+          } else {
+            totalSize = total;
+          }
+        } else {
+          totalSize = rangeProbe ? 0 : (Number.isFinite(totalSize) ? totalSize : 0);
+          if (rangeProbe) acceptRanges = false;
+        }
+      } else if (rangeProbe && res.statusCode === 206) {
+        // 206 ama Content-Range yok: content-length yalnız 1 baytlık aralığın
+        // boyutudur. Bunu toplam sanmak motoru 1 baytlık "tamamlanmış" dosyaya
+        // götürüyordu.
+        totalSize = 0;
+        acceptRanges = false;
       }
 
       return {
         url: downloadUrl,
         finalUrl,
         filename,
-        totalSize: Number.isFinite(totalSize) ? totalSize : 0,
+        totalSize: Number.isFinite(totalSize) && totalSize > 0 ? totalSize : 0,
         acceptRanges,
         contentType,
         category: storageService.getCategoryForFilename(filename, contentType)
@@ -263,7 +288,7 @@ export class DownloadEngine extends EventEmitter {
         method: 'GET',
         headers: { ...baseHeaders, Range: 'bytes=0-0' }
       });
-      const info = describe(res, finalUrl);
+      const info = describe(res, finalUrl, { rangeProbe: true });
       res.on('error', () => {});
       res.destroy(); // gövdeyi indirmeye gerek yok
       if (res.statusCode && res.statusCode < 400) return info;
@@ -586,6 +611,10 @@ export class DownloadEngine extends EventEmitter {
         writeStream.end(() => {
           if (settled) return;
           settled = true;
+          // Boyut baştan bilinmiyordu (chunked yanıt): gövde normal bittiğinde
+          // segmenti tamamlandı say. Aksi halde indirme "incomplete" hatasıyla
+          // hiçbir zaman bitemiyordu.
+          if (segment.total === 0) segment.completed = true;
           resolve();
         });
       });
@@ -612,17 +641,24 @@ export class DownloadEngine extends EventEmitter {
     this.status = 'merging';
     this.emit('status-change', { id: this.id, status: 'merging' });
 
-    const finalStream = fs.createWriteStream(this.savePath);
+    // Önce GEÇİCİ nihai dosyaya yaz, checksum'ı orada hesapla; ancak her şey
+    // yolundaysa savePath'e taşı. Eskiden doğrudan savePath'e yazılıyordu:
+    // hata/duraklatma yarım dosya bırakıyor, yeniden indirmede eski dosya da
+    // kayboluyordu.
+    const tmpFinal = `${this.savePath}.ddm-merge-${process.pid}-${Date.now()}.tmp`;
+    const finalStream = fs.createWriteStream(tmpFinal);
     let mergedBytes = 0;
 
-    // pipe() yazma tarafı hatalarını iletmez; dinleyici döngüden SONRA takılırsa
-    // ENOSPC/AV kilidi anında dinleyicisiz 'error' süreç çökertir (Electron
-    // altında ise yutulup indirme sonsuza dek 'merging'de kalırdı).
+    // pipe() yazma tarafı hatalarını iletmez; dinleyici döngüden ÖNCE takılmalı.
     let writeErr = null;
     finalStream.on('error', (e) => { writeErr = e || new Error('Write failed'); });
 
-    // Segmentleri sırayla stream ile birleştir (belleğe tümünü okumadan)
+    const discardTemp = () => {
+      try { if (fs.existsSync(tmpFinal)) fs.unlinkSync(tmpFinal); } catch (e) { /* zaten yok */ }
+    };
+
     try {
+      // Segmentleri sırayla stream ile birleştir (belleğe tümünü okumadan)
       for (const segment of this.segments) {
         if (epoch !== this._epoch || this.status === 'canceled') {
           throw new Error('Merge canceled');
@@ -649,40 +685,68 @@ export class DownloadEngine extends EventEmitter {
       });
     } catch (err) {
       try { finalStream.destroy(); } catch (e) { /* zaten kapalı */ }
-      if (this.status === 'canceled') {
-        try { if (fs.existsSync(this.savePath)) fs.unlinkSync(this.savePath); } catch (e) {}
-      }
+      discardTemp();
       throw err;
     }
 
     // Boyut doğrulaması: eksik/bozuk birleştirmeyi "tamamlandı" diye işaretleme
     if (this.totalSize > 0 && mergedBytes !== this.totalSize) {
+      discardTemp();
       throw new Error(`Merged size mismatch (${mergedBytes}/${this.totalSize})`);
     }
 
-    // Clean up temporary segment files.
-    // Kuşak değiştiyse (bu arada yeniden başlatıldı) geçici klasör ARTIK yeni
-    // çalışmaya aittir — silmek onun parçalarını yok ederdi.
+    if (epoch !== this._epoch || this.status !== 'merging') {
+      discardTemp();
+      return;
+    }
+
+    // Checksum geçici dosya üzerinde hesaplanır; nihai dosya henüz değişmedi.
+    let checksum = 'N/A';
     try {
-      if (epoch === this._epoch && fs.existsSync(this.tempDir)) {
+      checksum = await this.calculateFileChecksum(tmpFinal);
+    } catch (e) {
+      checksum = 'N/A';
+    }
+
+    // Checksum sürerken duraklatıldı/iptal edildiyse durumu 'completed'a EZME.
+    // Geçici nihai dosya atılır; parçalar ve varsa eski gerçek dosya yerinde kalır.
+    if (epoch !== this._epoch || this.status !== 'merging') {
+      discardTemp();
+      return;
+    }
+
+    // Nihai dosyayı yerleştir: eski dosya varsa önce yedeğe al (Windows'ta rename
+    // mevcut hedefin üzerine yazmaz). Blok tamamen senkrondur; araya pause girmez.
+    let backupPath = null;
+    try {
+      if (fs.existsSync(this.savePath)) {
+        backupPath = `${this.savePath}.ddm-old-${Date.now()}`;
+        fs.renameSync(this.savePath, backupPath);
+      }
+      try {
+        fs.renameSync(tmpFinal, this.savePath);
+      } catch (err) {
+        if (backupPath) { try { fs.renameSync(backupPath, this.savePath); } catch (e) {} }
+        throw err;
+      }
+      if (backupPath) { try { fs.unlinkSync(backupPath); } catch (e) {} }
+    } catch (err) {
+      discardTemp();
+      throw new Error(`Could not finalize download: ${err.message}`);
+    }
+
+    // Clean up temporary segment files (yalnız başarılı yerleştirmeden sonra).
+    try {
+      if (fs.existsSync(this.tempDir)) {
         fs.rmSync(this.tempDir, { recursive: true, force: true });
       }
     } catch (e) {
       console.error('Failed to cleanup temp dir:', e.message);
     }
 
-    if (epoch !== this._epoch || this.status !== 'merging') {
-      return;
-    }
-
-    // Compute checksum
-    try {
-      this.checksum = await this.calculateFileChecksum(this.savePath);
-    } catch (e) {
-      this.checksum = 'N/A';
-    }
-
+    this.checksum = checksum;
     this.status = 'completed';
+    this._ownsSavePath = true;
     this.percent = 100;
     if (this.totalSize > 0) {
       this.downloadedBytes = this.totalSize;
@@ -757,7 +821,7 @@ export class DownloadEngine extends EventEmitter {
         console.error('Failed to remove temp dir:', e.message);
       }
     }
-    if (this.status !== 'completed' && this.savePath && fs.existsSync(this.savePath)) {
+    if (this._ownsSavePath && this.status !== 'completed' && this.savePath && fs.existsSync(this.savePath)) {
       try {
         fs.unlinkSync(this.savePath);
       } catch (e) {
@@ -803,7 +867,8 @@ export class DownloadEngine extends EventEmitter {
           id: s.id,
           downloaded: s.downloaded,
           total: s.total,
-          percent: s.total > 0 ? Math.round((s.downloaded / s.total) * 100) : 0
+          percent: s.total > 0 ? Math.round((s.downloaded / s.total) * 100) : 0,
+          completed: Boolean(s.completed)
         }))
       });
     }, 250);

@@ -381,6 +381,7 @@ export default {
   batch_to: "结束：",
   batch_digits: "数字位数（01..）：",
   batch_items_preview: "预览待下载链接 ({n})",
+  selected: "已选择",
   btn_select_all: "全选",
   btn_deselect_all: "取消全选",
   chk_auto_start_batch: "立即开始添加的下载",

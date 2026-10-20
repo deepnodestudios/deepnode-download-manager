@@ -376,6 +376,7 @@ export default {
   batch_to: 'To:',
   batch_digits: 'Digits (01..):',
   batch_items_preview: 'Preview Links to Download ({n})',
+  selected: 'selected',
   btn_select_all: 'Select All',
   btn_deselect_all: 'Deselect All',
   chk_auto_start_batch: 'Start added downloads immediately',

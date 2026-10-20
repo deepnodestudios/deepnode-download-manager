@@ -78,6 +78,10 @@ export default function App() {
   // Aktif arayüz dili (settings.language: 'auto' | 'tr' | 'en')
   const lang = resolveLanguage(settings?.language);
   const tt = (key, vars) => translate(lang, key, vars);
+  // WebSocket efekti boş bağımlılıkla bir kez kurulur; dil değişince alert gibi
+  // geri çağrıların eski dili kullanmaması için güncel çeviriciyi ref'te tut.
+  const ttRef = useRef(tt);
+  useEffect(() => { ttRef.current = tt; }, [lang]);
 
   useEffect(() => {
     if (isStandaloneAdd) {
@@ -106,16 +110,20 @@ export default function App() {
       setIsAddModalOpen(true);
     }
 
-    // Initial fetch of downloads, settings and queues
+    // Initial fetch of downloads, settings and queues.
+    // WS bağlantısı kurulup INIT_STATE geldikten sonra bu HTTP yanıtları
+    // (daha eski bir anlık görüntü) yeni durumun üzerine yazmamalı.
+    let wsStateReceived = false;
     const refreshState = () => {
       fetch('/api/downloads')
         .then(res => res.json())
-        .then(data => setDownloads(data || []))
+        .then(data => { if (!wsStateReceived) setDownloads(data || []); })
         .catch(err => console.error('Failed to fetch downloads:', err));
 
       fetch('/api/settings')
         .then(res => res.json())
         .then(data => {
+          if (wsStateReceived) return;
           setSettings(data || {});
           if (data) {
             setTelemetryEnabled(data.telemetryEnabled !== false);
@@ -128,7 +136,7 @@ export default function App() {
 
       fetch('/api/queues')
         .then(res => res.json())
-        .then(data => setQueues(data || []))
+        .then(data => { if (!wsStateReceived) setQueues(data || []); })
         .catch(err => console.error('Failed to fetch queues:', err));
 
       fetch('/api/app/info')
@@ -155,7 +163,8 @@ export default function App() {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        if (reconnectDelay > 500) refreshState(); // kopukken kaçırılan değişiklikler
+        // Yeniden bağlanmada tam durum sunucudan INIT_STATE olarak gelir; ayrıca
+        // HTTP ile tazeleme yapmak, arada gelen WS olaylarını eski veriyle ezebilir.
         reconnectDelay = 500;
       };
 
@@ -176,6 +185,7 @@ export default function App() {
       try {
         const msg = JSON.parse(event.data);
         const { type, payload } = msg;
+        wsStateReceived = true;
 
         if (type === 'INIT_STATE') {
           setDownloads(payload.downloads || []);
@@ -186,6 +196,12 @@ export default function App() {
             if (payload.settings.anonymousId) {
               setAnonymousUser(payload.settings.anonymousId);
             }
+          }
+        } else if (type === 'SETTINGS_CHANGED') {
+          if (payload) {
+            setSettings(prev => ({ ...(prev || {}), ...payload }));
+            setTelemetryEnabled(payload.telemetryEnabled !== false);
+            if (payload.anonymousId) setAnonymousUser(payload.anonymousId);
           }
         } else if (type === 'PROGRESS') {
           setDownloads(prev => prev.map(item => {
@@ -262,7 +278,7 @@ export default function App() {
             }));
           }
           if (payload && payload.threat) {
-            alert(tt('virus_alert_detected', { file: payload.filename || 'Dosya', threat: payload.threat }));
+            alert(ttRef.current('virus_alert_detected', { file: payload.filename || 'Dosya', threat: payload.threat }));
           }
         }
       } catch (err) {
@@ -643,10 +659,14 @@ export default function App() {
         body: JSON.stringify(newSettings)
       });
       const updated = await res.json();
-      if (!res.ok) throw new Error(updated.error || 'Failed to save settings');
+      if (!res.ok) throw new Error(updated.detail || updated.error || 'Failed to save settings');
       setSettings(updated);
+      // Sentry'yi yeniden başlatmadan da telemetri tercihi anında uygulansın
+      setTelemetryEnabled(newSettings.telemetryEnabled !== false);
     } catch (err) {
       alert(tt('alert_settings_failed', { msg: err.message }));
+      // Hatayı yutma: SettingsModal başarısız kayıtta kapanmamalı.
+      throw err;
     }
   };
 
@@ -707,12 +727,13 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-      if (res.ok) {
-        const updated = await res.json();
-        setQueues(prev => prev.map(q => q.id === id ? updated : q));
-      }
+      const updated = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(updated?.error || `HTTP ${res.status}`);
+      if (updated) setQueues(prev => prev.map(q => q.id === id ? updated : q));
+      return updated;
     } catch (err) {
       console.error('Failed to update queue:', err);
+      throw err;
     }
   };
 
@@ -760,6 +781,13 @@ export default function App() {
       </I18nProvider>
     );
   }
+
+  // Açık bir modal/onay penceresi varken liste kısayolları (özellikle Delete)
+  // arka planda çalışmamalı.
+  const listShortcutsDisabled = isAddModalOpen || isBatchModalOpen || isSettingsModalOpen ||
+    isSnifferModalOpen || isSchedulerModalOpen || isNewQueueModalOpen || isAboutModalOpen ||
+    isUpdateModalOpen || !!selectedDownloadForChunks || !!propertiesItem || !!renameTarget ||
+    !!deleteTarget;
 
   return (
     <I18nProvider languagePref={settings?.language}>
@@ -875,6 +903,7 @@ export default function App() {
               onSetPriority={handleSetPriority}
               queues={queues}
               onMoveToQueue={handleMoveToQueue}
+              shortcutsEnabled={!listShortcutsDisabled}
             />
           </main>
         </div>

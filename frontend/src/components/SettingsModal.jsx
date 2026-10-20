@@ -83,9 +83,12 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
       wasOpenRef.current = false;
       return;
     }
+    // Ayarlar henüz yüklenmediyse işaretleme YAPMA: settings geldiğinde bu efekt
+    // yeniden çalışıp alanları doldurmalı. Eskiden burada işaretleniyordu ve
+    // modal erken açılırsa tüm alanlar varsayılan değerlerle kalıyordu.
+    if (!settings) return;
     if (wasOpenRef.current) return;
     wasOpenRef.current = true;
-    if (!settings) return;
     setDownloadDir(settings.downloadDir || '');
     setMaxConcurrentDownloads(settings.maxConcurrentDownloads ?? 3);
     setDefaultSegments(settings.defaultSegments ?? 8);

@@ -13,19 +13,33 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
 
       # bin/*.exe are not in the repository (see bin/README.md) — fetch them.
+      # Sürüm ve SHA-256 SABİTTİR: "latest" ele geçirilmiş/bozulmuş bir sürüm
+      # sessizce pakete giremez. Güncellerken hash'leri de birlikte yenileyin.
       - name: Download helper binaries (yt-dlp, ffmpeg)
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' -OutFile 'bin/yt-dlp.exe'
-          Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile "$env:RUNNER_TEMP/ffmpeg.zip"
+          $ErrorActionPreference = 'Stop'
+          $ytdlpVersion = '2026.08.19'
+          $ytdlpSha256 = '66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a'
+          $ffmpegVersion = '8.1.2'
+          $ffmpegSha256 = 'db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec'
+
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/download/$ytdlpVersion/yt-dlp.exe" -OutFile 'bin/yt-dlp.exe'
+          $ytdlpActual = (Get-FileHash 'bin/yt-dlp.exe' -Algorithm SHA256).Hash.ToLower()
+          if ($ytdlpActual -ne $ytdlpSha256) { throw "yt-dlp SHA-256 mismatch: $ytdlpActual" }
+
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-$ffmpegVersion-essentials_build.zip" -OutFile "$env:RUNNER_TEMP/ffmpeg.zip"
+          $ffmpegActual = (Get-FileHash "$env:RUNNER_TEMP/ffmpeg.zip" -Algorithm SHA256).Hash.ToLower()
+          if ($ffmpegActual -ne $ffmpegSha256) { throw "ffmpeg SHA-256 mismatch: $ffmpegActual" }
+
           Expand-Archive "$env:RUNNER_TEMP/ffmpeg.zip" -DestinationPath "$env:RUNNER_TEMP/ffmpeg"
           $exe = Get-ChildItem "$env:RUNNER_TEMP/ffmpeg" -Recurse -Filter ffmpeg.exe | Select-Object -First 1
           Copy-Item $exe.FullName 'bin/ffmpeg.exe'
@@ -61,7 +75,7 @@ jobs:
           }
 
       - name: Upload unsigned installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: deepnode-download-manager-setup-unsigned
           path: |

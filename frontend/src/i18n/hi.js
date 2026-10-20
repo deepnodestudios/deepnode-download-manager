@@ -381,6 +381,7 @@ export default {
   batch_to: "समाप्त:",
   batch_digits: "अंक (01..):",
   batch_items_preview: "डाउनलोड के लिए लिंक पूर्वावलोकन ({n})",
+  selected: "चयनित",
   btn_select_all: "सभी चुनें",
   btn_deselect_all: "चयन रद्द करें",
   chk_auto_start_batch: "जोड़े गए डाउनलोड तुरंत शुरू करें",
