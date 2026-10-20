@@ -7,7 +7,7 @@ const rootPkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.met
 export default defineConfig({
   plugins: [react()],
   define: {
-    __APP_VERSION__: JSON.stringify(rootPkg.version || '1.6.0')
+    __APP_VERSION__: JSON.stringify(rootPkg.version || '1.6.1')
   },
   base: './', // Essential for Electron file:// protocol loading!
   build: {

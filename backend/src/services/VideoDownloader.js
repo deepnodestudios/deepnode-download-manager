@@ -1499,7 +1499,9 @@ export class VideoDownloader extends EventEmitter {
       segmentsCount: 1,
       checksum: null,
       errorMsg: this.errorMsg,
-      preflight: this.preflight ? true : undefined,
+      // Boş bırakılmaz: onay sonrası tam anlık görüntüde alan yoksa istemci
+      // eski `preflight: true` değerini koruyup indirmeyi gizli tutuyordu.
+      preflight: Boolean(this.preflight),
       createdFinal: this._createdFinal ? true : undefined,
       virusAlert: Boolean(this.virusAlert),
       segments: []

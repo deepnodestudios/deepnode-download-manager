@@ -20,6 +20,7 @@ import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import { WebSocket } from 'ws';
 import { verifyInstallerSignature } from '../src/routes/update.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -190,6 +191,22 @@ async function call(pathname, { origin, method = 'GET', body, headers: extraHead
 const addDownload = (url, extra = {}) =>
   call('/api/download/add', { origin: APP_ORIGIN, method: 'POST', body: { url, confirmedByUser: true, ...extra } });
 
+// Ana pencerenin aboneliğini taklit eden WebSocket istemcisi: yayınlanan
+// mesajlar, onay sonrası ana listenin canlı güncellenip güncellenmediğini
+// doğrulamak için toplanır.
+function connectWs(origin) {
+  const ws = new WebSocket(API.replace(/^http/, 'ws'), { origin });
+  const messages = [];
+  ws.on('message', (buf) => {
+    try { messages.push(JSON.parse(buf.toString())); } catch (err) { /* ignore */ }
+  });
+  const ready = new Promise((resolve, reject) => {
+    ws.once('open', resolve);
+    ws.once('error', reject);
+  });
+  return { ready, messages, close: () => { try { ws.close(); } catch (err) { /* ignore */ } } };
+}
+
 async function waitForStatus(id, wanted, timeoutMs = 25000) {
   const deadline = Date.now() + timeoutMs;
   let last = null;
@@ -335,6 +352,8 @@ async function run() {
         ? String(fs.statSync(sloppyDone.savePath).size) : 'dosya yok');
 
     console.log('\nR9 — Ön indirme (preflight) onaylanmadan tamamlanma diyaloğu açmaz');
+    const pfWs = connectWs(APP_ORIGIN);
+    await pfWs.ready;
     const pfUrl = `http://127.0.0.1:${ORIGIN_SRC}/real.zip?pf=1`;
     const addPrompt = await call('/api/download/add', {
       origin: EXT_ORIGIN,
@@ -350,6 +369,15 @@ async function run() {
     });
     check('onaylanan ön indirme tamamlanmış olarak devralındı', pfConfirmed.json && pfConfirmed.json.status === 'completed');
     check('onaylanan ön indirmede preflight bayrağı kalktı', pfConfirmed.json && !pfConfirmed.json.preflight);
+    // Ana pencere yayını: onay anında gönderilen tam anlık görüntüde alan
+    // bulunmazsa istemci eski preflight:true değerini koruyup indirmeyi gizli
+    // tutuyordu (uygulama yeniden başlatılınca görünmesinin nedeni).
+    await sleep(300);
+    pfWs.close();
+    const pfAdded = pfWs.messages.filter((m) => m.type === 'DOWNLOAD_ADDED' && m.payload && m.payload.filename === 'pf_confirmed.zip');
+    check('ana pencereye onay sonrası DOWNLOAD_ADDED yayınlandı', pfAdded.length > 0);
+    check('yayınlanan anlık görüntü preflight:false taşır',
+      pfAdded.length > 0 && pfAdded[pfAdded.length - 1].payload.preflight === false);
 
     console.log('\nR10 — "Tümünü Başlat" eşzamanlılık sınırına uyar');
     // Otomatik başlatı kapat: kuyruk kendiliğinden başlamasın, kontrol testte olsun.

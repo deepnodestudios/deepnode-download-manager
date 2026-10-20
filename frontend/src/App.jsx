@@ -248,13 +248,18 @@ export default function App() {
           }));
         } else if (type === 'DOWNLOAD_ADDED') {
           setDownloads(prev => {
-            const index = prev.findIndex(d => d.id === payload.id);
+            // Tam anlık görüntü: alan yoksa indirme artık ön indirme değildir.
+            // Eski kayıttaki preflight:true değeri spread ile korunuyordu ve
+            // onaylanan indirme ana listede hiç görünmüyordu (yeniden başlatınca
+            // görünmesi bu yüzdendi).
+            const snap = { ...payload, preflight: payload.preflight === true };
+            const index = prev.findIndex(d => d.id === snap.id);
             if (index !== -1) {
               const updated = [...prev];
-              updated[index] = { ...updated[index], ...payload };
+              updated[index] = { ...updated[index], ...snap };
               return updated;
             }
-            return [...prev, payload];
+            return [...prev, snap];
           });
         } else if (type === 'DOWNLOAD_DELETED') {
           setDownloads(prev => prev.filter(d => d.id !== payload.id));

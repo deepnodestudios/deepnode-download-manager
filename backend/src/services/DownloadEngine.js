@@ -969,7 +969,10 @@ export class DownloadEngine extends EventEmitter {
       // Arayüzdeki "Özellikler" penceresi hata sebebini gösterebilsin
       // (VideoDownloader zaten gönderiyordu, dosya motoru göndermiyordu).
       errorMsg: this.errorMsg || undefined,
-      preflight: this.preflight ? true : undefined, // JSON'da yalnızca aktifken görünsün
+      // Alan her zaman boolean gönderilir: onay sonrası yayınlanan tam anlık
+      // görüntüde alan hiç yoksa istemci eski `preflight: true` değerini korur
+      // ve indirme ana listede kalıcı olarak gizli kalırdı.
+      preflight: Boolean(this.preflight),
       virusAlert: Boolean(this.virusAlert),
       segments: this.segments.map((s) => ({
         id: s.id,
