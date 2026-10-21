@@ -25,6 +25,12 @@ const PROJECT_DIR = path.join(ELECTRON_DIR, '..');
 const STUB = `
 const noop = () => {};
 const handlers = new Map();
+const appHandlers = new Map();
+const recordAppHandler = (ev, fn) => {
+  const list = appHandlers.get(ev) || [];
+  list.push(fn);
+  appHandlers.set(ev, list);
+};
 
 class FakeWebContents {
   setWindowOpenHandler() {}
@@ -35,14 +41,22 @@ class FakeWebContents {
 class FakeBrowserWindow {
   constructor(opts = {}) {
     FakeBrowserWindow.created.push(opts);
+    FakeBrowserWindow.instances.push(this);
     this.webContents = new FakeWebContents();
+    this.showCalls = 0;
+    this.focusCalls = 0;
+    this.restoreCalls = 0;
   }
   static created = [];
+  static instances = [];
   static fromWebContents() { return null; }
   static getAllWindows() { return []; }
   loadURL(u) { FakeBrowserWindow.loaded.push(u); }
   static loaded = [];
-  on() {} once() {} show() {} hide() {} focus() {} minimize() {} restore() {}
+  on() {} once() {} hide() {} minimize() {}
+  show() { this.showCalls++; }
+  focus() { this.focusCalls++; }
+  restore() { this.restoreCalls++; }
   isMinimized() { return false; } isVisible() { return true; } isDestroyed() { return false; }
   getBounds() { return { x: 0, y: 0, width: 800, height: 600 }; }
   setBounds() {} getContentSize() { return [800, 600]; } setContentSize() {}
@@ -51,7 +65,7 @@ class FakeBrowserWindow {
 
 export const app = {
   whenReady: () => Promise.resolve(),
-  on: noop,
+  on: recordAppHandler,
   quit: noop,
   getLocale: () => 'tr-TR',
   setLoginItemSettings: noop,
@@ -86,7 +100,7 @@ export const nativeImage = {
 };
 
 export default { app, BrowserWindow, Tray, Menu, clipboard, Notification, ipcMain, dialog, shell, screen, nativeImage };
-export const __stub = { FakeBrowserWindow, handlers };
+export const __stub = { FakeBrowserWindow, handlers, appHandlers };
 `;
 
 // --- Geçici çalışma alanı --------------------------------------------------
@@ -124,6 +138,19 @@ main = main.replace(/from ['"]electron['"]/g, "from './electron-stub.mjs'");
 main += `
 setTimeout(async () => {
   const { __stub } = await import('./electron-stub.mjs');
+  const mainWin = __stub.FakeBrowserWindow.instances[0] || null;
+  const secondInstance = (__stub.appHandlers.get('second-instance') || [])[0];
+  // Oturum açılışındaki ikinci (kalıntı) autostart süreci pencereyi göstermemeli.
+  if (secondInstance && mainWin) {
+    secondInstance({}, [process.execPath, '--hidden', '--opened-at-login'], process.cwd());
+  }
+  const showAfterHidden = mainWin ? mainWin.showCalls : -1;
+  // Kullanıcının kendisi başlattığı ikinci örnek ise pencereyi öne getirmeli.
+  if (secondInstance && mainWin) {
+    secondInstance({}, [process.execPath], process.cwd());
+  }
+  const showAfterNormal = mainWin ? mainWin.showCalls : -1;
+
   const before = __stub.FakeBrowserWindow.created.length;
   createAddDownloadWindow('https://example.com/dosya.zip');
   createProgressWindow('dl_test_1');
@@ -135,6 +162,9 @@ setTimeout(async () => {
     loaded: __stub.FakeBrowserWindow.loaded,
     ipc: [...__stub.handlers.keys()],
     preload: (__stub.FakeBrowserWindow.created[0] || {}).webPreferences || null,
+    firstShow: (__stub.FakeBrowserWindow.created[0] || {}).show,
+    showAfterHidden,
+    showAfterNormal,
     childPrefs: after.map((w) => w.webPreferences),
     childCount: after.length
   }));
@@ -144,8 +174,15 @@ setTimeout(async () => {
 fs.writeFileSync(mainPath, main);
 
 // --- Çalıştır --------------------------------------------------------------
+// startMinimized=true + --hidden: oturum açılışındaki gizli başlatmayı taklit eder.
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ddm-main-home-'));
-const child = spawn(process.execPath, [mainPath], {
+fs.mkdirSync(path.join(home, '.deepnode'), { recursive: true });
+fs.writeFileSync(path.join(home, '.deepnode', 'settings.json'), JSON.stringify({
+  startMinimized: true,
+  clipboardWatch: false,
+  autoStartDownloads: false
+}));
+const child = spawn(process.execPath, [mainPath, '--hidden'], {
   env: { ...process.env, HOME: home, USERPROFILE: home, DN_PORT: '5123' },
   stdio: ['ignore', 'pipe', 'pipe']
 });
@@ -179,6 +216,9 @@ check('main.js hatasız yüklendi', code === 0 && !!info,
 
 if (info) {
   check('ana pencere oluşturuldu', info.windows >= 1, String(info.windows));
+  check('gizli başlatmada ana pencere show:false ile oluşturuldu', info.firstShow === false, String(info.firstShow));
+  check('autostart argümanlı ikinci örnek ana pencereyi göstermedi', info.showAfterHidden === 0, String(info.showAfterHidden));
+  check('normal ikinci örnek ana pencereyi öne getirdi', info.showAfterNormal === 1, String(info.showAfterNormal));
   check('arayüz yerel sunucudan yükleniyor', (info.loaded[0] || '').startsWith('http://localhost:'), info.loaded[0]);
   check('nodeIntegration kapalı', info.preload && info.preload.nodeIntegration === false);
   check('contextIsolation açık', info.preload && info.preload.contextIsolation === true);

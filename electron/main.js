@@ -11,7 +11,7 @@ if (!gotTheLock) {
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { spawn } from 'child_process';
+import { spawn, execFileSync } from 'child_process';
 import { setLanguage, getLanguage, t as et } from './i18n.js';
 
 const { default: storageService } = await import('../backend/src/services/StorageService.js');
@@ -21,7 +21,7 @@ const { serverEvents, shutdownAllDownloads } = await import('../backend/src/serv
 // Initialize Sentry for Electron main process error & crash tracking
 initSentry({
   processName: 'electron-main',
-  appVersion: app.getVersion ? app.getVersion() : '1.6.1',
+  appVersion: app.getVersion ? app.getVersion() : '1.6.2',
   anonymousId: storageService.getAnonymousId()
 });
 
@@ -397,6 +397,9 @@ let mainWindow = null;
 let tray = null;
 let lastClipboardText = '';
 let isQuitting = false;
+// Oturum açılışında gizli başlatıldıysa pano gibi otomatik akışlar ana pencereyi
+// masaüstüne getirmemeli; kullanıcı açıkça açtığında (tepsi/ikinci örnek) gösterilir.
+let startupHidden = false;
 let appSettings = {
   minimizeToTrayOnClose: true,
   launchOnStartup: false,
@@ -422,6 +425,37 @@ async function loadSettings() {
     }
   }
   return appSettings;
+}
+
+function hasAutostartArg(argv) {
+  const list = Array.isArray(argv) ? argv : [];
+  return list.some((arg) =>
+    arg === '--hidden' || arg === '--minimized' || arg === '--opened-at-login' ||
+    arg === '-m' || arg === '/hidden');
+}
+
+// Eski sürümlerin yazdığı `com.deepnode.app` Run değeri güncel değerle birlikte
+// kalınca uygulama açılışta iki kez başlatılıyor ve ikinci süreç ana pencereyi
+// öne getirebiliyordu. Yalnız bu uygulamanın exe'sini gösteren kalıntıyı sil.
+const LEGACY_RUN_VALUE = 'com.deepnode.app';
+function cleanupLegacyStartupEntry() {
+  if (process.platform !== 'win32' || app.isPackaged !== true) return;
+  const runKey = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+  try {
+    const out = execFileSync('reg', ['query', runKey, '/v', LEGACY_RUN_VALUE], {
+      encoding: 'utf8', windowsHide: true, timeout: 5000
+    });
+    const line = out.split(/\r?\n/).find((l) => l.includes('REG_SZ'));
+    if (!line) return;
+    const data = (line.split('REG_SZ')[1] || '').trim().toLowerCase();
+    const exeName = path.basename(process.execPath).toLowerCase();
+    if (!data.includes(exeName)) return;
+    execFileSync('reg', ['delete', runKey, '/v', LEGACY_RUN_VALUE, '/f'], {
+      windowsHide: true, timeout: 5000
+    });
+  } catch (e) {
+    // Değer yok ya da erişilemiyor — yapılacak bir şey yok.
+  }
 }
 
 function applyStartupSetting() {
@@ -818,8 +852,9 @@ function startClipboardWatcher() {
       // Kullanıcı pano izlemeyi kapattıysa hiçbir şey yapma
       if (!(await isClipboardWatchEnabled())) return;
 
-      // Pencereyi EN ÜSTE getir ve İndirme İletişim Kutusunu aç
-      bringToFront();
+      // Ekleme penceresi kendi başına açılır; gizli açılışta ana pencereyi de
+      // masaüstüne getirmek "tepside başla" beklentisini bozar.
+      if (!startupHidden) bringToFront();
 
       await fetch(appUrl('/api/download/prompt-add'), {
         method: 'POST',
@@ -877,7 +912,10 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
     handleProtocolUrl(protocolUrl);
   } else if (httpUrl) {
     createAddDownloadWindow(httpUrl);
-  } else if (mainWindow) {
+  } else if (mainWindow && !hasAutostartArg(commandLine)) {
+    // Oturum açılışındaki ikinci autostart başlatması (ya da kalıntı Run
+    // girdisi) ana pencereyi masaüstüne getirmemeli. Kullanıcı uygulamayı
+    // kendisi açtığında ise pencere öne gelir.
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
@@ -889,13 +927,7 @@ app.whenReady().then(async () => {
   const initialHttpUrl = process.argv.find(arg => /^https?:\/\//i.test(arg));
   
   // Command line flags check (--hidden, --minimized, --opened-at-login, etc.)
-  const hasHiddenArg = process.argv.some(arg => 
-    arg === '--hidden' || 
-    arg === '--minimized' || 
-    arg === '--opened-at-login' || 
-    arg === '-m' ||
-    arg === '/hidden'
-  );
+  const hasHiddenArg = hasAutostartArg(process.argv);
 
   let wasOpenedAtLogin = false;
   try {
@@ -908,15 +940,19 @@ app.whenReady().then(async () => {
   }
 
   await loadSettings();
+  cleanupLegacyStartupEntry();
   applyStartupSetting();
 
   // Otomatik açılışta veya gizli başlatma parametresinde:
   // Eğer startMinimized ayarı açıksa veya --hidden ile açıldıysa pencereyi gizli başlat.
   const isStartupLaunch = hasHiddenArg || wasOpenedAtLogin;
   const shouldStartHidden = (isStartupLaunch && appSettings.startMinimized !== false) || (hasHiddenArg && appSettings.startMinimized);
+  startupHidden = shouldStartHidden;
 
   const showWindow = !protocolUrl && !shouldStartHidden;
-  createWindow(showWindow);
+  // Tepsi, ana pencere oluşturulmadan kurulmamalı: açılış anında tepsiye
+  // tıklanırsa mainWindow null olduğu için ikinci bir görünür pencere açılıyordu.
+  await createWindow(showWindow);
   if (initialHttpUrl && !protocolUrl) {
     createAddDownloadWindow(initialHttpUrl);
   }

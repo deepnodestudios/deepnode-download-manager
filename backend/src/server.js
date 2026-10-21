@@ -36,7 +36,7 @@ function appVersion() {
   return appVersionCache;
 }
 
-initSentry({ processName: 'backend', appVersion: appVersion() || '1.6.1', anonymousId: storageService.getAnonymousId() });
+initSentry({ processName: 'backend', appVersion: appVersion() || '1.6.2', anonymousId: storageService.getAnonymousId() });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[Process] Unhandled Rejection at:', promise, 'reason:', reason);
