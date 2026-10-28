@@ -441,6 +441,9 @@ async function doVideo(url, quality, referer, title, tabId) {
     const tabName = await bestNameFromTab(tabId);
     if (tabName) name = tabName;
   }
+  if (name && !/\.(mp4|mkv|webm|m4a|mp3|aac|opus|flv|avi|ts|mov|m4v)$/i.test(name)) {
+    name += (quality === 'audio' ? '.mp3' : '.mp4');
+  }
   const ok = await sendVideoToApp(url, quality, referer, name || undefined);
   if (!ok) wakeApp(url);
 }
@@ -453,6 +456,9 @@ async function doVideoAll(url, qualities, referer, title, tabId) {
   if (referer && tabId != null) {
     const tabName = await bestNameFromTab(tabId);
     if (tabName) name = tabName;
+  }
+  if (name && !/\.(mp4|mkv|webm|m4a|mp3|aac|opus|flv|avi|ts|mov|m4v)$/i.test(name)) {
+    name += '.mp4';
   }
   const ok = await sendVideoBatchToApp(url, qualities, referer, name || undefined);
   if (!ok) wakeApp(url);

@@ -79,6 +79,15 @@ function joinPath(base, sub) {
   return base.replace(/[\\/]+$/, '') + sep + sub.replace(/^[\\/]+/, '');
 }
 
+const MEDIA_EXT_REGEX = /\.(mp4|mkv|webm|m4a|mp3|aac|opus|flv|avi|ts|mov|m4v)$/i;
+function ensureMediaExt(name, ext = '.mp4') {
+  if (!name || typeof name !== 'string') return name || '';
+  const trimmed = name.trim();
+  if (!trimmed) return '';
+  if (MEDIA_EXT_REGEX.test(trimmed)) return trimmed;
+  return trimmed + ext;
+}
+
 export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAddBatch, settings, queues = [], initialUrl = '', initialQuality = '', initialReferer = '', initialIsVideo = false, initialFilename = '', isStandalone = false }) {
   const { t } = useT();
   const boxRef = useRef(null); // standalone: içerik yüksekliğini ölçüp pencereyi ona göre boyutlandır
@@ -111,6 +120,11 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
       userEditedFilenameRef.current = false;
       if (settings?.defaultSegments) {
         setSegmentsCount(Number(settings.defaultSegments));
+      }
+      if (initialFilename) {
+        const isVid = initialIsVideo || isVideoUrl(initialUrl || '') || isStreamManifestUrl(initialUrl || '');
+        const ext = (initialQuality === 'audio' || quality === 'audio') ? '.mp3' : '.mp4';
+        setFilename(isVid ? ensureMediaExt(initialFilename, ext) : initialFilename);
       }
     } else {
       // Pencere kapanınca iç durumu sıfırla: aksi halde bir sonraki açılışta
@@ -215,7 +229,9 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
             // Sayfa başlığını (initialFilename) yt-dlp'nin "master" gibi metadata başlığına
             // tercih et — HLS/.txt kaynaklarında anlamlı tek isim sayfa başlığıdır.
             if (!userEditedFilenameRef.current) {
-              setFilename(prev => (userEditedFilenameRef.current ? prev : (initialFilename || data.title || prev || '')));
+              const raw = initialFilename || data.title || '';
+              const ext = quality === 'audio' ? '.mp3' : '.mp4';
+              setFilename(prev => (userEditedFilenameRef.current ? prev : (raw ? ensureMediaExt(raw, ext) : prev)));
             }
             // Eklentide/kullanıcı tarafından seçilmiş kaliteyi EZME.
             // Yalnızca hiç seçim yoksa "en yüksek"e düş. initialQuality yalnızca
@@ -229,7 +245,9 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
             setFormatError(t('fmt_error'));
             // Format alınamasa da (ör. oturum korumalı HLS 404) sayfa başlığını ad olarak koy
             if (!userEditedFilenameRef.current) {
-              setFilename(prev => (userEditedFilenameRef.current ? prev : (initialFilename || prev || '')));
+              const raw = initialFilename || '';
+              const ext = quality === 'audio' ? '.mp3' : '.mp4';
+              setFilename(prev => (userEditedFilenameRef.current ? prev : (raw ? ensureMediaExt(raw, ext) : prev)));
             }
           })
           .finally(() => setLoadingMetadata(false));
@@ -257,6 +275,17 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
     return () => { clearTimeout(timer); controller.abort(); };
   }, [url]);
 
+  const handleQualityChange = (newQuality) => {
+    setQuality(newQuality);
+    if (newQuality === 'audio') {
+      setCategory('Music');
+      setFilename(prev => prev ? prev.replace(/\.(mp4|mkv|webm|flv|avi|ts|mov|m4v)$/i, '.mp3') : prev);
+    } else if (quality === 'audio') {
+      setCategory('Video');
+      setFilename(prev => prev ? prev.replace(/\.(mp3|m4a|aac|opus)$/i, '.mp4') : prev);
+    }
+  };
+
   const handleCreateDownload = async (autoStart = true) => {
     if (submittingRef.current) return; // çift tıklama koruması
     submittingRef.current = true;
@@ -264,9 +293,13 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
       if (activeTab === 'single') {
         if (!url.trim()) return;
         if (isVideo) {
+          let finalFilename = filename.trim();
+          if (finalFilename) {
+            finalFilename = ensureMediaExt(finalFilename, quality === 'audio' ? '.mp3' : '.mp4');
+          }
           await onAddDownload({
             url: url.trim(),
-            filename: filename.trim() || undefined,
+            filename: finalFilename || undefined,
             saveDir: saveDir.trim() || undefined,
             isVideo: true,
             quality,
@@ -275,9 +308,15 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
             queueId: selectedQueue
           });
         } else {
+          let finalFilename = filename.trim();
+          if (finalFilename && category === 'Video') {
+            finalFilename = ensureMediaExt(finalFilename, '.mp4');
+          } else if (finalFilename && category === 'Music') {
+            finalFilename = ensureMediaExt(finalFilename, '.mp3');
+          }
           await onAddDownload({
             url: url.trim(),
-            filename: filename.trim() || undefined,
+            filename: finalFilename || undefined,
             category,
             saveDir: saveDir.trim() || undefined,
             segmentsCount: Number(segmentsCount),
@@ -444,7 +483,7 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
                   <select
                     className="form-select"
                     value={quality}
-                    onChange={(e) => setQuality(e.target.value)}
+                    onChange={(e) => handleQualityChange(e.target.value)}
                   >
                     <option value="best">{t('q_best')}</option>
                     {/* Seçili değer henüz listede yoksa (liste yükleniyorsa) yine de görünsün.

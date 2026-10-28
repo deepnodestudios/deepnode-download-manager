@@ -737,6 +737,7 @@ async function _ensureFfmpegInner(onProgress) {
   }
 }
 
+const MEDIA_EXT_REGEX = /\.(mp4|mkv|webm|m4a|mp3|aac|opus|flv|avi|ts|mov|m4v)$/i;
 const UNIT = { B: 1, KiB: 1024, MiB: 1024 ** 2, GiB: 1024 ** 3, TiB: 1024 ** 4 };
 function toBytes(num, unit) { return Math.round(parseFloat(num) * (UNIT[unit] || 1)); }
 function etaToSec(str) {
@@ -751,6 +752,11 @@ export class VideoDownloader extends EventEmitter {
     this.id = item.id;
     this.url = item.url;
     this.filename = item.filename || null;
+    if (this.filename && !this.filename.includes('…') &&
+        !/^(Fetching video info|Preparing|Error:|Video Download)/.test(this.filename) &&
+        !MEDIA_EXT_REGEX.test(this.filename)) {
+      this.filename += (item.quality === 'audio' ? '.mp3' : '.mp4');
+    }
     this.customFilename = Boolean(item.customFilename);
     this._confPath = null;
     this.quality = item.quality || 'best';
@@ -800,8 +806,12 @@ export class VideoDownloader extends EventEmitter {
   // Kullanıcının onay penceresinde seçtiği ad. yt-dlp çalışırken çıktı şablonu
   // değiştirilemediği için indirme bitince dosya bu ada taşınır.
   setDesiredFilename(name) {
-    const desired = sanitizeFilename(String(name || '')).trim();
+    let desired = sanitizeFilename(String(name || '')).trim();
     if (!desired) return;
+    if (!MEDIA_EXT_REGEX.test(desired)) {
+      const fallbackExt = (this.savePath && path.extname(this.savePath)) || (this.quality === 'audio' ? '.mp3' : '.mp4');
+      desired += fallbackExt;
+    }
     this._desiredFilename = desired;
     this.userNamed = true;
     this.customFilename = true;
@@ -811,9 +821,13 @@ export class VideoDownloader extends EventEmitter {
   }
 
   applyDesiredFilename() {
-    const desired = this._desiredFilename;
+    let desired = this._desiredFilename;
     this._desiredFilename = null;
     if (!desired || !this.savePath || !fs.existsSync(this.savePath)) return;
+    if (!MEDIA_EXT_REGEX.test(desired)) {
+      const existingExt = path.extname(this.savePath) || (this.quality === 'audio' ? '.mp3' : '.mp4');
+      desired += existingExt;
+    }
     const dir = path.dirname(this.savePath);
     let target = path.join(dir, desired);
     if (path.resolve(target) === path.resolve(this.savePath)) {
@@ -906,7 +920,11 @@ export class VideoDownloader extends EventEmitter {
           this.filename === 'Video Download' || this.filename.includes('…') ||
           isGenericVideoTitle(this.filename, this.url))) {
         const hStr = this.quality && this.quality !== 'best' && this.quality !== 'audio' ? ` [${this.quality}p]` : '';
-        this.filename = sanitizeFilename(`${vinfo.title}${hStr}.mp4`);
+        const ext = this.quality === 'audio' ? '.mp3' : '.mp4';
+        this.filename = sanitizeFilename(`${vinfo.title}${hStr}${ext}`);
+        this.emit('meta', { id: this.id });
+      } else if (this.filename && !MEDIA_EXT_REGEX.test(this.filename)) {
+        this.filename += (this.quality === 'audio' ? '.mp3' : '.mp4');
         this.emit('meta', { id: this.id });
       }
 
@@ -1180,6 +1198,21 @@ export class VideoDownloader extends EventEmitter {
         this.percent = 100;
         this.speed = 0;
         this.eta = 0;
+        if (this.savePath && fs.existsSync(this.savePath)) {
+          const currentExt = path.extname(this.savePath);
+          if (!MEDIA_EXT_REGEX.test(currentExt)) {
+            const desiredExt = this.quality === 'audio' ? '.mp3' : '.mp4';
+            const fixedPath = this.savePath + desiredExt;
+            try {
+              if (fs.existsSync(fixedPath)) fs.unlinkSync(fixedPath);
+              fs.renameSync(this.savePath, fixedPath);
+              this.savePath = fixedPath;
+              this.filename = path.basename(fixedPath);
+            } catch (e) {
+              console.warn('[VideoDownloader] Could not append extension to savePath:', e.message);
+            }
+          }
+        }
         if (this.savePath && fs.existsSync(this.savePath)) {
           try {
             const sz = fs.statSync(this.savePath).size;

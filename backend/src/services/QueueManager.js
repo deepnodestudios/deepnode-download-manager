@@ -155,10 +155,15 @@ class QueueManager {
         try {
           const info = await getVideoInfo(url, videoReferer);
           if (info && info.title) {
-            videoTitle = info.title + '.mp4';
+            videoTitle = info.title + (quality === 'audio' ? '.mp3' : '.mp4');
           }
         } catch (e) {
-          if (!videoTitle) videoTitle = 'Video Download';
+          if (!videoTitle) videoTitle = 'Video Download' + (quality === 'audio' ? '.mp3' : '.mp4');
+        }
+      } else {
+        const mediaExt = /\.(mp4|mkv|webm|m4a|mp3|aac|opus|flv|avi|ts|mov|m4v)$/i;
+        if (!mediaExt.test(videoTitle)) {
+          videoTitle += (quality === 'audio' ? '.mp3' : '.mp4');
         }
       }
 
@@ -194,6 +199,9 @@ class QueueManager {
     // Ad üç dış kaynaktan gelebilir (kullanıcı / eklenti / sunucunun
     // Content-Disposition başlığı) — üçü de yol bileşeni taşıyabilir.
     let filename = safeName(customFilename || info.filename, 'downloaded_file');
+    if (customFilename && !path.extname(customFilename) && info.filename && path.extname(info.filename)) {
+      filename = safeName(customFilename + path.extname(info.filename), 'downloaded_file');
+    }
     const category = customCategory || info.category;
     const saveDir = customSaveDir || this.categoryDir(category);
 
@@ -641,6 +649,13 @@ class QueueManager {
     let newName = opts.filename && String(opts.filename).trim()
       ? safeName(opts.filename, engine.filename)
       : engine.filename;
+    if (engine.kind === 'video' || engine.category === 'Video') {
+      const mediaExt = /\.(mp4|mkv|webm|m4a|mp3|aac|opus|flv|avi|ts|mov|m4v)$/i;
+      if (!mediaExt.test(newName)) {
+        const fallbackExt = (engine.savePath && path.extname(engine.savePath)) || (engine.quality === 'audio' ? '.mp3' : '.mp4');
+        newName += fallbackExt;
+      }
+    }
     const dirChanged = path.resolve(newDir) !== path.resolve(engine.saveDir);
     const nameChanged = newName !== engine.filename;
 
@@ -751,7 +766,12 @@ class QueueManager {
     // Kalite aynı: gizlilikten çıkar, kaldığı yerden devam et.
     engine.preflight = false;
     if (opts.filename && String(opts.filename).trim()) {
-      const desired = safeName(opts.filename, engine.filename);
+      let desired = safeName(opts.filename, engine.filename);
+      const mediaExt = /\.(mp4|mkv|webm|m4a|mp3|aac|opus|flv|avi|ts|mov|m4v)$/i;
+      if (!mediaExt.test(desired)) {
+        const fallbackExt = (engine.savePath && path.extname(engine.savePath)) || (engine.quality === 'audio' ? '.mp3' : '.mp4');
+        desired += fallbackExt;
+      }
       engine.userNamed = true;
       engine.customFilename = true;
       if (typeof engine.setDesiredFilename === 'function') {
@@ -891,6 +911,10 @@ class QueueManager {
     // Kullanıcı girdisi doğrudan yol olarak kullanılamaz: "../../Startup/x.exe"
     // gibi bir ad dosyayı indirme klasörünün dışına taşırdı.
     let cleanName = safeName(newName, engine.filename);
+    const oldExt = path.extname(engine.filename) || (engine.savePath && path.extname(engine.savePath));
+    if (!path.extname(cleanName) && oldExt) {
+      cleanName += oldExt;
+    }
     const dir = engine.saveDir;
     const oldPath = engine.savePath;
     let newPath = path.join(dir, cleanName);

@@ -159,9 +159,45 @@ async function runTests() {
   check('Deleting queue moves downloads back to main queue', testEngineQ.queueId === 'main');
   queueManager.engines.delete('test-engine-q1');
 
+  // Test 10: Video filename media extension preservation
+  const testVid = new VideoDownloader({
+    id: 'test-vid-ext',
+    url: 'https://example.com/stream.m3u8',
+    filename: 'Vikings Valhalla Episode 2',
+    saveDir: os.tmpdir(),
+    status: 'queued'
+  });
+  check('VideoDownloader adds .mp4 to extensionless video filename', testVid.filename === 'Vikings Valhalla Episode 2.mp4');
+
+  testVid.setDesiredFilename('Vikings Valhalla New Name');
+  check('setDesiredFilename preserves/appends media extension', testVid.filename === 'Vikings Valhalla New Name.mp4');
+
+  const testAudioVid = new VideoDownloader({
+    id: 'test-vid-audio',
+    url: 'https://example.com/audio.m3u8',
+    filename: 'Podcast Episode 1',
+    quality: 'audio',
+    saveDir: os.tmpdir(),
+    status: 'queued'
+  });
+  check('VideoDownloader adds .mp3 to audio downloads', testAudioVid.filename === 'Podcast Episode 1.mp3');
+
+  // Test 11: QueueManager renameDownload preserves extension
+  const testEngineRename = new DownloadEngine({
+    id: 'test-engine-rename',
+    url: 'http://example.com/installer.exe',
+    filename: 'installer.exe',
+    saveDir: os.tmpdir(),
+    status: 'paused'
+  });
+  queueManager.engines.set('test-engine-rename', testEngineRename);
+  const renamedSnap = queueManager.renameDownload('test-engine-rename', 'my_custom_setup');
+  check('QueueManager renameDownload preserves original extension', renamedSnap && renamedSnap.filename === 'my_custom_setup.exe');
+  queueManager.engines.delete('test-engine-rename');
+
   console.log(`\n✅ ${passed} geçti, ${failed} kaldı\n`);
   try { fs.rmSync(testHome, { recursive: true, force: true }); } catch (_) {}
-  if (failed > 0) process.exit(1);
+  process.exit(failed > 0 ? 1 : 0);
 }
 
 runTests().catch(err => {
