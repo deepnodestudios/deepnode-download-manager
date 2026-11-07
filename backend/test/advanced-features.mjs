@@ -195,6 +195,57 @@ async function runTests() {
   check('QueueManager renameDownload preserves original extension', renamedSnap && renamedSnap.filename === 'my_custom_setup.exe');
   queueManager.engines.delete('test-engine-rename');
 
+  // Test 12: Süresi dolan link yenilemesi yalnız AYNI dosyaya geçer
+  const { pickRefreshedLink } = await import('../src/services/QueueManager.js');
+  const oldFileUrl = 'https://cdn.example.com/files/movie.zip?token=old';
+  check('Link yenileme: alakasız ilk link (logo) seçilmez',
+    pickRefreshedLink(oldFileUrl, [{ url: 'https://example.com/logo.png' }, { url: 'https://example.com/readme.txt' }]) === null);
+  check('Link yenileme: aynı dosya adlı taze link seçilir',
+    pickRefreshedLink(oldFileUrl, [{ url: 'https://example.com/logo.png' }, { url: 'https://cdn2.example.com/x/movie.zip?token=new' }]) === 'https://cdn2.example.com/x/movie.zip?token=new');
+  check('Link yenileme: manifest için taze manifest seçilir',
+    pickRefreshedLink('https://v.example.com/hls/master.m3u8?t=1', [{ url: 'https://v.example.com/a.jpg' }, { url: 'https://v.example.com/hls/index.m3u8?t=2' }]) === 'https://v.example.com/hls/index.m3u8?t=2');
+  check('Link yenileme: aynı (eski) link tekrar seçilmez',
+    pickRefreshedLink(oldFileUrl, [{ url: oldFileUrl }]) === null);
+
+  // Test 13: Yeniden indirme iptal/silme olursa eski dosya geri konur
+  const http = await import('http');
+  const body = Buffer.alloc(2048, 0x42);
+  const srv = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Length': body.length, 'Content-Type': 'application/zip', 'Accept-Ranges': 'bytes' });
+    if (req.method === 'HEAD') return res.end();
+    res.end(body);
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  const prevAuto = storageService.settings.autoStartDownloads;
+  storageService.settings.autoStartDownloads = false; // ağdan indirme başlamasın
+  const rdDir = fs.mkdtempSync(path.join(testHome, 'rd-'));
+
+  const runRedownloadCase = async (label, finish) => {
+    const fname = `orig-${label}.zip`;
+    const p = path.join(rdDir, fname);
+    fs.writeFileSync(p, 'ESKI-DOSYA');
+    const id = `test-rd-${label}`;
+    const old = new DownloadEngine({
+      id, url: `http://127.0.0.1:${port}/${fname}`, filename: fname, saveDir: rdDir,
+      savePath: p, status: 'completed', totalSize: 10, downloadedBytes: 10
+    });
+    queueManager.engines.set(id, old);
+    const item = await queueManager.redownload(id);
+    const backups = fs.readdirSync(rdDir).filter((f) => f.startsWith(fname) && f.endsWith('.bak'));
+    check(`Yeniden indirme (${label}): eski dosya önce yedeğe alındı`, !fs.existsSync(p) && backups.length === 1);
+    finish(item.id);
+    const left = fs.readdirSync(rdDir).filter((f) => f.startsWith(fname) && f.endsWith('.bak'));
+    check(`Yeniden indirme (${label}): eski dosya geri kondu`,
+      fs.existsSync(p) && fs.readFileSync(p, 'utf8') === 'ESKI-DOSYA' && left.length === 0);
+    queueManager.engines.delete(item.id);
+  };
+  await runRedownloadCase('iptal', (newId) => queueManager.cancelDownload(newId));
+  await runRedownloadCase('silme', (newId) => queueManager.deleteDownload(newId, false));
+
+  storageService.settings.autoStartDownloads = prevAuto;
+  await new Promise((r) => srv.close(r));
+
   console.log(`\n✅ ${passed} geçti, ${failed} kaldı\n`);
   try { fs.rmSync(testHome, { recursive: true, force: true }); } catch (_) {}
   process.exit(failed > 0 ? 1 : 0);

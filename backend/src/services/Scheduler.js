@@ -58,7 +58,7 @@ function tick(onEvent) {
       if (lastFired.stop !== st) {
         lastFired.stop = st;
         try { queueManager.pauseAll(); } catch (e) { /* ignore */ }
-        const afterAction = s.schedulerAfterStop || s.afterAllComplete || 'nothing';
+        const afterAction = s.schedulerAfterStop || 'nothing';
         if (onEvent) onEvent('stop', afterAction);
       }
     }

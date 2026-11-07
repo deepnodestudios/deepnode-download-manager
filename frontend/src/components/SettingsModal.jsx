@@ -58,7 +58,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
   const [scheduleStartTime, setScheduleStartTime] = useState(settings?.scheduleStartTime || '02:00');
   const [scheduleStopTime, setScheduleStopTime] = useState(settings?.scheduleStopTime || '');
   const [scheduleDays, setScheduleDays] = useState(settings?.scheduleDays || [0, 1, 2, 3, 4, 5, 6]);
-  const [schedulerAfterStop, setSchedulerAfterStop] = useState(settings?.schedulerAfterStop || settings?.afterAllComplete || 'nothing');
+  const [schedulerAfterStop, setSchedulerAfterStop] = useState(settings?.schedulerAfterStop || 'nothing');
 
   // File types / filtering settings
   const [enableFileFiltering, setEnableFileFiltering] = useState(settings?.enableFileFiltering ?? true);
@@ -126,7 +126,7 @@ export default function SettingsModal({ isOpen, onClose, settings, onSaveSetting
     setScheduleStartTime(settings.scheduleStartTime || '02:00');
     setScheduleStopTime(settings.scheduleStopTime || '');
     setScheduleDays(settings.scheduleDays || [0, 1, 2, 3, 4, 5, 6]);
-    setSchedulerAfterStop(settings.schedulerAfterStop || settings.afterAllComplete || 'nothing');
+    setSchedulerAfterStop(settings.schedulerAfterStop || 'nothing');
     setEnableFileFiltering(settings.enableFileFiltering ?? true);
     setCapturedExtensions(settings.capturedExtensions || DEFAULT_CAPTURED);
     setIgnoredExtensions(settings.ignoredExtensions || DEFAULT_IGNORED);

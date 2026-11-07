@@ -35,7 +35,7 @@ export default function SchedulerModal({ isOpen, onClose, settings, onSaveSettin
       setScheduleStartTime(settings.scheduleStartTime || '02:00');
       setScheduleStopTime(settings.scheduleStopTime !== undefined ? settings.scheduleStopTime : '08:00');
       setScheduleDays(settings.scheduleDays || [1, 2, 3, 4, 5, 6, 0]);
-      setSchedulerAfterStop(settings.schedulerAfterStop || settings.afterAllComplete || 'nothing');
+      setSchedulerAfterStop(settings.schedulerAfterStop || 'nothing');
       setMaxConcurrentDownloads(settings.maxConcurrentDownloads ?? 3);
     }
   }, [isOpen, selectedQueueId, queues, settings]);
@@ -65,8 +65,10 @@ export default function SchedulerModal({ isOpen, onClose, settings, onSaveSettin
             scheduleStartTime,
             scheduleStopTime,
             scheduleDays,
+            // afterAllComplete ("tüm indirmeler bitince") AYRI bir ayardır; buraya
+            // yazılırsa zamanlayıcıda seçilen "kapat" her indirme bitişinde
+            // bilgisayarı kapatıyordu.
             schedulerAfterStop,
-            afterAllComplete: schedulerAfterStop,
             maxConcurrentDownloads: Number(maxConcurrentDownloads)
           });
         }

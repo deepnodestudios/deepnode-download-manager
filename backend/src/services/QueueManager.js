@@ -8,6 +8,34 @@ import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 
+// Süresi dolan link için sayfada bulunan adaylardan, eski URL ile AYNI dosyayı
+// gösterenini seçer (yol sonundaki dosya adı eşleşmeli; token/query farkı serbest).
+// Eski URL bir akış manifestiyse (m3u8/mpd/master) taze manifest de kabul edilir.
+// Uygun aday yoksa null — yanlış dosyaya geçmektense indirme hatada kalır.
+const STREAM_LINK_RE = /\.m3u8|\.mpd|master/i;
+function linkBaseName(raw) {
+  try {
+    const seg = new URL(raw).pathname.split('/').filter(Boolean).pop() || '';
+    return decodeURIComponent(seg).toLowerCase();
+  } catch (e) {
+    return '';
+  }
+}
+export function pickRefreshedLink(oldUrl, links) {
+  if (!Array.isArray(links) || links.length === 0) return null;
+  const urls = links.map((l) => (l && typeof l.url === 'string' ? l.url : '')).filter(Boolean);
+  const oldBase = linkBaseName(oldUrl);
+  if (oldBase && /\.[a-z0-9]{1,8}$/i.test(oldBase)) {
+    const same = urls.find((u) => u !== oldUrl && linkBaseName(u) === oldBase);
+    if (same) return same;
+  }
+  if (STREAM_LINK_RE.test(String(oldUrl || ''))) {
+    const stream = urls.find((u) => u !== oldUrl && STREAM_LINK_RE.test(u));
+    if (stream) return stream;
+  }
+  return null;
+}
+
 class QueueManager {
   constructor() {
     this.engines = new Map();
@@ -94,13 +122,16 @@ class QueueManager {
       console.log(`[QueueManager] Link expired for download #${id}, auto-sniffing referer page: ${referer}`);
       try {
         const sniffed = await LinkSniffer.sniffPage(referer, { depth: 1, maxPages: 2 });
-        if (sniffed && sniffed.links && sniffed.links.length > 0) {
-          const newStream = sniffed.links.find(l => /\.m3u8|\.mpd|\.txt|master/i.test(l.url)) || sniffed.links[0];
-          if (newStream && newStream.url) {
-            console.log(`[QueueManager] Auto-refreshed stream URL for #${id}: ${newStream.url}`);
-            this.updateDownloadUrl(id, newStream.url, referer);
-            this.startDownload(id);
-          }
+        // Yalnız AYNI dosyayı işaret eden taze linki kabul et. Eskiden eşleşme
+        // yoksa sayfadaki ilk link (ör. logo resmi) alınıyor, eski parçalar o
+        // dosyanın aralıklarıyla sürüp bozuk bir dosya "tamamlandı" görünüyordu.
+        const newLink = pickRefreshedLink(eng.url, sniffed && sniffed.links);
+        if (newLink) {
+          console.log(`[QueueManager] Auto-refreshed URL for #${id}: ${newLink}`);
+          this.updateDownloadUrl(id, newLink, referer);
+          this.startDownload(id);
+        } else {
+          console.warn(`[QueueManager] Auto-refresh for #${id}: no matching link on referer page`);
         }
       } catch (err) {
         console.warn(`[QueueManager] Auto-sniff refresh failed for #${id}:`, err.message);
@@ -479,6 +510,9 @@ class QueueManager {
     if (typeof engine.cleanup === 'function') {
       engine.cleanup();
     }
+    // Dosya silme kararından ÖNCE: yeniden-indirme yedeği bekleyen kayıt varsa
+    // eski dosya yerine geri konur (video motoru cleanup'ta 'canceled' yaymaz).
+    try { engine.emit('removed', { id }); } catch (e) { /* dinleyici yok */ }
 
     // If explicit delete file requested OR the engine created this final file itself,
     // remove savePath. ÜZERİNE-YAZ modunda yarım kalan bir indirme, hedef adda zaten
@@ -867,19 +901,39 @@ class QueueManager {
     }
 
     if (backupPath) {
+      // Başarı: yedek silinir. Hata / iptal / listeden silme: eski dosya yerine
+      // geri konur. (Eskiden yalnız "korunuyor" deniyor, dosya gizli bir
+      // .bak adıyla kalıyordu; kullanıcı dosyasını kaybolmuş sanıyordu.)
+      // NOT: status-change için `once` kullanılamaz — ilk olay 'downloading'
+      // olduğundan dinleyici iptal gelmeden tükeniyordu.
       let settled = false;
-      const keepBackup = () => { settled = true; }; // hata: .bak korunur
-      const dropBackup = () => {
+      const onCompleted = () => settle(false);
+      const onError = () => settle(true);
+      const onStatus = ({ status } = {}) => { if (status === 'canceled') settle(true); };
+      const settle = (restore) => {
         if (settled) return;
         settled = true;
-        try { if (backupPath && fs.existsSync(backupPath)) fs.unlinkSync(backupPath); } catch (e) {}
-        backupPath = null;
+        engine.off('completed', onCompleted);
+        engine.off('error', onError);
+        engine.off('status-change', onStatus);
+        engine.off('removed', onError);
+        if (restore) {
+          restoreBackup();
+          if (!backupPath) {
+            // Yoldaki dosya artık kullanıcının ESKİ dosyası: motorun temizliği
+            // (cleanup / deleteDownload) onu "yarım kalmış kendi dosyası" sanıp silmesin.
+            engine._ownsSavePath = false;
+            engine._createdFinal = false;
+          }
+        } else {
+          try { if (backupPath && fs.existsSync(backupPath)) fs.unlinkSync(backupPath); } catch (e) {}
+          backupPath = null;
+        }
       };
-      engine.once('completed', dropBackup);
-      engine.once('error', keepBackup);
-      engine.once('status-change', ({ status } = {}) => {
-        if (status === 'canceled') keepBackup();
-      });
+      engine.on('completed', onCompleted);
+      engine.on('error', onError);
+      engine.on('status-change', onStatus);
+      engine.on('removed', onError);
     }
 
     if (newItem && snap.speedLimitKbps) {
