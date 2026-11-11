@@ -308,12 +308,11 @@ export default function AddDownloadModal({ isOpen, onClose, onAddDownload, onAdd
             queueId: selectedQueue
           });
         } else {
-          let finalFilename = filename.trim();
-          if (finalFilename && category === 'Video') {
-            finalFilename = ensureMediaExt(finalFilename, '.mp4');
-          } else if (finalFilename && category === 'Music') {
-            finalFilename = ensureMediaExt(finalFilename, '.mp3');
-          }
+          // Normal dosya indirmesinde ada uzantı EKLENMEZ: kategori yalnız klasörü
+          // belirler. Eskiden "album.flac" -> "album.flac.mp3", "film.wmv" ->
+          // "film.wmv.mp4" oluyordu. Uzantısız ad bırakılırsa sunucu, kaynağın
+          // gerçek uzantısını (Content-Disposition / URL) kendisi ekler.
+          const finalFilename = filename.trim();
           await onAddDownload({
             url: url.trim(),
             filename: finalFilename || undefined,

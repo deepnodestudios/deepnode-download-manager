@@ -207,6 +207,45 @@ async function runTests() {
   check('Link yenileme: aynı (eski) link tekrar seçilmez',
     pickRefreshedLink(oldFileUrl, [{ url: oldFileUrl }]) === null);
 
+  // Test 14: Takılma bekçisi son işlem (ffmpeg) aşamasında uzun sessizliğe izin verir
+  const wd = new VideoDownloader({ id: 'test-wd', url: 'https://example.com/v.m3u8', filename: 'v.mp4', saveDir: os.tmpdir() });
+  wd.status = 'downloading';
+  const dlLimit = wd._stallLimitMs();
+  wd.parseLine('[Merger] Merging formats into "C:\\x\\v.mp4"');
+  check('Bekçi: birleştirme aşamasında sınır uzar', wd._postProcessing === true && wd._stallLimitMs() > dlLimit * 5);
+  wd.parseLine('[download] Destination: C:\\x\\v.f251.webm');
+  check('Bekçi: yeni akış başlayınca normal sınıra döner', wd._postProcessing === false && wd._stallLimitMs() === dlLimit);
+  wd.parseLine('[ExtractAudio] Destination: C:\\x\\v.mp3');
+  check('Bekçi: MP3 dönüşümü de son işlem sayılır', wd._postProcessing === true);
+
+  // Test 15: Süresi dolmuş link sonsuz denemede asılı kalmaz
+  const dead = new VideoDownloader({ id: 'test-dead', url: 'https://example.com/d.m3u8', filename: 'd.mp4', saveDir: os.tmpdir() });
+  dead.status = 'downloading';
+  let killed = 0;
+  dead.proc = { pid: 0 };
+  dead._killProc = () => { killed++; };
+  const line403 = '[download] Got error: HTTP Error 403: Forbidden. Retrying fragment 5 (3/infinite)...';
+  for (let i = 0; i < 10; i++) dead.parseLine(line403);
+  dead.parseLine('download:OMNI|5000|100000|NA|1000|90');
+  for (let i = 0; i < 19; i++) dead.parseLine(line403);
+  check('Ölü link: ilerleme sayacı sıfırlar, erken öldürülmez', killed === 0);
+  dead.parseLine(line403);
+  dead.parseLine(line403);
+  check('Ölü link: ilerlemesiz 20 hatada süreç bir kez sonlandırılır', killed === 1 && dead._linkDead === true);
+
+  // Test 16: Ön indirme onayında uzantısız ad kaynağın uzantısını korur
+  const pfDir = fs.mkdtempSync(path.join(testHome, 'pf-'));
+  const pfEng = new DownloadEngine({ id: 'test-pf-ext', url: 'http://example.com/album.flac', filename: 'album.flac', saveDir: pfDir, status: 'paused', preflight: true });
+  queueManager.engines.set('test-pf-ext', pfEng);
+  const pfSnap = await queueManager.confirmPreflight('test-pf-ext', { filename: 'Yeni Ad', autoStart: false });
+  check('Onay: uzantısız ad .flac uzantısını korur', pfSnap && pfSnap.filename === 'Yeni Ad.flac');
+  const pfEng2 = new DownloadEngine({ id: 'test-pf-ext2', url: 'http://example.com/album.flac', filename: 'album.flac', saveDir: pfDir, status: 'paused', preflight: true });
+  queueManager.engines.set('test-pf-ext2', pfEng2);
+  const pfSnap2 = await queueManager.confirmPreflight('test-pf-ext2', { filename: 'album.flac', autoStart: false });
+  check('Onay: .flac adına .mp3 eklenmez', pfSnap2 && pfSnap2.filename === 'album.flac');
+  queueManager.engines.delete('test-pf-ext');
+  queueManager.engines.delete('test-pf-ext2');
+
   // Test 13: Yeniden indirme iptal/silme olursa eski dosya geri konur
   const http = await import('http');
   const body = Buffer.alloc(2048, 0x42);

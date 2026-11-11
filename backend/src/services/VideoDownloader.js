@@ -738,6 +738,14 @@ async function _ensureFfmpegInner(onProgress) {
 }
 
 const MEDIA_EXT_REGEX = /\.(mp4|mkv|webm|m4a|mp3|aac|opus|flv|avi|ts|mov|m4v)$/i;
+// Takılma bekçisi sınırları (bkz. _stallLimitMs) ve süresi dolmuş link eşiği.
+const DOWNLOAD_STALL_MS = 120000;
+const POSTPROCESS_STALL_MS = 45 * 60 * 1000;
+// yt-dlp'nin ffmpeg/son işlem aşamasına geçtiğini gösteren satır önekleri.
+const POSTPROCESS_LINE_RE = /^\[(Merger|ExtractAudio|VideoConvertor|VideoRemuxer|Fixup\w*|Metadata|EmbedSubtitle|EmbedThumbnail|ThumbnailsConvertor|ffmpeg|MoveFiles)\]/i;
+// Arada HİÇ ilerleme olmadan bu kadar 403/404/410 görülürse link ölmüştür:
+// `--fragment-retries infinite` yüzünden indirme sonsuza dek "indiriliyor" kalırdı.
+const MAX_EXPIRED_HITS = 20;
 const UNIT = { B: 1, KiB: 1024, MiB: 1024 ** 2, GiB: 1024 ** 3, TiB: 1024 ** 4 };
 function toBytes(num, unit) { return Math.round(parseFloat(num) * (UNIT[unit] || 1)); }
 function etaToSec(str) {
@@ -1114,19 +1122,16 @@ export class VideoDownloader extends EventEmitter {
     // close işleyicisi bunu hata/yeniden deneme akışına sokar.
     this._lastOutputTs = Date.now();
     this._stalled = false;
+    this._postProcessing = false;
+    this._expiredHits = 0;
+    this._linkDead = false;
     if (this._stallTimer) clearInterval(this._stallTimer);
     this._stallTimer = setInterval(() => {
       if (launchToken !== this._startToken || child !== this.proc) return;
       if (this.status !== 'downloading' || !this.proc) return;
-      if (Date.now() - this._lastOutputTs > 120000) {
+      if (Date.now() - this._lastOutputTs > this._stallLimitMs()) {
         this._stalled = true;
-        try {
-          if (isWin && child.pid) {
-            spawnSync('taskkill', ['/F', '/T', '/PID', child.pid.toString()]);
-          } else {
-            child.kill('SIGKILL');
-          }
-        } catch (e) {}
+        this._killProc(child);
       }
     }, 15000);
     if (this._stallTimer.unref) this._stallTimer.unref();
@@ -1273,6 +1278,24 @@ export class VideoDownloader extends EventEmitter {
     return isYouTubeUrl(this.url);
   }
 
+  // Sessizlik sınırı. İndirme bitip ffmpeg birleştirme / MP3'e çevirme / onarım
+  // yaparken yt-dlp DOĞAL olarak çıktı vermez; büyük dosyada bu dakikalar sürer.
+  // Eskiden tek sınır (120 sn) bu aşamadaki sağlam indirmeyi "takıldı" diye öldürüyordu.
+  _stallLimitMs() {
+    return this._postProcessing ? POSTPROCESS_STALL_MS : DOWNLOAD_STALL_MS;
+  }
+
+  _killProc(child = this.proc) {
+    if (!child) return;
+    try {
+      if (isWin && child.pid) {
+        spawnSync('taskkill', ['/F', '/T', '/PID', child.pid.toString()]);
+      } else {
+        child.kill('SIGKILL');
+      }
+    } catch (e) {}
+  }
+
   cleanup() {
     if (this._confPath) {
       try { if (fs.existsSync(this._confPath)) fs.unlinkSync(this._confPath); } catch (e) {}
@@ -1354,8 +1377,12 @@ export class VideoDownloader extends EventEmitter {
     // Çok akışlı indirmede her yeni akış "[download] Destination:" ile başlar.
     // Yeni akışa geçildiğinde önceki akışın toplam boyutunu tabana taşı ki
     // OMNI ilerlemesinde toplam/indirilen düşmesin (boyut hesabı doğru kalsın).
+    // Son işlem (ffmpeg) aşaması: bekçi uzun sessizliğe izin versin.
+    if (POSTPROCESS_LINE_RE.test(line)) this._postProcessing = true;
+
     const destStart = line.match(/\[download\]\s+Destination:\s+(.+)$/);
     if (destStart) {
+      this._postProcessing = false; // yeni akış inmeye başladı
       const d = destStart[1].trim().replace(/^"|"$/g, '');
       if (this._curStreamPath && this._curStreamPath !== d) {
         this._doneStreamsBytes = (this._doneStreamsBytes || 0) + (this._curStreamTotal || 0);
@@ -1412,6 +1439,8 @@ export class VideoDownloader extends EventEmitter {
       // önceki akışların toplamını tabana ekleyerek boyutun düşmesini engelle.
       const base = this._doneStreamsBytes || 0;
       if (total) this._curStreamTotal = total;
+      // Gerçek ilerleme varsa link yaşıyor demektir — ölü link sayacını sıfırla.
+      if (Math.round(base + downloaded) > (this.downloadedBytes || 0)) this._expiredHits = 0;
       this.downloadedBytes = Math.round(base + downloaded);
       const combinedTotal = base + (this._curStreamTotal || total || 0);
       // Toplam boyut ASLA küçülmesin: baştan hesaplanan planlı toplamı ve o ana dek
@@ -1460,6 +1489,13 @@ export class VideoDownloader extends EventEmitter {
         this.errorMsg = 'Bağlantı süresi doldu (404/403). İndirme adresini yenileyin.';
         if (this.referer) {
           this.emit('link-expired', { id: this.id, referer: this.referer });
+        }
+        // Otomatik yenileme taze link bulursa süreç zaten yeniden başlar ve sayaç
+        // sıfırlanır. Bulamazsa sonsuz denemede asılı kalmak yerine hataya düş.
+        this._expiredHits = (this._expiredHits || 0) + 1;
+        if (this._expiredHits >= MAX_EXPIRED_HITS && !this._linkDead && this.proc) {
+          this._linkDead = true;
+          this._killProc();
         }
       } else {
         this.errorMsg = line.replace(/^ERROR:\s*/, '').slice(0, 300);

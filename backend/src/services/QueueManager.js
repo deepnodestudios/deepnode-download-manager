@@ -690,6 +690,11 @@ class QueueManager {
         newName += fallbackExt;
       }
     }
+    // Kullanıcı adı uzantısız bıraktıysa kaynağın gerçek uzantısını koru
+    // (normal ekleme yolundaki davranışla aynı; dosya uzantısız kalmasın).
+    if (!path.extname(newName) && path.extname(engine.filename || '')) {
+      newName += path.extname(engine.filename);
+    }
     const dirChanged = path.resolve(newDir) !== path.resolve(engine.saveDir);
     const nameChanged = newName !== engine.filename;
 

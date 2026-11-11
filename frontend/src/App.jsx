@@ -667,7 +667,9 @@ export default function App() {
       if (!res.ok) throw new Error(updated.detail || updated.error || 'Failed to save settings');
       setSettings(updated);
       // Sentry'yi yeniden başlatmadan da telemetri tercihi anında uygulansın
-      setTelemetryEnabled(newSettings.telemetryEnabled !== false);
+      // Sunucunun döndürdüğü TAM ayara bak: zamanlayıcı gibi kısmi kayıtlarda
+      // `newSettings.telemetryEnabled` tanımsızdır ve kapalı telemetriyi açıyordu.
+      setTelemetryEnabled(updated.telemetryEnabled !== false);
     } catch (err) {
       alert(tt('alert_settings_failed', { msg: err.message }));
       // Hatayı yutma: SettingsModal başarısız kayıtta kapanmamalı.

@@ -332,7 +332,10 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
     installing = true;
     res.json({ installing: true });
 
-    const installer = spawn(filePath, ['/S'], { detached: true, stdio: 'ignore', shell: false });
+    // --force-run: sessiz (/S) kurulum bitince uygulama yeniden açılsın. Bu
+    // parametre olmadan NSIS sessiz modda uygulamayı başlatmaz ve kullanıcı
+    // "yeniden başlatılacak" mesajından sonra kapalı bir uygulamayla kalırdı.
+    const installer = spawn(filePath, ['/S', '--force-run'], { detached: true, stdio: 'ignore', shell: false });
     // Uygulamayı yalnız kurulum GERÇEKTEN başladıysa kapat. spawn hatasında
     // kapanmak kullanıcıyı kurulumsuz bırakıyordu.
     installer.once('spawn', () => {
