@@ -141,10 +141,11 @@ function ping() {
   // exist" döner; Chrome service worker'ı kendiliğinden uyanır. Bir kez daha
   // dene, olmazsa 127.0.0.1 üzerinden doğrudan bağlan (localhost → ::1 tuzağı).
   pingViaBackground().then((r) => {
-    if (r && r.ok) { done(true, r.port || port); return; }
-    pingDirect(port).then((ok) => done(ok, port));
+    // Uygulama 5000 doluyken başka porta düşmüş olabilir; sürüm kontrolü de
+    // arka planın bulduğu GERÇEK portu kullanmalı (eskiden uyarı hiç çıkmıyordu).
+    if (r && r.ok) { done(true, r.port || port); checkExtUpdate(r.port || port); return; }
+    pingDirect(port).then((ok) => { done(ok, port); checkExtUpdate(port); });
   });
-  checkExtUpdate();
 }
 
 function pingViaBackground() {
@@ -205,8 +206,8 @@ function dnVerCmp(a, b) {
 // Uygulama güncellenince paketlenmiş eklenti sürümü (`expected`) yükseltilir; Chrome
 // paketten yüklenen eklentiyi otomatik yenilemediği için çalışan kopya eski kalır.
 // Uygulama beklenen sürüm çalışandan yeniyse tek tıkla yenileme uyarısı göster.
-function checkExtUpdate() {
-  const port = parseInt(els.port.value, 10) || 5000;
+function checkExtUpdate(knownPort) {
+  const port = knownPort || parseInt(els.port.value, 10) || 5000;
   const box = document.getElementById('updateBox');
   const msg = document.getElementById('updateMsg');
   const btn = document.getElementById('reloadExt');

@@ -370,16 +370,8 @@ window.addEventListener('blur', () => {
   try { dnSendMessage({ type: 'DN_MODS', mods: { Alt: false, Control: false, Shift: false } }); } catch (err) {}
 });
 
-// DDM'yi atlamak için varsayılan tuş artık Shift. Alt tuşu Chrome'un yerleşik 
-// "Farklı Kaydet" işleviyle çakıştığı için JS tabanlı sitelerde (Uptodown vb.) sorun yaratıyor.
-let bypassKeySettings = 'Shift';
-if (dnCtxValid()) {
-  chrome.storage.local.get({ bypassKey: 'Shift' }, (v) => { bypassKeySettings = v.bypassKey; });
-}
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.bypassKey) bypassKeySettings = changes.bypassKey.newValue;
-});
-
+// NOT: Atlama (bypass) tuşu kararı arka planda verilir (background.js, DN_MODS);
+// bu betik yalnız tuş durumunu bildirir.
 
 
 // Hover prefetch debounce: feed'de fare gezdirirken üzerinden geçilen HER video

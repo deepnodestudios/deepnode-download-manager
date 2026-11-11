@@ -216,6 +216,16 @@ const MAX_COMPLETE_WINDOWS = 3;
 function createAddDownloadWindow(url, quality, referer, video, filename) {
   if (addWindows.size >= MAX_ADD_WINDOWS) {
     console.warn('Açık ekleme penceresi sınırına ulaşıldı; yeni pencere açılmadı.');
+    // Pencere açılmadıysa kullanıcı onaylayamaz: arka planda başlayan gizli ön
+    // indirme 15 dk boyunca boşa inmesin, hemen iptal edilsin. (İptal kararı
+    // eklentiye de iletilir; tarayıcı kendi indirmesine devam eder.)
+    if (url) {
+      fetch(appUrl('/api/download/cancel-preflight'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      }).catch((err) => console.error('cancel-preflight isteği başarısız:', err.message));
+    }
     return;
   }
   const cascade = (addWindows.size % 6) * 30; // stagger so stacked windows don't fully overlap

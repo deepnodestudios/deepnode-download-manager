@@ -527,11 +527,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         if (matches) urls = matches;
       }
       if (urls.length > 0) {
-        try {
-          await postJson('/api/download/prompt-batch', { urls, referer: tab.url });
-        } catch (err) {
-          wakeApp(urls[0]);
-        }
+        // postJson hata FIRLATMAZ, başarısızlıkta null döner (eski try/catch
+        // yedeği hiç çalışmıyordu; uygulama kapalıyken menü hiçbir şey yapmıyordu).
+        const res = await postJson('/api/download/prompt-batch', { urls, referer: tab.url });
+        if (!res) wakeApp(urls[0]);
       }
     });
   }
@@ -948,7 +947,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'DN_DOWNLOAD_MANY') {
     (async () => {
       let n = 0;
-      for (const u of (msg.urls || [])) {
+      const many = (Array.isArray(msg.urls) ? msg.urls : []).filter((u) => typeof u === 'string' && /^https?:/i.test(u));
+      // Birden fazla dosya: her biri için ayrı onay penceresi AÇMA. Uygulama en
+      // fazla 12 pencere açtığından fazlası sessizce kayboluyor, gizli ön
+      // indirmeleri ise arka planda boşa iniyordu. Tek toplu indirme penceresi açılır.
+      if (many.length > 1) {
+        const referer = (sender && sender.tab && sender.tab.url) || null;
+        const res = await postJson('/api/download/prompt-batch', { urls: many, referer });
+        if (res) {
+          n = many.length;
+        } else {
+          wakeApp(many[0]); // uygulama kapalı — en azından uyandır
+        }
+        notify('Grabber', DN_I18N.t('notif_grabber_added', { n }));
+        try { sendResponse({ ok: !!res, count: n }); } catch (e) { /* kanal kapandı */ }
+        return;
+      }
+      for (const u of many) {
         // Eklenti origin'inden gelen eklemelerde sunucu DAİMA onay penceresi açar
         // ('prompted'); yalnız 'accepted' sayıldığı için bildirim hep "0 eklendi" diyordu.
         const r = await sendToApp(u, guessName(u), null, true);
