@@ -1,12 +1,39 @@
 import * as Sentry from '@sentry/react';
 
 const DEFAULT_DSN = 'https://0539cc69af07f295b1a95145be9fab8a@o4512196697128960.ingest.de.sentry.io/4512196703420496';
+const TRACE_SAMPLE_RATE = 0.1;
+const TELEMETRY_CACHE_KEY = 'ddm_telemetry_enabled';
 
 let initialized = false;
-let isTelemetryEnabled = true;
+
+function readCachedTelemetry() {
+  try {
+    const cached = localStorage.getItem(TELEMETRY_CACHE_KEY);
+    return cached === null ? null : cached === 'true';
+  } catch (e) {
+    return null;
+  }
+}
+
+// Ayar sunucudan gelene kadar önceki tercih kullanılır; aksi halde telemetriyi
+// kapatan kullanıcı için açılış işlemi örneklenebilirdi.
+let isTelemetryEnabled = readCachedTelemetry() ?? true;
+
+// Sentry, düşürülen olayların sayısını "client report" zarfıyla ayrıca gönderir;
+// telemetri kapalıyken bu zarf da sessizce kapatılmalı.
+function syncClientReports(enabled) {
+  const client = Sentry.getClient();
+  if (client) {
+    client.getOptions().sendClientReports = enabled;
+  }
+}
 
 export function setTelemetryEnabled(enabled) {
   isTelemetryEnabled = !!enabled;
+  syncClientReports(isTelemetryEnabled);
+  try {
+    localStorage.setItem(TELEMETRY_CACHE_KEY, isTelemetryEnabled ? 'true' : 'false');
+  } catch (e) {}
 }
 
 export function initFrontendSentry() {
@@ -23,19 +50,19 @@ export function initFrontendSentry() {
       dsn,
       release: `deepnode-download-manager@${appVer}`,
       environment: import.meta.env.MODE || 'production',
-      tracesSampleRate: 0.1,
+      // Sentry v11 varsayılanı `traceLifecycle: 'stream'` olduğu için `beforeSendTransaction`
+      // yok sayılır; örnekleme kararı ancak `tracesSampler` ile verilebilir.
+      tracesSampler: () => (isTelemetryEnabled ? TRACE_SAMPLE_RATE : 0),
       integrations: [
         Sentry.browserTracingIntegration(),
       ],
       beforeSend(event) {
         if (!isTelemetryEnabled) return null;
         return event;
-      },
-      beforeSendTransaction(event) {
-        if (!isTelemetryEnabled) return null;
-        return event;
       }
     });
+
+    syncClientReports(isTelemetryEnabled);
 
     Sentry.setTag('process', 'renderer');
 
