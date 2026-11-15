@@ -1,6 +1,6 @@
 // HLS/DASH varyantlarında vcodec 'none' gelir; bunlar kalite menüsünden düşmemeli.
 // URL'siz satırlar menüde görünmemeli (YouTube SABR / boş itag).
-import { summarizeVideoInfo, formatIsDownloadable } from '../src/services/VideoDownloader.js';
+import { summarizeVideoInfo, formatIsDownloadable, createBoundedCollector } from '../src/services/VideoDownloader.js';
 
 const check = (name, ok, detail = '') => {
   if (!ok) {
@@ -45,5 +45,19 @@ check('YouTube URL’siz / SABR menüde yok', !ytInfo.variants.some((v) => v.for
 check('YouTube storyboard yok', !ytInfo.heights.includes(90), String(ytInfo.heights));
 check('YouTube DASH varken HLS 1080 gizlenir', !ytInfo.variants.some((v) => v.formatId === '96'), JSON.stringify(ytInfo.variants));
 check('YouTube https 1080 duruyor', ytInfo.variants.some((v) => v.formatId === '137'), JSON.stringify(ytInfo.variants));
+
+
+// FLUTTER-V: dev yt-dlp -J çıktısı string sınırını aşmasın, sınırda dursun
+const col = createBoundedCollector(10);
+check('Toplayıcı: sınır içinde veri kabul edilir', col.push(Buffer.from('{"a":')) && col.push(Buffer.from('1}')) && col.text() === '{"a":1}');
+check('Toplayıcı: sınır aşılınca reddeder ve belleği bırakır', col.push(Buffer.from('xxxxxxxx')) === false && col.overflow && col.size === 0);
+check('Toplayıcı: aşımdan sonra yeni veri de reddedilir', col.push(Buffer.from('y')) === false);
+const tail = createBoundedCollector(8, { keepTail: true });
+tail.push(Buffer.from('aaaa\n')); tail.push(Buffer.from('bbbb\n')); tail.push(Buffer.from('ERROR'));
+check('stderr toplayıcı: son satırları (hata mesajını) tutar', /ERROR$/.test(tail.text()) && !tail.text().includes('aaaa'));
+const tr = createBoundedCollector(64);
+const bytes = Buffer.from('ışığ', 'utf-8');
+tr.push(bytes.subarray(0, 3)); tr.push(bytes.subarray(3));
+check('Toplayıcı: parçalara bölünmüş UTF-8 karakter bozulmaz', tr.text() === 'ışığ');
 
 console.log('video-formats ok');

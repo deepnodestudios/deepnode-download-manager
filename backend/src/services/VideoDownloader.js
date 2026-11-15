@@ -402,6 +402,61 @@ export async function ensureYtDlp() {
   return ytDlpReady;
 }
 
+// yt-dlp -J çıktısı için üst sınır. Normal bir videonun bilgisi birkaç MB'tır;
+// çok uzun canlı yayın / binlerce parçalı DASH-HLS kayıtlarında (ya da sayfanın
+// bir oynatma listesi olarak çözüldüğü durumda) çıktı yüzlerce MB'a çıkabiliyor.
+// Eskiden hepsi tek bir string'e ekleniyordu: V8'in ~512 MB string sınırı aşılınca
+// "Cannot create a string longer than 0x1fffffe8 characters" ile ana süreçte
+// yakalanmamış hata oluşuyor, öncesinde de yüzlerce MB bellek harcanıyordu (FLUTTER-V).
+export const MAX_YTDLP_JSON_BYTES = 64 * 1024 * 1024;
+const MAX_YTDLP_STDERR_BYTES = 64 * 1024;
+
+/**
+ * Bayt sınırlı akış toplayıcı. Parçaları Buffer olarak tutar (her parçada dev
+ * string kopyası oluşmaz); sınır aşılırsa `overflow` true olur ve daha fazla
+ * veri kabul etmez. `keepTail` ise sınırda baştakileri değil SON baytları tutar
+ * (stderr'de hata satırı sondadır).
+ */
+export function createBoundedCollector(maxBytes, { keepTail = false } = {}) {
+  let chunks = [];
+  let size = 0;
+  let overflow = false;
+  return {
+    push(chunk) {
+      if (!chunk || !chunk.length) return !overflow;
+      if (keepTail) {
+        chunks.push(chunk);
+        size += chunk.length;
+        while (size > maxBytes && chunks.length > 1) {
+          size -= chunks[0].length;
+          chunks.shift();
+        }
+        return true;
+      }
+      if (overflow) return false;
+      if (size + chunk.length > maxBytes) {
+        overflow = true;
+        chunks = []; // artık işe yaramaz — belleği hemen bırak
+        size = 0;
+        return false;
+      }
+      chunks.push(chunk);
+      size += chunk.length;
+      return true;
+    },
+    get overflow() { return overflow; },
+    get size() { return size; },
+    text() { return Buffer.concat(chunks).toString('utf-8'); }
+  };
+}
+
+function killTree(p) {
+  try {
+    if (isWin && p && p.pid) spawnSync('taskkill', ['/F', '/T', '/PID', String(p.pid)], { windowsHide: true });
+    else if (p) p.kill('SIGKILL');
+  } catch (e) { /* zaten kapalı */ }
+}
+
 function runYtDlpJson(bin, url, extraArgs, timeoutMs) {
   return new Promise((resolve, reject) => {
     if (!isValidVideoUrl(url)) {
@@ -410,34 +465,45 @@ function runYtDlpJson(bin, url, extraArgs, timeoutMs) {
     const cleanUrl = url.trim();
     const confPath = createTempConfigFile(cleanUrl);
     const netArgs = confPath ? ['--config-locations', confPath] : networkArgs(cleanUrl);
-    const args = ['-J', '--no-playlist', '--no-warnings', '--encoding', 'utf-8', '--socket-timeout', '20', ...netArgs, ...extraArgs, '--', cleanUrl];
+    // --flat-playlist: URL bir oynatma listesine/kanala çözülürse her girdinin tam
+    // format listesini (devasa JSON) üretme. Tek videoda etkisi yoktur.
+    const args = ['-J', '--no-playlist', '--flat-playlist', '--no-warnings', '--encoding', 'utf-8', '--socket-timeout', '20', ...netArgs, ...extraArgs, '--', cleanUrl];
     const p = spawn(bin, args, { windowsHide: true, env: YTDLP_ENV });
     const cleanupConf = () => {
       if (confPath) {
         try { if (fs.existsSync(confPath)) fs.unlinkSync(confPath); } catch (e) {}
       }
     };
-    const stdoutDecoder = new StringDecoder('utf-8');
-    const stderrDecoder = new StringDecoder('utf-8');
-    let out = '';
-    let err = '';
-    p.stdout.on('data', (d) => { out += stdoutDecoder.write(d); });
-    p.stderr.on('data', (d) => { err += stderrDecoder.write(d); });
-    const timer = setTimeout(() => { try { p.kill(); } catch (e) {} }, timeoutMs);
-    p.on('close', (code) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       cleanupConf();
-      if (code !== 0) {
-        const line = err.split('\n').find((l) => /ERROR/i.test(l));
-        return reject(new Error(line || ('yt-dlp exit code ' + code)));
+      fn(value);
+    };
+    const out = createBoundedCollector(MAX_YTDLP_JSON_BYTES);
+    const err = createBoundedCollector(MAX_YTDLP_STDERR_BYTES, { keepTail: true });
+    p.stdout.on('data', (d) => {
+      if (!out.push(d)) {
+        // Sınır aşıldı: süreci (ve alt süreçlerini) durdur, anlaşılır hata dön.
+        killTree(p);
+        finish(reject, new Error('Video info too large (stream has too many fragments or the page is a playlist)'));
       }
-      try { resolve(JSON.parse(out)); } catch (e) { reject(new Error('Could not parse yt-dlp output')); }
     });
-    p.on('error', (e) => {
-      clearTimeout(timer);
-      cleanupConf();
-      reject(e);
+    p.stderr.on('data', (d) => { err.push(d); });
+    p.stdout.on('error', () => {});
+    p.stderr.on('error', () => {});
+    const timer = setTimeout(() => { killTree(p); }, timeoutMs);
+    p.on('close', (code) => {
+      if (settled) return;
+      if (code !== 0) {
+        const line = err.text().split('\n').find((l) => /ERROR/i.test(l));
+        return finish(reject, new Error(line || ('yt-dlp exit code ' + code)));
+      }
+      try { finish(resolve, JSON.parse(out.text())); } catch (e) { finish(reject, new Error('Could not parse yt-dlp output')); }
     });
+    p.on('error', (e) => finish(reject, e));
   });
 }
 
