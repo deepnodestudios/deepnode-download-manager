@@ -11,6 +11,14 @@ const DEFAULTS = { enabled: true, captureDownloads: true, showButton: true, port
 let cfg = { ...DEFAULTS };
 let bypassKey = 'Shift';
 let captureEnabled = true;
+// Uygulamanın dosya türü filtresinin kopyası (/api/settings ile senkronlanır).
+// Boş listeler = bilinmiyor: karar uygulamaya bırakılır.
+let captureFilter = { enabled: true, captured: '', ignored: '' };
+try {
+  chrome.storage.local.get({ captureFilter: null }, (v) => {
+    if (v && v.captureFilter && typeof v.captureFilter === 'object') captureFilter = { ...captureFilter, ...v.captureFilter };
+  });
+} catch (e) { /* ignore */ }
 
 // Firefox'un `chrome.*` ad alanı GERİ ÇAĞIRMA tabanlıdır; callback verilmeden
 // yapılan `await chrome.storage.session.get(...)` undefined döner. Promise
@@ -248,6 +256,16 @@ async function refreshRemoteSettings() {
     if (s && typeof s.captureEnabled === 'boolean') {
       captureEnabled = s.captureEnabled;
       chrome.storage.local.set({ captureEnabled: s.captureEnabled });
+    }
+    // Dosya türü filtresi: tarayıcı indirmesini, uygulamaya sormadan ANINDA
+    // iptal edebilmek için eklentide de bilinmeli (bkz. localCaptureDecision).
+    if (s && (typeof s.enableFileFiltering === 'boolean' || typeof s.capturedExtensions === 'string' || typeof s.ignoredExtensions === 'string')) {
+      captureFilter = {
+        enabled: s.enableFileFiltering !== false,
+        captured: typeof s.capturedExtensions === 'string' ? s.capturedExtensions : captureFilter.captured,
+        ignored: typeof s.ignoredExtensions === 'string' ? s.ignoredExtensions : captureFilter.ignored
+      };
+      chrome.storage.local.set({ captureFilter });
     }
     // Uygulamanın dil tercihi eklenti UI'ına da yansısın ('auto' ise tarayıcı dili)
     if (s && typeof s.language === 'string' && s.language !== cfg.appLanguage) {
@@ -692,31 +710,8 @@ async function fetchCaptureDecision(url) {
   } catch (e) { return 'error'; }
 }
 
-async function trackCapturePrompt(url, downloadId) {
-  try {
-    const map = await readPendingCaptures();
-    const now = Date.now();
-    for (const [key, value] of Object.entries(map)) {
-      if (!value || !value.deadline || value.deadline < now) delete map[key];
-    }
-    map[url] = { downloadId, deadline: now + CAPTURE_POLL_TTL };
-    await writePendingCaptures(map);
-  } catch (e) { /* storage yoksa kısa yoklama yine çalışır */ }
-
-  // Hızlı yol: kullanıcı genelde saniyeler içinde onaylar. Servis çalışanı
-  // uyursa (veya yanıt gecikirse) alarm devralır.
-  const end = Date.now() + 20000;
-  while (Date.now() < end) {
-    await new Promise((r) => setTimeout(r, 1500));
-    const status = await fetchCaptureDecision(url);
-    if (status === 'error') return; // uygulama kapalı — alarm yeniden dener
-    if (status === 'pending') continue;
-    await clearPendingCapture(url);
-    if (status === 'confirmed') cancelBrowserDownload(downloadId);
-    return;
-  }
-}
-
+// NOT: Yeni yakalamalar tarayıcı indirmesini anında iptal eder (handleDownloadItem);
+// aşağıdaki yoklama yalnız eski sürümden kalan bekleyen kayıtları tamamlar.
 async function pollPendingCaptures() {
   const map = await readPendingCaptures();
   const now = Date.now();
@@ -822,32 +817,90 @@ async function handleDownloadItem(item, suggest) {
     }
   } catch (e) { }
 
-  try {
+  // Eklentinin kendisi geri başlattığı indirme (DDM alamadı): tekrar yakalama.
+  if (takeBrowserRetry(url)) { if (suggest) suggest(); return; }
 
+  // IDM davranışı: DDM indirmeyi alacaksa tarayıcı indirmesi ANINDA iptal edilir
+  // ve listeden silinir; tarayıcıda ikinci bir indirme hiç görünmez. Eskiden
+  // tarayıcı indirmesi DDM onayına kadar sürüyor, kullanıcı ikisini birden görüyordu.
+  let browserCancelled = false;
+  const dropBrowserCopy = () => {
+    if (browserCancelled) return;
+    browserCancelled = true;
+    cancelBrowserDownload(item.id);
+    if (suggest) { try { suggest(); } catch (e) { /* indirme zaten iptal */ } }
+  };
+  const letBrowserContinue = () => { if (!browserCancelled && suggest) suggest(); };
+
+  try {
     let name = item.filename ? item.filename.split(/[\\/]/).pop() : '';
     if (!name) name = guessName(url);
     if ((!name || !/\.[a-z0-9]{1,8}$/i.test(name)) && MIME_EXT[item.mime || '']) {
       name = (name || 'download') + '.' + MIME_EXT[item.mime || ''];
     }
-    
+
+    const local = localCaptureDecision(name);
+    if (local === 'ignore') { letBrowserContinue(); return; }
+
+    // Uygulama kapalıysa tarayıcı indirmesine dokunma.
+    if (!(await probeApp())) { letBrowserContinue(); return; }
+
+    // Uzantısı bilinen ve yakalama listesinden geçen dosya: uygulamaya sormadan
+    // hemen iptal et. Uzantısız (ör. "download.php?id=") dosyada karar uygulamanın
+    // içerik türü yoklamasına bağlı — önce sor, alırsa iptal et.
+    if (local === 'capture') dropBrowserCopy();
+
     const result = await sendToApp(url, name, item.referrer);
-    if (result === 'accepted') {
-      cancelBrowserDownload(item.id);
+    if (result === 'accepted' || result === 'prompted') {
+      dropBrowserCopy();
       notify(DN_I18N.t('notif_captured'), name || url);
-      if (suggest) suggest();
-    } else if (result === 'prompted') {
-      // DDM onay penceresi açtı (ön indirme arka planda çalışıyor). Kullanıcı
-      // onaylayana kadar tarayıcı indirmesine dokunma; onay gelirse karar
-      // kanalı tarayıcı kopyasını iptal eder (çift dosya kalmaz).
-      trackCapturePrompt(url, item.id).catch(() => {});
-      notify(DN_I18N.t('notif_captured'), name || url);
-      if (suggest) suggest();
+    } else if (browserCancelled) {
+      // DDM alamadı ama tarayıcı kopyası iptal edildi: dosya kaybolmasın,
+      // tarayıcıda yeniden başlat (bu indirme tekrar yakalanmaz).
+      restartInBrowser(url);
     } else {
-      if (suggest) suggest();
+      letBrowserContinue();
     }
   } catch (err) {
-    if (suggest) suggest();
+    if (browserCancelled) restartInBrowser(url); else letBrowserContinue();
   }
+}
+
+// ---- Yerel dosya türü filtresi (uygulamadaki shouldCaptureUrl'ün aynısı) ----
+// 'capture' | 'ignore' | 'unknown' (uzantı yok ya da filtre henüz bilinmiyor).
+function parseExtList(str) {
+  return String(str || '').split(/[\s,;]+/).map((s) => s.trim().replace(/^\.+/, '').toUpperCase()).filter(Boolean);
+}
+const SCRIPT_EXTS = new Set(['PHP', 'ASP', 'ASPX', 'JSP', 'CGI', 'PL', 'DO', 'ACTION']);
+function localCaptureDecision(name) {
+  const m = /\.([a-z0-9]{1,8})$/i.exec(String(name || ''));
+  if (!m) return 'unknown';
+  const ext = m[1].toUpperCase();
+  // "download.php?id=…" gibi adlar dosyanın gerçek türünü söylemez: uygulama
+  // içerik türünü yoklayarak karar versin.
+  if (SCRIPT_EXTS.has(ext)) return 'unknown';
+  if (!captureFilter.enabled) return 'capture';
+  const ignored = parseExtList(captureFilter.ignored);
+  const captured = parseExtList(captureFilter.captured);
+  if (!ignored.length && !captured.length) return 'unknown'; // ayarlar henüz gelmedi
+  if (ignored.includes(ext)) return 'ignore';
+  if (captured.length) return captured.includes(ext) ? 'capture' : 'ignore';
+  return 'capture';
+}
+
+// ---- DDM alamazsa tarayıcıda yeniden başlatma ----
+const browserRetries = new Map(); // url -> zaman
+function takeBrowserRetry(url) {
+  const at = browserRetries.get(url);
+  if (!at) return false;
+  browserRetries.delete(url);
+  return Date.now() - at < 60000;
+}
+function restartInBrowser(url) {
+  try {
+    browserRetries.set(url, Date.now());
+    chrome.downloads.download({ url }, () => { void chrome.runtime.lastError; });
+  } catch (e) { browserRetries.delete(url); }
 }
 
 // Chrome: onDeterminingFilename (suggest desteği ile dosya oluşturulmadan yakalar)
