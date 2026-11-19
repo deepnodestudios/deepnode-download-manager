@@ -3,8 +3,8 @@
     "deepnode-dlm@deepnodestudios.com": {
       "updates": [
         {
-          "version": "1.6.6",
-          "update_link": "https://github.com/deepnodestudios/deepnode-download-manager/releases/download/v1.6.6/deepnode-extension-firefox.xpi"
+          "version": "1.6.7",
+          "update_link": "https://github.com/deepnodestudios/deepnode-download-manager/releases/download/v1.6.7/deepnode-extension-firefox.xpi"
         }
       ]
     }

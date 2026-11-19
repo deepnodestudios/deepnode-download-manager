@@ -45,7 +45,7 @@ export function initFrontendSentry() {
   if (disabled) return Sentry;
 
   try {
-    const appVer = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.6.6';
+    const appVer = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.6.7';
     Sentry.init({
       dsn,
       release: `deepnode-download-manager@${appVer}`,

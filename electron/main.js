@@ -21,7 +21,7 @@ const { serverEvents, shutdownAllDownloads } = await import('../backend/src/serv
 // Initialize Sentry for Electron main process error & crash tracking
 initSentry({
   processName: 'electron-main',
-  appVersion: app.getVersion ? app.getVersion() : '1.6.6',
+  appVersion: app.getVersion ? app.getVersion() : '1.6.7',
   anonymousId: storageService.getAnonymousId()
 });
 
