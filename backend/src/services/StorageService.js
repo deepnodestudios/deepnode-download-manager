@@ -480,6 +480,12 @@ class StorageService {
       try {
         const u = new URL(url);
         ext = path.extname(u.pathname).toLowerCase();
+        if (!ext) {
+          const segs = u.pathname.split('/').filter(Boolean);
+          if (segs.length >= 2 && /^download$/i.test(segs[segs.length - 1])) {
+            ext = path.extname(segs[segs.length - 2]).toLowerCase();
+          }
+        }
       } catch (e) {}
     }
 

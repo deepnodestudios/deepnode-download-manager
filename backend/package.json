@@ -1,6 +1,6 @@
 {
   "name": "deepnode-backend",
-  "version": "1.6.7",
+  "version": "1.6.8",
   "description": "DeepNode Download Manager Download Engine Backend",
   "main": "src/server.js",
   "type": "module",

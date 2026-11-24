@@ -36,7 +36,7 @@ function appVersion() {
   return appVersionCache;
 }
 
-initSentry({ processName: 'backend', appVersion: appVersion() || '1.6.7', anonymousId: storageService.getAnonymousId() });
+initSentry({ processName: 'backend', appVersion: appVersion() || '1.6.8', anonymousId: storageService.getAnonymousId() });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[Process] Unhandled Rejection at:', promise, 'reason:', reason);
@@ -105,8 +105,14 @@ function peekName(url) {
 function hasUsableExt(filename, url) {
   if (filename && /\.[a-z0-9]{1,8}$/i.test(filename)) return true;
   try {
-    const p = new URL(url).pathname;
-    if (/\.[a-z0-9]{1,8}$/i.test(p)) return true;
+    const segs = new URL(url).pathname.split('/').filter(Boolean);
+    if (!segs.length) return false;
+    const last = segs[segs.length - 1];
+    if (/\.[a-z0-9]{1,8}$/i.test(last)) return true;
+    // SourceForge gibi siteler /dosya_adi.exe/download şeklinde URL üretir
+    if (/^download$/i.test(last) && segs.length >= 2 && /\.[a-z0-9]{1,8}$/i.test(segs[segs.length - 2])) {
+      return true;
+    }
   } catch (e) { /* ignore */ }
   return false;
 }
@@ -1123,10 +1129,12 @@ app.get('/api/handshake', (req, res) => {
 });
 
 app.get('/api/settings', (req, res) => {
-  // Only requests coming from the browser extension carry an extension Origin;
-  // old extensions (<=1.1.2) send no extVersion param and thus report ''.
+  // Chrome MV3 service worker basit GET isteklerinde Origin başlığı göndermeyebilir;
+  // X-DDM-Ext başlığıyla gelen istekleri de eklenti olarak tanı (yabancı origin'ler
+  // zaten originGuard tarafından engellenir, Electron ana süreci ise bu başlığı atmaz).
   const origin = String(req.headers.origin || '');
-  if (isExtensionOrigin(origin)) {
+  const isExt = isExtensionOrigin(origin) || (!origin && req.headers['x-ddm-ext'] === '1');
+  if (isExt) {
     if (req.query.extVersion) {
       extensionSeen.version = String(req.query.extVersion);
     }

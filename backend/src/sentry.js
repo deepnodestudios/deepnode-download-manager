@@ -23,10 +23,10 @@ function syncClientReports(enabled) {
  * Initializes Sentry for Node / Electron Main / Backend environments.
  * @param {Object} options
  * @param {string} [options.processName='backend'] - e.g. 'electron-main' or 'backend'
- * @param {string} [options.appVersion='1.6.7']
+ * @param {string} [options.appVersion='1.6.8']
  * @param {string|null} [options.anonymousId=null]
  */
-export function initSentry({ processName = 'backend', appVersion = '1.6.7', anonymousId = null } = {}) {
+export function initSentry({ processName = 'backend', appVersion = '1.6.8', anonymousId = null } = {}) {
   if (initialized || Sentry.isInitialized()) {
     Sentry.setTag('process', processName);
     if (anonymousId) {

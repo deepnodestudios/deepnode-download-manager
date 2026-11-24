@@ -22,7 +22,7 @@ const check = (name, ok, detail = '') => {
 };
 
 function makeEnv({ appUp = true, addStatus = 'prompted', filter = { enableFileFiltering: true, capturedExtensions: 'ZIP EXE APK PDF', ignoredExtensions: 'TORRENT CSS' } } = {}) {
-  const calls = { cancel: [], erase: [], download: [], add: [] };
+  const calls = { cancel: [], erase: [], download: [], add: [], settingsHeaders: [] };
   const listeners = {};
   const ev = (name) => ({ addListener: (fn) => { (listeners[name] = listeners[name] || []).push(fn); }, removeListener() {} });
   const store = {};
@@ -57,10 +57,13 @@ function makeEnv({ appUp = true, addStatus = 'prompted', filter = { enableFileFi
   const fetch = async (url, opts = {}) => {
     if (!appUp) throw new Error('ECONNREFUSED');
     if (url.includes('/api/handshake')) return json({ app: 'deepnode', apiVersion: 1 });
-    if (url.includes('/api/settings')) return json({ app: 'deepnode', captureEnabled: true, ...filter });
+    if (url.includes('/api/settings')) {
+      calls.settingsHeaders.push(opts.headers || {});
+      return json({ app: 'deepnode', captureEnabled: true, ...filter });
+    }
     if (url.includes('/api/download/add')) {
       const body = JSON.parse(opts.body || '{}');
-      calls.add.push(body.url);
+      calls.add.push(body);
       return json({ status: typeof addStatus === 'function' ? addStatus(body) : addStatus });
     }
     return json({});
@@ -74,7 +77,7 @@ function makeEnv({ appUp = true, addStatus = 'prompted', filter = { enableFileFi
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(extDir, 'strings.js'), 'utf8'), ctx);
   vm.runInContext(fs.readFileSync(path.join(extDir, 'background.js'), 'utf8'), ctx);
-  return { ctx, calls, listeners };
+  return { ctx, calls, listeners, store };
 }
 
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
@@ -82,7 +85,7 @@ const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 async function capture(env, item) {
   let suggested = 0;
   const fn = env.listeners.determine[0];
-  fn({ id: item.id, url: item.url, finalUrl: item.url, filename: item.filename || '', state: 'in_progress', mime: item.mime || '', referrer: 'https://site.example/page' }, () => { suggested++; });
+  fn({ id: item.id, url: item.url, finalUrl: item.finalUrl || item.url, filename: item.filename || '', state: 'in_progress', mime: item.mime || '', referrer: 'https://site.example/page' }, () => { suggested++; });
   // handleDownloadItem async; iptal/finalize zamanlayıcıları için bekle
   for (let i = 0; i < 40; i++) await tick(10);
   await tick(150);
@@ -96,8 +99,12 @@ async function main() {
   {
     const env = makeEnv();
     await tick(20); // ayar senkronu
+    check('Ayar senkronu X-DDM-Ext başlığı gönderir',
+      env.calls.settingsHeaders.some((h) => h['X-DDM-Ext'] === '1'));
+    check('captureFilter storage.local ile senkronlandı',
+      !!(env.store.captureFilter && env.store.captureFilter.captured.includes('EXE')));
     await capture(env, { id: 11, url: 'https://cdn.example.com/app.apk', filename: 'app.apk' });
-    check('APK: DDM\'ye gönderildi', env.calls.add.includes('https://cdn.example.com/app.apk'));
+    check('APK: DDM\'ye gönderildi', env.calls.add.some((b) => b.url === 'https://cdn.example.com/app.apk'));
     check('APK: tarayıcı indirmesi iptal edildi', env.calls.cancel.includes(11));
     check('APK: tarayıcı listesinden silindi', env.calls.erase.includes(11));
     check('APK: tarayıcıda yeniden başlatılmadı', env.calls.download.length === 0);
@@ -130,10 +137,28 @@ async function main() {
     check('Uzantısız + DDM aldı: iptal edildi', env.calls.cancel.includes(14) && env.calls.add.length === 1);
     // "download.php?id=" adı gerçek türü söylemez: yerel filtre reddetmemeli, uygulamaya sorulmalı
     await capture(env, { id: 18, url: 'https://site.example/download.php?id=7', filename: '' });
-    check('download.php: karar uygulamaya bırakıldı ve iptal edildi', env.calls.add.includes('https://site.example/download.php?id=7') && env.calls.cancel.includes(18));
+    check('download.php: karar uygulamaya bırakıldı ve iptal edildi', env.calls.add.some((b) => b.url === 'https://site.example/download.php?id=7') && env.calls.cancel.includes(18));
   }
 
-  // 5) Uzantısız dosya, DDM yok sayıyor -> tarayıcı devam eder, yeniden başlatma yok
+  // 5) SourceForge geri sayım + /download URL senaryoları (filename boş olsa bile yakalanmalı)
+  {
+    const env = makeEnv();
+    await tick(20);
+    const sfMirror = 'https://netix.dl.sourceforge.net/project/qbittorrent/qbittorrent-win32/qbittorrent-5.3.0/qbittorrent_5.3.0_x64_setup.exe?viasf=1&fid=a47477e94168b617';
+    const sfCountdown = 'https://downloads.sourceforge.net/project/qbittorrent/qbittorrent-win32/qbittorrent-5.3.0/qbittorrent_5.3.0_x64_setup.exe?ts=gAAAAABn&use_mirror=netix';
+    await capture(env, { id: 19, url: sfCountdown, finalUrl: sfMirror, filename: '', mime: 'application/x-msdownload' });
+    const req19 = env.calls.add.find((b) => b.url === sfMirror);
+    check('SourceForge mirror: DDM\'ye gönderildi', !!req19 && req19.filename === 'qbittorrent_5.3.0_x64_setup.exe');
+    check('SourceForge mirror: tarayıcı indirmesi iptal ve silindi', env.calls.cancel.includes(19) && env.calls.erase.includes(19));
+
+    const sfDownloadPath = 'https://sourceforge.net/projects/qbittorrent/files/qbittorrent-win32/qbittorrent-5.3.0/qbittorrent_5.3.0_x64_setup.exe/download?use_mirror=netix';
+    await capture(env, { id: 20, url: sfDownloadPath, filename: '' });
+    const req20 = env.calls.add.find((b) => b.url === sfDownloadPath);
+    check('SourceForge /download yolu: gerçek dosya adı çıkarıldı', !!req20 && req20.filename === 'qbittorrent_5.3.0_x64_setup.exe');
+    check('SourceForge /download yolu: tarayıcı indirmesi iptal edildi', env.calls.cancel.includes(20) && env.calls.download.length === 0);
+  }
+
+  // 6) Uzantısız dosya, DDM yok sayıyor -> tarayıcı devam eder, yeniden başlatma yok
   {
     const env = makeEnv({ addStatus: 'ignored' });
     await tick(20);
@@ -142,7 +167,7 @@ async function main() {
     check('Uzantısız + DDM yok saydı: yeniden başlatma yok', env.calls.download.length === 0);
   }
 
-  // 6) Bilinen uzantı ama DDM isteği başarısız -> iptal edilen indirme tarayıcıda yeniden başlar
+  // 7) Bilinen uzantı ama DDM isteği başarısız -> iptal edilen indirme tarayıcıda yeniden başlar
   {
     const env = makeEnv({ addStatus: 'weird' });
     await tick(20);

@@ -14,11 +14,6 @@ let captureEnabled = true;
 // Uygulamanın dosya türü filtresinin kopyası (/api/settings ile senkronlanır).
 // Boş listeler = bilinmiyor: karar uygulamaya bırakılır.
 let captureFilter = { enabled: true, captured: '', ignored: '' };
-try {
-  chrome.storage.local.get({ captureFilter: null }, (v) => {
-    if (v && v.captureFilter && typeof v.captureFilter === 'object') captureFilter = { ...captureFilter, ...v.captureFilter };
-  });
-} catch (e) { /* ignore */ }
 
 // Firefox'un `chrome.*` ad alanı GERİ ÇAĞIRMA tabanlıdır; callback verilmeden
 // yapılan `await chrome.storage.session.get(...)` undefined döner. Promise
@@ -37,7 +32,8 @@ const storageReady = new Promise((resolve) => { storageReadyResolve = resolve; }
 chrome.storage.local.get({
   ...DEFAULTS,
   captureBypassKey: 'Shift',
-  captureEnabled: true
+  captureEnabled: true,
+  captureFilter: null
 }, (res) => {
   if (res) {
     cfg = {
@@ -50,6 +46,9 @@ chrome.storage.local.get({
     };
     if (typeof res.captureBypassKey === 'string') bypassKey = res.captureBypassKey;
     if (typeof res.captureEnabled === 'boolean') captureEnabled = res.captureEnabled;
+    if (res.captureFilter && typeof res.captureFilter === 'object') {
+      captureFilter = { ...captureFilter, ...res.captureFilter };
+    }
     applyLanguage();
   }
   if (storageReadyResolve) storageReadyResolve();
@@ -61,7 +60,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   chrome.storage.local.get({
     ...DEFAULTS,
     captureBypassKey: bypassKey,
-    captureEnabled: captureEnabled
+    captureEnabled: captureEnabled,
+    captureFilter: null
   }, (v) => {
     if (v) {
       cfg = {
@@ -74,6 +74,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
       };
       if (typeof v.captureBypassKey === 'string') bypassKey = v.captureBypassKey;
       if (typeof v.captureEnabled === 'boolean') captureEnabled = v.captureEnabled;
+      if (v.captureFilter && typeof v.captureFilter === 'object') {
+        captureFilter = { ...captureFilter, ...v.captureFilter };
+      }
       applyLanguage();
       if (DN_I18N.lang !== prevLang) buildContextMenus();
     }
@@ -245,7 +248,7 @@ async function refreshRemoteSettings() {
     // Report our version so the app can warn when the loaded extension is stale
     // (Chrome doesn't auto-reload unpacked extensions after an app update).
     const ver = chrome.runtime.getManifest().version;
-    const r = await fetchApp(`/api/settings?extVersion=${encodeURIComponent(ver)}`, {}, 1500);
+    const r = await fetchApp(`/api/settings?extVersion=${encodeURIComponent(ver)}`, { headers: { 'X-DDM-Ext': '1' } }, 1500);
     if (!r.ok) { resolvedPort = null; return; }
     const s = await r.json();
     if (!s || s.app !== 'deepnode') { resolvedPort = null; return; }
@@ -289,7 +292,13 @@ refreshRemoteSettings();
 function guessName(url) {
   try {
     const u = new URL(url);
-    const base = decodeURIComponent((u.pathname.split('/').pop() || '').split('?')[0]);
+    const segs = u.pathname.split('/').filter(Boolean);
+    if (!segs.length) return undefined;
+    let base = decodeURIComponent(segs[segs.length - 1]);
+    // SourceForge gibi siteler /dosya_adi.exe/download şeklinde URL üretir
+    if (!base.includes('.') && /^download$/i.test(base) && segs.length >= 2) {
+      base = decodeURIComponent(segs[segs.length - 2]);
+    }
     return base.includes('.') ? base : undefined;
   } catch (e) { return undefined; }
 }
@@ -346,10 +355,10 @@ async function sessionHeaders(url, referrer) {
 }
 
 // Returns 'accepted' | 'prompted' | 'ignored' (file-type filter) | 'failed' (app unreachable)
-async function sendToApp(url, filename, referrer, explicit) {
+async function sendToApp(url, filename, referrer, explicit, verified) {
   // Çerezleri toplamadan ÖNCE uygulamanın kimliğini doğrula: portu ele geçiren
   // yabancı bir servise oturum çerezlerinin gönderilmesini engeller.
-  if (!(await probeApp())) return 'failed';
+  if (!(verified && resolvedPort) && !(await probeApp())) return 'failed';
   const headers = await sessionHeaders(url, referrer);
   const data = await postJson('/api/download/add', { url, filename, headers, explicit: !!explicit });
   if (!data) return 'failed';
@@ -666,13 +675,23 @@ function finalizeBrowserDownload(itemId) {
   } catch (e) { }
 }
 
-function cancelBrowserDownload(itemId) {
+function cancelBrowserDownload(itemId, onCancelled) {
+  let done = false;
+  const notifyCancelled = () => {
+    if (done) return;
+    done = true;
+    if (typeof onCancelled === 'function') {
+      try { onCancelled(); } catch (e) { /* ignore */ }
+    }
+  };
   try {
     chrome.downloads.cancel(itemId, () => {
       let _ = chrome.runtime.lastError;
+      notifyCancelled();
       setTimeout(() => finalizeBrowserDownload(itemId), 100);
     });
   } catch (e) {
+    notifyCancelled();
     setTimeout(() => finalizeBrowserDownload(itemId), 100);
   }
 }
@@ -824,13 +843,18 @@ async function handleDownloadItem(item, suggest) {
   // ve listeden silinir; tarayıcıda ikinci bir indirme hiç görünmez. Eskiden
   // tarayıcı indirmesi DDM onayına kadar sürüyor, kullanıcı ikisini birden görüyordu.
   let browserCancelled = false;
+  let suggested = false;
+  const finishSuggest = () => {
+    if (suggested || !suggest) return;
+    suggested = true;
+    try { suggest(); } catch (e) { /* indirme zaten iptal */ }
+  };
   const dropBrowserCopy = () => {
     if (browserCancelled) return;
     browserCancelled = true;
-    cancelBrowserDownload(item.id);
-    if (suggest) { try { suggest(); } catch (e) { /* indirme zaten iptal */ } }
+    cancelBrowserDownload(item.id, finishSuggest);
   };
-  const letBrowserContinue = () => { if (!browserCancelled && suggest) suggest(); };
+  const letBrowserContinue = () => { if (!browserCancelled) finishSuggest(); };
 
   try {
     let name = item.filename ? item.filename.split(/[\\/]/).pop() : '';
@@ -850,7 +874,7 @@ async function handleDownloadItem(item, suggest) {
     // içerik türü yoklamasına bağlı — önce sor, alırsa iptal et.
     if (local === 'capture') dropBrowserCopy();
 
-    const result = await sendToApp(url, name, item.referrer);
+    const result = await sendToApp(url, name, item.referrer, false, true);
     if (result === 'accepted' || result === 'prompted') {
       dropBrowserCopy();
       notify(DN_I18N.t('notif_captured'), name || url);

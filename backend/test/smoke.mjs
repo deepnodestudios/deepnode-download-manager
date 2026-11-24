@@ -263,6 +263,15 @@ async function run() {
       extSettings.json && extSettings.json.captureBypassKey === 'Shift' && extSettings.json.captureEnabled === true);
     check('eklenti indirme listesine erişemez',
       (await call('/api/downloads', { origin: EXT_ORIGIN })).status === 403);
+    const mv3Settings = await call('/api/settings?extVersion=1.6.7', { headers: { 'X-DDM-Ext': '1' } });
+    check('MV3 Origin\'siz istek X-DDM-Ext ile eklenti ayarlarını alır',
+      mv3Settings.status === 200 && mv3Settings.json && mv3Settings.json.app === 'deepnode' && mv3Settings.json.downloadDir === undefined);
+    const extStatus = await call('/api/extension/status');
+    check('X-DDM-Ext eklenti sürüm durumunu günceller',
+      extStatus.status === 200 && extStatus.json && extStatus.json.seen === true && extStatus.json.reported === '1.6.7');
+    const appSettingsRes = await call('/api/settings');
+    check('X-DDM-Ext olmadan yerel ayarlar tam döner',
+      appSettingsRes.status === 200 && appSettingsRes.json && appSettingsRes.json.app === undefined && appSettingsRes.json.downloadDir !== undefined);
     const mozOrigin = 'moz-extension://5481c110-d959-4c3a-9b6c-3d4e5f6a7b8c';
     check('Firefox eklenti origin\'i ayarları okuyabilir',
       (await call('/api/settings', { origin: mozOrigin })).status === 200);
