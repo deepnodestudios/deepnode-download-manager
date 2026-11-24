@@ -113,10 +113,11 @@ export function createUpdateRouter({ appVersion, broadcast, serverEvents, appOnl
             });
             if (sumsResp.ok) {
               const text = await sumsResp.text();
-              const want = asset.name.toLowerCase();
+              const norm = (s) => s.trim().toLowerCase().replace(/[\s.]+/g, '.');
+              const want = norm(asset.name);
               const line = text.split(/\r?\n/).map((l) => l.trim()).find((l) => {
                 const m = /^([a-fA-F0-9]{64})\s+\*?(.+)$/.exec(l);
-                return m && m[2].trim().toLowerCase() === want;
+                return m && norm(m[2]) === want;
               });
               const m = line ? /^([a-fA-F0-9]{64})\s+\*?(.+)$/.exec(line) : null;
               if (m) sha256 = m[1].toLowerCase();
